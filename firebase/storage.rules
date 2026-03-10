@@ -1,0 +1,137 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ================================================================
+    // Helper Functions
+    // ================================================================
+
+    /// Returns true if the request comes from an authenticated user.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    /// Returns true if the authenticated user's UID matches the given userId.
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    /// Validates that the uploaded file is an allowed image type.
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|gif|webp)');
+    }
+
+    /// Validates that the uploaded file is an allowed video type.
+    function isVideo() {
+      return request.resource.contentType.matches('video/(mp4|quicktime|x-msvideo)');
+    }
+
+    /// Validates that the uploaded file is an allowed media type (image or video).
+    function isAllowedMedia() {
+      return isImage() || isVideo();
+    }
+
+    /// Validates image file size (max 10 MB).
+    function isValidImageSize() {
+      return request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    /// Validates video file size (max 100 MB).
+    function isValidVideoSize() {
+      return request.resource.size <= 100 * 1024 * 1024;
+    }
+
+    /// Validates file size based on type.
+    function isValidFileSize() {
+      return (isImage() && isValidImageSize())
+          || (isVideo() && isValidVideoSize());
+    }
+
+    // ================================================================
+    // Profile Photos: users/{userId}/profile.jpg
+    // ================================================================
+
+    match /users/{userId}/{fileName} {
+      // Read: anyone authenticated can view profile photos.
+      allow read: if isAuthenticated();
+
+      // Write: only the user can upload/update their own profile photo.
+      // Must be an image, max 10 MB.
+      allow write: if isOwner(userId)
+        && isImage()
+        && isValidImageSize();
+
+      // Delete: only the user can delete their own profile photo.
+      allow delete: if isOwner(userId);
+    }
+
+    // ================================================================
+    // Post Media: posts/{postId}/{fileName}
+    // ================================================================
+
+    match /posts/{postId}/{fileName} {
+      // Read: anyone authenticated can read post media.
+      // (Post-level visibility is enforced at the Firestore layer, not Storage.)
+      allow read: if isAuthenticated();
+
+      // Write: any authenticated user can upload post media.
+      // Must be an allowed media type with valid size.
+      // Post ownership is enforced at the Firestore layer during post creation.
+      allow write: if isAuthenticated()
+        && isAllowedMedia()
+        && isValidFileSize();
+
+      // Delete: any authenticated user can request deletion.
+      // Actual authorization is handled at the application layer (only post authors
+      // should trigger deletion via Cloud Functions when deleting a post).
+      allow delete: if isAuthenticated();
+    }
+
+    // ================================================================
+    // Score Videos: scores/{scoreId}/{fileName}
+    // ================================================================
+
+    match /scores/{scoreId}/{fileName} {
+      // Read: anyone authenticated can view score videos.
+      // (Score-level visibility is enforced at the Firestore layer.)
+      allow read: if isAuthenticated();
+
+      // Write: any authenticated user can upload score videos.
+      // Must be a video file, max 100 MB.
+      // Score ownership is enforced at the Firestore layer during score creation.
+      allow write: if isAuthenticated()
+        && isVideo()
+        && isValidVideoSize();
+
+      // Delete: any authenticated user can request deletion.
+      allow delete: if isAuthenticated();
+    }
+
+    // ================================================================
+    // Team Photos: teams/{teamId}/{fileName}
+    // ================================================================
+
+    match /teams/{teamId}/{fileName} {
+      // Read: anyone authenticated can view team photos.
+      allow read: if isAuthenticated();
+
+      // Write: any authenticated user can upload team photos.
+      // Must be an image, max 10 MB.
+      // Team admin authorization is enforced at the Firestore layer.
+      allow write: if isAuthenticated()
+        && isImage()
+        && isValidImageSize();
+
+      // Delete: any authenticated user can request deletion.
+      allow delete: if isAuthenticated();
+    }
+
+    // ================================================================
+    // Catch-all: deny everything else
+    // ================================================================
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

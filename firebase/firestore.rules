@@ -1,0 +1,388 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ================================================================
+    // Helper Functions
+    // ================================================================
+
+    /// Returns true if the request comes from an authenticated user.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    /// Returns true if the authenticated user's UID matches the given userId.
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    /// Returns true if the authenticated user is a member of the given team.
+    /// Checks the denormalized memberIds array on the team document.
+    function isTeamMember(teamId) {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/teams/$(teamId))
+        && request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.memberIds;
+    }
+
+    /// Returns true if the authenticated user has 'owner' or 'admin' role
+    /// in the team's members subcollection.
+    function isTeamAdmin(teamId) {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role in ['owner', 'admin'];
+    }
+
+    /// Returns true if the authenticated user is the team owner.
+    function isTeamOwner(teamId) {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/teams/$(teamId))
+        && request.auth.uid == get(/databases/$(database)/documents/teams/$(teamId)).data.ownerId;
+    }
+
+    /// Returns true if user A is following user B.
+    /// Uses composite document ID format: followerId_followingId.
+    function isFollowing(followerId, followingId) {
+      return exists(/databases/$(database)/documents/follows/$(followerId + '_' + followingId));
+    }
+
+    /// Validates that a string field is present and within length bounds.
+    function isValidString(value, minLen, maxLen) {
+      return value is string && value.size() >= minLen && value.size() <= maxLen;
+    }
+
+    /// Validates that a number is non-negative.
+    function isNonNegative(value) {
+      return value is number && value >= 0;
+    }
+
+    // ================================================================
+    // Users Collection
+    // ================================================================
+
+    match /users/{userId} {
+      // Read: public profiles visible to all authenticated users.
+      // Private profiles visible to owner or followers.
+      allow read: if isAuthenticated()
+        && (
+          resource.data.isPublic == true
+          || isOwner(userId)
+          || isFollowing(request.auth.uid, userId)
+        );
+
+      // Create: only the authenticated user can create their own profile.
+      allow create: if isOwner(userId)
+        && isValidString(request.resource.data.displayName, 1, 50)
+        && request.resource.data.email is string
+        && request.resource.data.role in ['player', 'scout', 'coach']
+        && request.resource.data.followersCount == 0
+        && request.resource.data.followingCount == 0
+        && request.resource.data.postsCount == 0;
+
+      // Update: only the owner can update their own profile.
+      // Prevent direct manipulation of counter fields (managed by Cloud Functions).
+      allow update: if isOwner(userId)
+        && isValidString(request.resource.data.displayName, 1, 50)
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.uid == resource.data.uid
+        // Counter fields can only be changed by Cloud Functions (admin SDK).
+        // Client updates must keep them unchanged.
+        && request.resource.data.followersCount == resource.data.followersCount
+        && request.resource.data.followingCount == resource.data.followingCount
+        && request.resource.data.postsCount == resource.data.postsCount;
+
+      // Delete: users cannot delete their own profile directly (admin operation).
+      allow delete: if false;
+    }
+
+    // ================================================================
+    // Follows Collection
+    // ================================================================
+
+    match /follows/{followId} {
+      // Read: any authenticated user can check follow relationships.
+      allow read: if isAuthenticated();
+
+      // Create: authenticated user can only create a follow where they are the follower.
+      // Document ID must match the composite key format.
+      allow create: if isAuthenticated()
+        && request.resource.data.followerId == request.auth.uid
+        && request.resource.data.followingId is string
+        && request.resource.data.followerId != request.resource.data.followingId
+        && followId == (request.resource.data.followerId + '_' + request.resource.data.followingId)
+        && request.resource.data.createdAt is timestamp;
+
+      // Update: follows are immutable.
+      allow update: if false;
+
+      // Delete: only the follower can unfollow.
+      allow delete: if isAuthenticated()
+        && resource.data.followerId == request.auth.uid;
+    }
+
+    // ================================================================
+    // Posts Collection
+    // ================================================================
+
+    match /posts/{postId} {
+      // Read: visibility-based access control.
+      allow read: if isAuthenticated()
+        && (
+          resource.data.visibility == 'public'
+          || resource.data.authorId == request.auth.uid
+          || (resource.data.visibility == 'followers'
+              && isFollowing(request.auth.uid, resource.data.authorId))
+          || (resource.data.visibility == 'team'
+              && resource.data.teamId != null
+              && isTeamMember(resource.data.teamId))
+        );
+
+      // Create: authenticated user can only create posts as themselves.
+      allow create: if isAuthenticated()
+        && request.resource.data.authorId == request.auth.uid
+        && isValidString(request.resource.data.content, 0, 2000)
+        && request.resource.data.visibility in ['public', 'followers', 'team']
+        && request.resource.data.likesCount == 0
+        && request.resource.data.commentsCount == 0
+        && request.resource.data.type in ['highlight', 'stats', 'text', 'video']
+        // If visibility is 'team', teamId must be set and user must be a member.
+        && (request.resource.data.visibility != 'team'
+            || (request.resource.data.teamId != null
+                && isTeamMember(request.resource.data.teamId)))
+        && request.resource.data.createdAt is timestamp;
+
+      // Update: only the author can update their own posts.
+      // Cannot change authorId, counts (managed by Cloud Functions), or createdAt.
+      allow update: if isAuthenticated()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.createdAt == resource.data.createdAt
+        // Like/comment counts managed by Cloud Functions only.
+        && request.resource.data.likesCount == resource.data.likesCount
+        && request.resource.data.commentsCount == resource.data.commentsCount;
+
+      // Delete: only the author can delete their own posts.
+      allow delete: if isAuthenticated()
+        && resource.data.authorId == request.auth.uid;
+
+      // --- Comments Subcollection ---
+      match /comments/{commentId} {
+        // Read: anyone who can read the parent post can read comments.
+        // (Simplified: authenticated users can read. Post-level rules enforce visibility.)
+        allow read: if isAuthenticated();
+
+        // Create: authenticated user can comment as themselves.
+        allow create: if isAuthenticated()
+          && request.resource.data.authorId == request.auth.uid
+          && isValidString(request.resource.data.content, 1, 500)
+          && request.resource.data.authorName is string
+          && request.resource.data.createdAt is timestamp;
+
+        // Update: only the comment author can edit.
+        allow update: if isAuthenticated()
+          && resource.data.authorId == request.auth.uid
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.createdAt == resource.data.createdAt;
+
+        // Delete: comment author or post author can delete.
+        allow delete: if isAuthenticated()
+          && (resource.data.authorId == request.auth.uid
+              || get(/databases/$(database)/documents/posts/$(postId)).data.authorId == request.auth.uid);
+      }
+    }
+
+    // ================================================================
+    // Likes Collection (top-level: likes/{postId_userId})
+    // ================================================================
+
+    match /likes/{likeId} {
+      // Read: any authenticated user can check like status.
+      allow read: if isAuthenticated();
+
+      // Create: authenticated user can only create a like as themselves.
+      // Document ID must match composite key format.
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.postId is string
+        && likeId == (request.resource.data.postId + '_' + request.resource.data.userId)
+        && request.resource.data.createdAt is timestamp;
+
+      // Update: likes are immutable.
+      allow update: if false;
+
+      // Delete: only the user who liked can unlike.
+      allow delete: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // ================================================================
+    // Teams Collection
+    // ================================================================
+
+    match /teams/{teamId} {
+      // Read: team members can read team details.
+      // Public teams (isPrivate=false) are readable by all authenticated users.
+      allow read: if isAuthenticated()
+        && (!resource.data.isPrivate || request.auth.uid in resource.data.memberIds);
+
+      // Create: any authenticated user can create a team.
+      allow create: if isAuthenticated()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.auth.uid in request.resource.data.memberIds
+        && isValidString(request.resource.data.name, 1, 50)
+        && isValidString(request.resource.data.description, 0, 500)
+        && request.resource.data.inviteCode is string
+        && request.resource.data.createdAt is timestamp;
+
+      // Update: only team admins/owners can update team details.
+      // ownerId and createdAt are immutable.
+      allow update: if isTeamAdmin(teamId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Delete: only the team owner can delete the team.
+      allow delete: if isTeamOwner(teamId);
+
+      // --- Members Subcollection ---
+      match /members/{memberId} {
+        // Read: team members can see the member list.
+        allow read: if isTeamMember(teamId);
+
+        // Create: user joins team (themselves) or admin adds member.
+        allow create: if isAuthenticated()
+          && (memberId == request.auth.uid || isTeamAdmin(teamId))
+          && request.resource.data.role in ['owner', 'admin', 'member']
+          // New self-joins must be 'member' role.
+          && (memberId != request.auth.uid || request.resource.data.role == 'member' || isTeamAdmin(teamId))
+          && request.resource.data.joinedAt is timestamp;
+
+        // Update: only team admins can change member roles.
+        // Cannot promote to 'owner' (owner transfer is a separate operation).
+        allow update: if isTeamAdmin(teamId)
+          && request.resource.data.role in ['admin', 'member']
+          && request.resource.data.joinedAt == resource.data.joinedAt;
+
+        // Delete: member can leave (self), or admin can remove non-owners.
+        allow delete: if isAuthenticated()
+          && (memberId == request.auth.uid
+              || (isTeamAdmin(teamId) && resource.data.role != 'owner'));
+      }
+    }
+
+    // ================================================================
+    // Scores Collection
+    // ================================================================
+
+    match /scores/{scoreId} {
+      // Read: score owner can always read.
+      // If score has teamId, team members can read.
+      // Otherwise, follow public profile logic (visible if player's profile is public or requester follows them).
+      allow read: if isAuthenticated()
+        && (
+          resource.data.playerId == request.auth.uid
+          || (resource.data.teamId != null && isTeamMember(resource.data.teamId))
+          || isFollowing(request.auth.uid, resource.data.playerId)
+          || get(/databases/$(database)/documents/users/$(resource.data.playerId)).data.isPublic == true
+        );
+
+      // Create: authenticated user can only create scores for themselves.
+      allow create: if isAuthenticated()
+        && request.resource.data.playerId == request.auth.uid
+        && request.resource.data.opponent is string
+        && request.resource.data.gameDate is timestamp
+        && request.resource.data.createdAt is timestamp
+        // If teamId is set, user must be a team member.
+        && (request.resource.data.teamId == null
+            || isTeamMember(request.resource.data.teamId));
+
+      // Update: only the score owner can update.
+      // playerId and createdAt are immutable.
+      // aiAnalysis can be set by Cloud Functions (admin SDK bypasses rules).
+      allow update: if isOwner(resource.data.playerId)
+        && request.resource.data.playerId == resource.data.playerId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Delete: only the score owner can delete.
+      allow delete: if isOwner(resource.data.playerId);
+    }
+
+    // ================================================================
+    // Messages Collection (Conversations)
+    // ================================================================
+
+    match /messages/{conversationId} {
+      // Read: only participants can read conversation metadata.
+      allow read: if isAuthenticated()
+        && request.auth.uid in resource.data.participants;
+
+      // Create: user must be a participant and there must be mutual follow.
+      allow create: if isAuthenticated()
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.participants.size() == 2
+        && request.resource.data.lastMessageAt is timestamp
+        // Mutual follow check: both users follow each other.
+        && isFollowing(request.resource.data.participants[0], request.resource.data.participants[1])
+        && isFollowing(request.resource.data.participants[1], request.resource.data.participants[0]);
+
+      // Update: only participants can update (to set lastMessage, lastMessageAt).
+      allow update: if isAuthenticated()
+        && request.auth.uid in resource.data.participants
+        && request.resource.data.participants == resource.data.participants;
+
+      // Delete: conversations are not deletable by users.
+      allow delete: if false;
+
+      // --- Messages Subcollection ---
+      match /messages/{messageId} {
+        // Read: only conversation participants can read messages.
+        allow read: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/messages/$(conversationId)).data.participants;
+
+        // Create: only conversation participants can send messages.
+        allow create: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/messages/$(conversationId)).data.participants
+          && request.resource.data.senderId == request.auth.uid
+          && isValidString(request.resource.data.content, 1, 2000)
+          && request.resource.data.createdAt is timestamp;
+
+        // Update: only for marking messages as read (readBy array).
+        allow update: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/messages/$(conversationId)).data.participants
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.content == resource.data.content
+          && request.resource.data.createdAt == resource.data.createdAt;
+
+        // Delete: messages cannot be deleted.
+        allow delete: if false;
+      }
+    }
+
+    // ================================================================
+    // Notifications Collection
+    // ================================================================
+
+    match /notifications/{notificationId} {
+      // Read: only the notification recipient can read.
+      allow read: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+
+      // Create: only Cloud Functions (admin SDK) create notifications.
+      // No client-side creation allowed.
+      allow create: if false;
+
+      // Update: only the recipient can update (mark as read).
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.fromUserId == resource.data.fromUserId
+        && request.resource.data.data == resource.data.data
+        && request.resource.data.createdAt == resource.data.createdAt
+        // Only the 'read' field can change.
+        && request.resource.data.read is bool;
+
+      // Delete: only the recipient can delete their notifications.
+      allow delete: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+    }
+  }
+}

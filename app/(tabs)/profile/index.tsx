@@ -1,0 +1,277 @@
+import React from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Text, Avatar, Button, Card, Chip, Divider } from 'react-native-paper';
+import { router } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useAuth } from '../../../src/contexts/AuthContext';
+import StatsChart from '../../../src/components/StatsChart';
+import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
+import { useI18n } from '../../../src/i18n';
+
+export default function ProfileScreen() {
+  const { currentUser, signOut } = useAuth();
+  const { t } = useI18n();
+
+  // Guest landing — show sign-up CTA
+  if (!currentUser) {
+    return (
+      <View style={styles.guestContainer}>
+        <View style={styles.guestIconRing}>
+          <MaterialCommunityIcons name="account-plus" size={48} color={Colors.primary} />
+        </View>
+        <Text style={styles.guestTitle}>{t.authGate.profileTitle}</Text>
+        <Text style={styles.guestSubtitle}>{t.authGate.profileSubtitle}</Text>
+        <Button
+          mode="contained"
+          onPress={() => router.push('/(auth)/register')}
+          style={styles.guestPrimaryBtn}
+          buttonColor={Colors.primary}
+          labelStyle={styles.guestBtnLabel}
+          icon="account-plus"
+        >
+          {t.authGate.profileSignUp}
+        </Button>
+        <Button
+          mode="outlined"
+          onPress={() => router.push('/(auth)/login')}
+          style={styles.guestSecondaryBtn}
+          textColor={Colors.primary}
+          icon="login"
+        >
+          {t.authGate.profileLogin}
+        </Button>
+        <Text style={styles.guestHint}>{t.authGate.guestInfo}</Text>
+      </View>
+    );
+  }
+
+  const u = currentUser;
+  const roleColors: Record<string, string> = {
+    player: Colors.primary,
+    scout: Colors.secondary,
+    coach: Colors.accent,
+  };
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.headerSection}>
+        {u.photoURL ? (
+          <Avatar.Image size={80} source={{ uri: u.photoURL }} />
+        ) : (
+          <Avatar.Text size={80} label={u.displayName.charAt(0)} style={styles.avatar} />
+        )}
+        <Text style={styles.name}>{u.displayName}</Text>
+        <View style={styles.roleRow}>
+          <Chip
+            compact
+            style={[styles.roleBadge, { backgroundColor: roleColors[u.role] ?? Colors.primary }]}
+            textStyle={styles.roleBadgeText}
+          >
+            {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
+          </Chip>
+          {u.position && (
+            <Chip compact style={{ backgroundColor: Colors.primaryLight }} textStyle={{ color: Colors.primary, fontWeight: '700', fontSize: 12 }}>
+              {u.position}
+            </Chip>
+          )}
+        </View>
+        {u.team && <Text style={styles.team}>{u.team}</Text>}
+        <Text style={styles.bio}>{u.bio}</Text>
+
+        <View style={styles.countsRow}>
+          <TouchableOpacity style={styles.countItem}>
+            <Text style={styles.countNumber}>{u.postsCount}</Text>
+            <Text style={styles.countLabel}>{t.profile.posts}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.countItem}>
+            <Text style={styles.countNumber}>{u.followersCount}</Text>
+            <Text style={styles.countLabel}>{t.profile.followers}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.countItem}>
+            <Text style={styles.countNumber}>{u.followingCount}</Text>
+            <Text style={styles.countLabel}>{t.profile.following}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.actionRow}>
+        <Button
+          mode="outlined"
+          onPress={() => router.push('/(tabs)/profile/edit' as any)}
+          icon="pencil"
+          style={styles.actionButton}
+        >
+          {t.profile.editProfile}
+        </Button>
+        <Button
+          mode="outlined"
+          onPress={() => router.push('/messages' as any)}
+          icon="message"
+          style={styles.actionButton}
+        >
+          {t.profile.messages}
+        </Button>
+      </View>
+
+      <Divider style={styles.divider} />
+
+      <Text style={styles.sectionTitle}>{t.profile.statsOverview}</Text>
+
+      <Card style={styles.statsCard}>
+        <View style={styles.statsGrid}>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{u.stats.batting.avg.toFixed(3)}</Text>
+            <Text style={styles.statLabel}>{t.profile.battingAvg}</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{u.stats.pitching.era.toFixed(2)}</Text>
+            <Text style={styles.statLabel}>{t.profile.era}</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{(u.stats.fielding.fieldingPct * 100).toFixed(1)}%</Text>
+            <Text style={styles.statLabel}>{t.profile.fieldingPct}</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{u.stats.batting.totalHomeRuns}</Text>
+            <Text style={styles.statLabel}>{t.profile.homeRuns}</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{u.stats.pitching.totalStrikeouts}</Text>
+            <Text style={styles.statLabel}>{t.profile.strikeouts}</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statValue}>{u.stats.batting.gamesPlayed}</Text>
+            <Text style={styles.statLabel}>{t.profile.games}</Text>
+          </View>
+        </View>
+      </Card>
+
+      <Divider style={styles.divider} />
+
+      {/* Personal stats feed shortcut */}
+      <Button
+        mode="contained"
+        onPress={() => router.push('/(tabs)/profile/feed' as any)}
+        icon="chart-timeline-variant"
+        style={styles.feedButton}
+        buttonColor={Colors.primaryLight}
+        labelStyle={{ color: Colors.primary, fontWeight: '600' }}
+      >
+        マイ成績フィード
+      </Button>
+
+      <Button
+        mode="outlined"
+        onPress={() => router.push('/(tabs)/profile/settings' as any)}
+        icon="cog"
+        style={styles.settingsButton}
+      >
+        {t.profile.settings}
+      </Button>
+
+      <Button
+        mode="text"
+        onPress={async () => {
+          await signOut();
+          router.replace('/(auth)/login');
+        }}
+        textColor={Colors.error}
+        icon="logout"
+      >
+        {t.profile.signOut}
+      </Button>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  // Guest landing
+  guestContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: 80,
+  },
+  guestIconRing: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    backgroundColor: Colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
+  guestTitle: {
+    fontSize: Typography.h3,
+    fontWeight: '700',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
+  guestSubtitle: {
+    fontSize: Typography.body,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.xl,
+  },
+  guestPrimaryBtn: {
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 4,
+    width: '100%',
+    marginBottom: Spacing.sm,
+  },
+  guestSecondaryBtn: {
+    borderRadius: BorderRadius.lg,
+    width: '100%',
+    marginBottom: Spacing.md,
+  },
+  guestBtnLabel: {
+    fontSize: Typography.body,
+    fontWeight: '600',
+  },
+  guestHint: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  // Authenticated profile
+  container: { flex: 1, backgroundColor: Colors.background },
+  content: { paddingBottom: Spacing.xxl },
+  headerSection: {
+    backgroundColor: Colors.white,
+    padding: Spacing.lg,
+    alignItems: 'center',
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.border,
+  },
+  avatar: { backgroundColor: Colors.primary },
+  name: { fontSize: Typography.h2, fontWeight: '700', color: Colors.text, marginTop: Spacing.sm },
+  roleRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  roleBadge: {},
+  roleBadgeText: { color: Colors.white, fontSize: Typography.caption },
+  team: { fontSize: Typography.body, color: Colors.textSecondary, marginTop: 4 },
+  bio: { fontSize: Typography.bodySmall, color: Colors.text, textAlign: 'center', marginTop: Spacing.sm, paddingHorizontal: Spacing.lg },
+  countsRow: { flexDirection: 'row', marginTop: Spacing.lg, gap: Spacing.xl },
+  countItem: { alignItems: 'center' },
+  countNumber: { fontSize: Typography.h3, fontWeight: '700', color: Colors.primary },
+  countLabel: { fontSize: Typography.caption, color: Colors.textSecondary },
+  actionRow: { flexDirection: 'row', padding: Spacing.md, gap: Spacing.sm },
+  actionButton: { flex: 1 },
+  divider: { marginVertical: Spacing.md },
+  sectionTitle: { fontSize: Typography.h4, fontWeight: '600', color: Colors.text, marginHorizontal: Spacing.md, marginBottom: Spacing.sm },
+  statsCard: {
+    marginHorizontal: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    backgroundColor: Colors.surfaceGray,
+  },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  statBox: { width: '33%', alignItems: 'center', paddingVertical: Spacing.sm },
+  statValue: { fontSize: Typography.h3, fontWeight: '700', color: Colors.primary },
+  statLabel: { fontSize: Typography.tiny, color: Colors.textSecondary, marginTop: 2 },
+  feedButton: { marginHorizontal: Spacing.md, marginBottom: Spacing.sm },
+  settingsButton: { marginHorizontal: Spacing.md, marginBottom: Spacing.sm },
+});

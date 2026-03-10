@@ -1,0 +1,142 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─────────────────────────────────────────────
+    // Helper functions
+    // ─────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ─────────────────────────────────────────────
+    // posts: 閲覧は全員OK、作成・更新・削除はログイン必須
+    // ─────────────────────────────────────────────
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid;
+      allow update: if isOwner(resource.data.authorId);
+      allow delete: if isOwner(resource.data.authorId);
+
+      // コメントもpostと同じルール
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn();
+        allow delete: if isSignedIn()
+          && resource.data.authorId == request.auth.uid;
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // likes: ログイン必須
+    // ─────────────────────────────────────────────
+    match /likes/{likeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // ─────────────────────────────────────────────
+    // users: 本人のみ書き込み可、閲覧はゲスト含む全員OK（プロフィール参照のため）
+    // ─────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if true; // Public profiles visible to all (including guests)
+      allow create, update: if isOwner(userId);
+      allow delete: if false; // ユーザー削除はサーバー側のみ
+    }
+
+    // ─────────────────────────────────────────────
+    // follows: ログイン必須
+    // ─────────────────────────────────────────────
+    match /follows/{followId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.followerId == request.auth.uid;
+      allow delete: if isSignedIn()
+        && resource.data.followerId == request.auth.uid;
+    }
+
+    // ─────────────────────────────────────────────
+    // teams / members: ログイン必須
+    // ─────────────────────────────────────────────
+    match /teams/{teamId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+      allow delete: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+
+      match /members/{memberId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // scores (記録・管理機能): ログイン必須
+    // ─────────────────────────────────────────────
+    match /scores/{scoreId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.playerId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.playerId == request.auth.uid;
+    }
+
+    // ─────────────────────────────────────────────
+    // games: 試合記録 (オーナーのみ読み書き)
+    // ─────────────────────────────────────────────
+    match /games/{gameId} {
+      allow read: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ─────────────────────────────────────────────
+    // messages / notifications: 本人のみ
+    // ─────────────────────────────────────────────
+    match /messages/{messageId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ─────────────────────────────────────────────
+    // groups: メンバーのみ読み書き可
+    // ─────────────────────────────────────────────
+    match /groups/{groupId} {
+      allow read: if isSignedIn()
+        && request.auth.uid in resource.data.memberIds;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.memberIds;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        allow create: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+        allow update, delete: if false;
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow delete: if false;
+    }
+  }
+}
