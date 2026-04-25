@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -15,86 +15,78 @@ import {
 } from '../../services/rankingService';
 import { Colors, Spacing, BorderRadius, Typography } from '../../constants/theme';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ランク番号に応じたスタイルを返す
+function rankStyle(idx: number): { numColor: string; numSize: number } {
+  if (idx === 0) return { numColor: Colors.caution, numSize: 22 };
+  if (idx === 1) return { numColor: Colors.textSecondary, numSize: 20 };
+  if (idx === 2) return { numColor: '#9E7B4A', numSize: 18 };
+  return { numColor: Colors.textDisabled, numSize: 16 };
+}
+
 function initials(name: string): string {
-  // 日本語名は最後の1文字、英語名は頭文字2文字
   const parts = name.split(' ');
   if (parts.length >= 2 && /[a-zA-Z]/.test(name)) {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
-  // 漢字名: 名字の最初の1文字
   return name.slice(0, 1);
 }
 
-function trendIcon(trend: FeaturedPlayer['trend']): {
-  name: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  color: string;
-} {
-  if (trend === 'up')   return { name: 'trending-up',   color: Colors.primary };
-  if (trend === 'down') return { name: 'trending-down',  color: '#E53935' };
-  return                       { name: 'trending-neutral', color: Colors.textSecondary };
-}
-
-// ── Sub-component: Player Card ────────────────────────────────────────────────
+// ── 選手カード ─────────────────────────────────────────────────────────────────
+// 視線の流れ: 順位(何位?) → 選手名(誰?) → キースタット(何が凄い?)
+// 削除した情報: 注目度スコア・トレンドアイコン・ポジション・チーム名
+// 理由: この画面での意思決定に不要、詳細ページで確認できる
 interface CardProps {
   player: FeaturedPlayer;
+  rank: number;
   onPress: (player: FeaturedPlayer) => void;
 }
 
-function PlayerCard({ player, onPress }: CardProps) {
+function PlayerCard({ player, rank, onPress }: CardProps) {
   const teamColor = TEAM_COLORS[player.teamCode] ?? Colors.primary;
-  const { name: trendName, color: trendColor } = trendIcon(player.trend);
+  const { numColor, numSize } = rankStyle(rank - 1);
+  const isTop3 = rank <= 3;
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, isTop3 && styles.cardTop3]}
       onPress={() => onPress(player)}
-      activeOpacity={0.82}
+      activeOpacity={0.8}
     >
-      {/* Avatar */}
+      {/* 1. 順位 — 最初に目が行く最大要素 */}
+      <Text style={[styles.rankNum, { color: numColor, fontSize: numSize }]}>
+        {rank}
+      </Text>
+
+      {/* 2. 選手アイコン — チーム色で識別できる */}
       <View style={[styles.avatar, { backgroundColor: teamColor }]}>
         <Text style={styles.avatarText}>{initials(player.name)}</Text>
-        <View style={styles.numberBadge}>
-          <Text style={styles.numberText}>#{player.number}</Text>
+      </View>
+
+      {/* 3. 選手名 */}
+      <Text style={styles.playerName} numberOfLines={1} ellipsizeMode="tail">
+        {player.name}
+      </Text>
+
+      {/* 4. キースタット — 最後に「なぜこの順位か」を補足する */}
+      {player.statLabel ? (
+        <View style={styles.statRow}>
+          <Text style={styles.statLabel} numberOfLines={1}>{player.statLabel}</Text>
+          <Text style={styles.statValue} numberOfLines={1}>{player.statValue ?? '–'}</Text>
         </View>
-      </View>
-
-      {/* Info */}
-      <View style={styles.cardBody}>
-        <Text style={styles.playerName} numberOfLines={1}>{player.name}</Text>
-        <Text style={styles.teamName} numberOfLines={1}>{player.team}</Text>
-        <View style={styles.posRow}>
-          <Text style={styles.posText}>{player.position}</Text>
-        </View>
-      </View>
-
-      {/* Score + Trend */}
-      <View style={styles.scoreBlock}>
-        <Text style={[styles.scoreValue, { color: Colors.primary }]}>
-          {player.attentionScore}
-        </Text>
-        <Text style={styles.scoreLabel}>注目度</Text>
-        <MaterialCommunityIcons name={trendName} size={16} color={trendColor} />
-      </View>
-
-      {/* Stat highlight */}
-      <View style={[styles.statChip, { backgroundColor: Colors.primaryLight }]}>
-        <Text style={styles.statLabel}>{player.statLabel}</Text>
-        <Text style={[styles.statValue, { color: Colors.primary }]}>{player.statValue}</Text>
-      </View>
+      ) : null}
     </TouchableOpacity>
   );
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── メインコンポーネント ──────────────────────────────────────────────────────
 interface Props {
   onPlayerPress?: (player: FeaturedPlayer) => void;
   onViewMore?: () => void;
 }
 
 export default function FeaturedPlayers({ onPlayerPress, onViewMore }: Props) {
-  const [players, setPlayers]   = useState<FeaturedPlayer[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [players, setPlayers] = useState<FeaturedPlayer[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,32 +99,25 @@ export default function FeaturedPlayers({ onPlayerPress, onViewMore }: Props) {
     return () => { cancelled = true; };
   }, []);
 
-  const handlePress = useCallback(
-    (player: FeaturedPlayer) => {
-      onPlayerPress?.(player);
-    },
-    [onPlayerPress],
-  );
-
   return (
     <View style={styles.container}>
-      {/* Section header */}
-      <View style={styles.sectionHeader}>
-        <MaterialCommunityIcons name="fire" size={18} color={Colors.accent} />
-        <Text style={styles.sectionTitle}>注目選手ランキング</Text>
+      {/* セクションヘッダー */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>注目選手</Text>
         {onViewMore ? (
-          <TouchableOpacity onPress={onViewMore} style={styles.viewMoreBtn}>
-            <Text style={styles.viewMoreText}>もっと見る</Text>
-            <MaterialCommunityIcons name="chevron-right" size={14} color={Colors.primary} />
+          <TouchableOpacity onPress={onViewMore} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={styles.viewMoreText}>全員を見る</Text>
           </TouchableOpacity>
-        ) : (
-          <Text style={styles.sectionSub}>今週のトレンド</Text>
-        )}
+        ) : null}
       </View>
 
       {loading ? (
         <View style={styles.loadingRow}>
-          <ActivityIndicator color={Colors.primary} size="small" />
+          <ActivityIndicator color={Colors.action} size="small" />
+        </View>
+      ) : players.length === 0 ? (
+        <View style={styles.loadingRow}>
+          <Text style={styles.emptyText}>データがありません</Text>
         </View>
       ) : (
         <ScrollView
@@ -141,15 +126,12 @@ export default function FeaturedPlayers({ onPlayerPress, onViewMore }: Props) {
           contentContainerStyle={styles.scrollContent}
         >
           {players.map((p, idx) => (
-            <View key={p.id} style={styles.cardWrapper}>
-              {/* Rank badge */}
-              <View style={[styles.rankBadge, idx < 3 && styles.rankBadgeTop]}>
-                <Text style={[styles.rankText, idx < 3 && styles.rankTextTop]}>
-                  {idx + 1}
-                </Text>
-              </View>
-              <PlayerCard player={p} onPress={handlePress} />
-            </View>
+            <PlayerCard
+              key={p.id}
+              player={p}
+              rank={idx + 1}
+              onPress={onPlayerPress ?? (() => {})}
+            />
           ))}
         </ScrollView>
       )}
@@ -157,168 +139,112 @@ export default function FeaturedPlayers({ onPlayerPress, onViewMore }: Props) {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-const CARD_W = 160;
+// ── スタイル ─────────────────────────────────────────────────────────────────
+const CARD_W = 112;
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.card,
+    paddingBottom: Spacing.md,
+    // フィードの投稿と区別するため下線で区切る
+    borderBottomWidth: 6,
+    borderBottomColor: Colors.background,
   },
-  sectionHeader: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    gap: 6,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
   },
-  sectionTitle: {
-    fontSize: 15,
+  headerTitle: {
+    fontSize: Typography.bodySmall,
     fontWeight: '700',
-    color: Colors.text,
-    flex: 1,
-  },
-  sectionSub: {
-    fontSize: 11,
     color: Colors.textSecondary,
-  },
-  viewMoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   viewMoreText: {
-    fontSize: 12,
-    color: Colors.primary,
+    fontSize: Typography.caption,
+    color: Colors.action,
     fontWeight: '600',
   },
   loadingRow: {
-    height: 60,
+    height: 100,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: Typography.caption,
+    color: Colors.textDisabled,
   },
   scrollContent: {
     paddingHorizontal: Spacing.md,
-    gap: Spacing.sm,
-    paddingBottom: Spacing.xs,
+    gap: Spacing.xs,
   },
-  cardWrapper: {
-    width: CARD_W,
-    position: 'relative',
-  },
-  rankBadge: {
-    position: 'absolute',
-    top: -6,
-    left: 6,
-    zIndex: 10,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rankBadgeTop: {
-    backgroundColor: Colors.accent,
-  },
-  rankText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  rankTextTop: {
-    color: 'white',
-  },
+  // ── カード ────────────────────────────────────────────────────────────────
   card: {
     width: CARD_W,
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.surfaceGray,
     borderRadius: BorderRadius.lg,
     padding: Spacing.sm,
-    // CardShadow preset
-    shadowColor: '#000',
-    shadowOpacity: 0.09,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    alignItems: 'flex-start',
     gap: 6,
   },
+  cardTop3: {
+    // 1〜3位のみ白カード+影で視覚的に浮かせる
+    backgroundColor: Colors.card,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  // 1. 順位番号 — 最大フォントで最初に視認させる
+  rankNum: {
+    fontWeight: '800',
+    lineHeight: 24,
+  },
+  // 2. アバター — 小さく、チーム識別のみ
   avatar: {
-    width: '100%',
-    height: 80,
-    borderRadius: BorderRadius.md,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
   avatarText: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.9)',
+    fontSize: 15,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.95)',
   },
-  numberBadge: {
-    position: 'absolute',
-    bottom: 4,
-    right: 6,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    borderRadius: 8,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  numberText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: 'white',
-  },
-  cardBody: {
-    gap: 2,
-  },
+  // 3. 選手名
   playerName: {
     fontSize: 13,
     fontWeight: '700',
     color: Colors.text,
+    width: '100%',
   },
-  teamName: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-  },
-  posRow: {
-    flexDirection: 'row',
-  },
-  posText: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    backgroundColor: Colors.surfaceGray,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  scoreBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  scoreValue: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  scoreLabel: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    flex: 1,
-  },
-  statChip: {
+  // 4. キースタット
+  statRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    width: '100%',
+    marginTop: 2,
   },
   statLabel: {
     fontSize: 10,
     color: Colors.textSecondary,
+    flexShrink: 1,
+    marginRight: 4,
   },
   statValue: {
     fontSize: 12,
     fontWeight: '700',
+    color: Colors.action,
+    flexShrink: 0,
   },
 });

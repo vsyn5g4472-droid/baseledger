@@ -9,7 +9,8 @@
  * Use consistent roster templates to ensure cross-game aggregation.
  */
 
-import type { GameState, AtBatResult, PitchResult } from '../types/game';
+import type { GameState, AtBatResult, AtBatLog, PitchResult } from '../types/game';
+import { buildBattingLine, calcWOBA } from '../services/analyticsEngine';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,10 @@ export interface AggregatedPitchingStats {
   playerName: string;
   gamesPlayed: number;
   totalPitches: number;
+  /** 対戦打者数 */
+  battersFaced: number;
+  /** 奪三振数 */
+  totalStrikeouts: number;
   /** ストライク率 */
   strikeRate: number;
   /** 奪三振率 (三振 / 対戦打者数) */
@@ -287,6 +292,8 @@ export function aggregatePlayerPitching(
     playerName,
     gamesPlayed,
     totalPitches,
+    battersFaced,
+    totalStrikeouts: strikeouts,
     strikeRate:    totalPitches  > 0 ? strikeCount  / totalPitches  : 0,
     strikeoutRate: battersFaced  > 0 ? strikeouts   / battersFaced  : 0,
     avgVelocity:
@@ -352,7 +359,19 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
     .map(([id, name]) => aggregatePlayerPitching(id, name, games))
     .filter((s) => s.totalPitches >= MIN_PITCHES);
 
+  // wOBA 計算用: 打者ごとの AtBatLog を収集
+  const playerAtBatLogs = new Map<string, AtBatLog[]>();
+  for (const game of games) {
+    for (const log of game.atBatLogs) {
+      if (!log.result) continue;
+      const existing = playerAtBatLogs.get(log.batterId) ?? [];
+      existing.push(log);
+      playerAtBatLogs.set(log.batterId, existing);
+    }
+  }
+
   const categories: LeaderboardCategory[] = [
+    // ── 打者カテゴリー ──
     makeCategory(
       'avg',
       '打率 TOP3',
@@ -375,6 +394,56 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
       (v) => v.toFixed(3).replace(/^0/, '') || '.000',
     ),
     makeCategory(
+      'rbi',
+      '打点 TOP3',
+      'human-handsup',
+      battingAll.map((s) => ({ ...s, value: s.rbi })),
+      (v) => `${v}点`,
+    ),
+    makeCategory(
+      'kPct',
+      '三振率 K% TOP3',
+      'close-circle-outline',
+      battingAll
+        .filter((s) => s.atBats > 0)
+        // 低い方が良い指標 → 符号反転して makeCategory の降順ソートに乗せる
+        .map((s) => ({ ...s, value: -(s.strikeouts / s.atBats) })),
+      (v) => `${Math.round(-v * 100)}%`,
+    ),
+    makeCategory(
+      'bbPct',
+      '四球率 BB% TOP3',
+      'eye-check-outline',
+      battingAll
+        .filter((s) => (s.atBats + s.walks + s.hbp) > 0)
+        .map((s) => ({
+          ...s,
+          value: s.walks / (s.atBats + s.walks + s.hbp),
+        })),
+      (v) => `${Math.round(v * 100)}%`,
+    ),
+    makeCategory(
+      'woba',
+      'wOBA TOP3',
+      'chart-areaspline',
+      battingAll.map((s) => {
+        const logs = playerAtBatLogs.get(s.playerId) ?? [];
+        const line = buildBattingLine(logs);
+        return { ...s, value: calcWOBA(line) };
+      }),
+      (v) => v.toFixed(3).replace(/^0/, '') || '.000',
+    ),
+    makeCategory(
+      'avgHitDist',
+      '平均打球距離 TOP3',
+      'arrow-expand-horizontal',
+      battingAll
+        .filter((s) => s.avgHitDistance !== null && s.avgHitDistance > 0)
+        .map((s) => ({ ...s, value: s.avgHitDistance! })),
+      (v) => `${Math.round(v)}m`,
+    ),
+    // ── 投手カテゴリー ──
+    makeCategory(
       'maxVelocity',
       '球速王 TOP3',
       'speedometer',
@@ -384,10 +453,33 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
       (v) => `${v} km/h`,
     ),
     makeCategory(
+      'avgVelocity',
+      '平均球速 TOP3',
+      'speedometer-medium',
+      pitchingAll
+        .filter((s) => s.avgVelocity !== null)
+        .map((s) => ({ ...s, value: s.avgVelocity! })),
+      (v) => `${v} km/h`,
+    ),
+    makeCategory(
       'kRate',
       '奪三振率 TOP3',
       'lightning-bolt',
       pitchingAll.map((s) => ({ ...s, value: s.strikeoutRate })),
+      (v) => `${Math.round(v * 100)}%`,
+    ),
+    makeCategory(
+      'totalK',
+      '奪三振数 TOP3',
+      'lightning-bolt-circle',
+      pitchingAll.map((s) => ({ ...s, value: s.totalStrikeouts })),
+      (v) => `${v}K`,
+    ),
+    makeCategory(
+      'strikeRate',
+      'ストライク率 TOP3',
+      'bullseye-arrow',
+      pitchingAll.map((s) => ({ ...s, value: s.strikeRate })),
       (v) => `${Math.round(v * 100)}%`,
     ),
   ].filter((c) => c.entries.length > 0);

@@ -11,7 +11,8 @@ import {
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
-import type { Player, Team, GameState } from '../../types/game';
+import { POSITIONS } from '../../types/game';
+import type { Player, Team, GameState, Position } from '../../types/game';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface NewPlayerData {
@@ -19,7 +20,13 @@ export interface NewPlayerData {
   number: number | null;
   bats: 'L' | 'R' | 'S';
   throws: 'L' | 'R';
+  position?: string;
 }
+
+const POSITION_LABELS: Record<string, string> = {
+  P: '投手', C: '捕手', '1B': '一塁手', '2B': '二塁手', '3B': '三塁手',
+  SS: '遊撃手', LF: '左翼手', CF: '中堅手', RF: '右翼手', DH: '指名打者',
+};
 
 interface Props {
   visible: boolean;
@@ -31,11 +38,6 @@ interface Props {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const POSITION_LABELS: Record<string, string> = {
-  P: '投手', C: '捕手', '1B': '一塁手', '2B': '二塁手', '3B': '三塁手',
-  SS: '遊撃手', LF: '左翼手', CF: '中堅手', RF: '右翼手', DH: '指名打者',
-};
-
 function posLabel(pos: string): string {
   return POSITION_LABELS[pos] ?? pos;
 }
@@ -53,13 +55,15 @@ function QuickRegisterForm({ playerOutName, playerOutPosition, onConfirm, onBack
   const [numberStr, setNumberStr] = useState('');
   const [bats, setBats] = useState<'L' | 'R' | 'S'>('R');
   const [throws, setThrows] = useState<'L' | 'R'>('R');
+  // 退場する選手のポジションをデフォルト値にセット（変更可）
+  const [position, setPosition] = useState<Position>(playerOutPosition as Position);
 
   const canConfirm = name.trim().length > 0;
 
   const handleConfirm = () => {
     if (!canConfirm) return;
     const num = numberStr.trim() ? parseInt(numberStr, 10) : null;
-    onConfirm({ name: name.trim(), number: num, bats, throws });
+    onConfirm({ name: name.trim(), number: num, bats, throws, position });
   };
 
   return (
@@ -93,6 +97,23 @@ function QuickRegisterForm({ playerOutName, playerOutPosition, onConfirm, onBack
         keyboardType="number-pad"
         maxLength={3}
       />
+
+      {/* ポジション — 退場選手のポジションがデフォルト、変更可能 */}
+      <Text style={styles.qrLabel}>ポジション</Text>
+      <View style={styles.positionGrid}>
+        {POSITIONS.map((pos) => (
+          <TouchableOpacity
+            key={pos}
+            style={[styles.posBtn, position === pos && styles.posBtnActive]}
+            onPress={() => setPosition(pos)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.posBtnText, position === pos && styles.posBtnTextActive]}>
+              {pos}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       {/* 打席 */}
       <Text style={styles.qrLabel}>打席</Text>
@@ -233,6 +254,27 @@ export default function PlayerSubstitutionModal({
           {/* ── Step 1: pick starter to replace ── */}
           {step === 'selectOut' && (
             <ScrollView contentContainerStyle={styles.list}>
+              {/* DH制: 打順外の投手を先頭に表示 */}
+              {game.isDH && team.roster.pitcher && (
+                <>
+                  <Text style={styles.sectionLabel}>投手（打順外）</Text>
+                  <TouchableOpacity
+                    style={[styles.playerRow, styles.pitcherRow]}
+                    onPress={() => handleSelectOut(team.roster.pitcher!)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.playerNumBadge, styles.pitcherBadge]}>
+                      <Text style={styles.playerNum}>{team.roster.pitcher.number ?? '-'}</Text>
+                    </View>
+                    <View style={styles.playerInfo}>
+                      <Text style={styles.playerName}>{team.roster.pitcher.name}</Text>
+                      <Text style={styles.playerPos}>投手（DH制・打順外）</Text>
+                    </View>
+                    <MaterialCommunityIcons name="swap-horizontal" size={20} color={Colors.primary} />
+                  </TouchableOpacity>
+                </>
+              )}
+
               <Text style={styles.sectionLabel}>スターター ({team.roster.starters.length})</Text>
               {team.roster.starters.map((p) => (
                 <TouchableOpacity
@@ -402,6 +444,14 @@ const styles = StyleSheet.create({
   benchBadge: {
     backgroundColor: Colors.primaryLight,
   },
+  pitcherRow: {
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    borderStyle: 'solid',
+  },
+  pitcherBadge: {
+    backgroundColor: '#2E7D32',
+  },
   playerNum: {
     color: 'white',
     fontSize: 13,
@@ -489,6 +539,34 @@ const styles = StyleSheet.create({
   },
   qrInputSmall: {
     width: 120,
+  },
+  positionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  posBtn: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.sm,
+    backgroundColor: Colors.surfaceGray,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  posBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  posBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  posBtnTextActive: {
+    color: Colors.white,
   },
   toggleRow: {
     flexDirection: 'row',

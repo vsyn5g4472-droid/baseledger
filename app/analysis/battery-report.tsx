@@ -9,7 +9,7 @@
  *  5. AI 自然言語サマリ
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,8 @@ import { db } from '../../src/db';
 import { buildBatteryProfile, type BatteryProfile, type CountTendency } from '../../src/utils/analysisEngine';
 import ZoneHeatmap from '../../src/components/analysis/ZoneHeatmap';
 import { generateBatteryAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
+import AIReportErrorCard from '../../src/components/AIReportErrorCard';
+import { useUserPlan } from '../../src/hooks/usePlanGate';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -135,10 +137,22 @@ export default function BatteryReportScreen() {
       catcherName: string;
     }>();
 
+  const userPlan = useUserPlan();
+
   const [profile, setProfile] = useState<BatteryProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+
+  const loadAIReport = useCallback(async (p: BatteryProfile) => {
+    setAiLoading(true);
+    try {
+      const report = await generateBatteryAIReport(p, userPlan);
+      setAiReport(report);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [userPlan]);
 
   useEffect(() => {
     (async () => {
@@ -147,16 +161,10 @@ export default function BatteryReportScreen() {
       setProfile(p);
       setLoading(false);
       if (p && p.totalPitches > 0) {
-        setAiLoading(true);
-        try {
-          const report = await generateBatteryAIReport(p);
-          setAiReport(report);
-        } finally {
-          setAiLoading(false);
-        }
+        await loadAIReport(p);
       }
     })();
-  }, [pitcherId, catcherId]);
+  }, [pitcherId, catcherId, loadAIReport]);
 
   const title = pitcherName && catcherName
     ? `${pitcherName} × ${catcherName}`
@@ -255,31 +263,43 @@ export default function BatteryReportScreen() {
         )}
 
         {/* ── ⑤ AI / ルールベースサマリ ── */}
-        <View style={[styles.card, styles.summaryCard]}>
-          <View style={styles.summaryHeader}>
-            <MaterialCommunityIcons name="robot-outline" size={20} color={Colors.primary} />
-            <Text style={styles.summaryTitle}>
-              AI 分析サマリ{aiReport?.isMock ? '（サンプル）' : ''}
-            </Text>
-          </View>
-          {aiLoading ? (
+        {aiLoading ? (
+          <View style={[styles.card, styles.summaryCard]}>
+            <View style={styles.summaryHeader}>
+              <MaterialCommunityIcons name="robot-outline" size={20} color={Colors.primary} />
+              <Text style={styles.summaryTitle}>AI 分析サマリ</Text>
+            </View>
             <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 8 }} />
-          ) : aiReport ? (
-            <>
-              <Text style={styles.summaryText}>{aiReport.overall}</Text>
-              {reportToSections(aiReport)
-                .filter((s) => s.title !== '総合評価')
-                .map((s) => (
-                  <View key={s.title} style={styles.aiSection}>
-                    <Text style={styles.aiSectionTitle}>{s.title}</Text>
-                    <Text style={styles.aiSectionBody}>{s.content}</Text>
-                  </View>
-                ))}
-            </>
-          ) : (
-            <Text style={styles.summaryText}>{profile.summary}</Text>
-          )}
-        </View>
+          </View>
+        ) : aiReport && !aiReport.isMock ? (
+          <View style={[styles.card, styles.summaryCard]}>
+            <View style={styles.summaryHeader}>
+              <MaterialCommunityIcons name="robot-outline" size={20} color={Colors.primary} />
+              <Text style={styles.summaryTitle}>AI 分析サマリ</Text>
+              {aiReport.usage ? (
+                <Text style={styles.summaryUsage}>
+                  本日 残り {aiReport.usage.remaining}/{aiReport.usage.limit} 回
+                </Text>
+              ) : null}
+            </View>
+            <Text style={styles.summaryText}>{aiReport.overall}</Text>
+            {reportToSections(aiReport)
+              .filter((s) => s.title !== '総合評価')
+              .map((s) => (
+                <View key={s.title} style={styles.aiSection}>
+                  <Text style={styles.aiSectionTitle}>{s.title}</Text>
+                  <Text style={styles.aiSectionBody}>{s.content}</Text>
+                </View>
+              ))}
+          </View>
+        ) : aiReport ? (
+          <AIReportErrorCard
+            report={aiReport}
+            currentPlan={userPlan}
+            featureLabel="AI 分析サマリ"
+            onRetry={profile ? () => loadAIReport(profile) : undefined}
+          />
+        ) : null}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -327,7 +347,8 @@ const styles = StyleSheet.create({
 
   summaryCard:   { backgroundColor: Colors.primaryLight },
   summaryHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  summaryTitle:  { fontSize: Typography.bodySmall, fontWeight: '800', color: Colors.primary },
+  summaryTitle:  { fontSize: Typography.bodySmall, fontWeight: '800', color: Colors.primary, flex: 1 },
+  summaryUsage:  { fontSize: Typography.tiny, fontWeight: '600', color: Colors.textSecondary },
   summaryText:   { fontSize: Typography.bodySmall, color: Colors.text, lineHeight: 22 },
   aiSection: {
     marginTop: Spacing.xs,

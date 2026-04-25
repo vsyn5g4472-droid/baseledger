@@ -29,26 +29,34 @@ export default function PlayLogList({ logs, onEdit }: PlayLogListProps) {
 
     return (
       <View style={styles.card}>
-        <View style={styles.cardLeft}>
-          <Text style={styles.inningBadge}>{inningStr}</Text>
+        <View style={styles.cardMain}>
+          <View style={styles.cardLeft}>
+            <Text style={styles.inningBadge}>{inningStr}</Text>
+          </View>
+          <View style={styles.cardCenter}>
+            <Text style={styles.resultText} numberOfLines={1}>
+              {resultLabel}
+            </Text>
+            <Text style={styles.detailText} numberOfLines={1}>
+              {pitchCount}{t.playLog.pitches}
+              {fieldingStr ? ` / ${fieldingStr}` : ''}
+              {item.rbiCount > 0 ? ` / ${item.rbiCount}${t.playLog.rbi}` : ''}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => onEdit(item.id)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons name="pencil" size={16} color="#FFD700" />
+          </TouchableOpacity>
         </View>
-        <View style={styles.cardCenter}>
-          <Text style={styles.resultText} numberOfLines={1}>
-            {resultLabel}
-          </Text>
-          <Text style={styles.detailText} numberOfLines={1}>
-            {pitchCount}{t.playLog.pitches}
-            {fieldingStr ? ` / ${fieldingStr}` : ''}
-            {item.rbiCount > 0 ? ` / ${item.rbiCount}${t.playLog.rbi}` : ''}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={styles.editBtn}
-          onPress={() => onEdit(item.id)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <MaterialCommunityIcons name="pencil" size={16} color="#FFD700" />
-        </TouchableOpacity>
+        {!!item.note && (
+          <View style={styles.noteRow}>
+            <MaterialCommunityIcons name="note-text-outline" size={12} color={Colors.textSecondary} style={styles.noteIcon} />
+            <Text style={styles.noteText} numberOfLines={2}>{item.note}</Text>
+          </View>
+        )}
       </View>
     );
   };
@@ -82,15 +90,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.card,          // ホワイト
+    backgroundColor: Colors.card,
     borderRadius: BorderRadius.sm,
     borderLeftWidth: 3,
-    borderLeftColor: Colors.accent,        // ゴールドアクセント
+    borderLeftColor: Colors.accent,
     borderWidth: 1,
     borderColor: Colors.border,
-    paddingVertical: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
     paddingHorizontal: 10,
     marginBottom: 6,
     shadowColor: Colors.primary,
@@ -98,6 +105,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 3,
     elevation: 1,
+  },
+  cardMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   cardLeft: {
     marginRight: 10,
@@ -131,11 +142,30 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.accentSoft,    // ゴールド極薄
+    backgroundColor: Colors.accentSoft,
     borderWidth: 1,
     borderColor: Colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+  },
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 5,
+    paddingTop: 5,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  noteIcon: {
+    marginTop: 1,
+    marginRight: 4,
+  },
+  noteText: {
+    flex: 1,
+    fontSize: 11,
+    color: Colors.textSecondary,
+    lineHeight: 16,
+    fontStyle: 'italic',
   },
 });

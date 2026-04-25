@@ -11,8 +11,7 @@ import { Platform } from 'react-native';
 
 /**
  * Firebase configuration loaded from environment variables.
- *
- * Set these in your .env file (prefixed with EXPO_PUBLIC_ for client access):
+ * .env ファイルに以下の値を設定してください:
  *   EXPO_PUBLIC_FIREBASE_API_KEY=...
  *   EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=...
  *   EXPO_PUBLIC_FIREBASE_PROJECT_ID=...
@@ -29,22 +28,22 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase app (singleton)
-let app: FirebaseApp;
-if (getApps().length === 0) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApp();
-}
+// Firebase app はシングルトン
+const app: FirebaseApp = getApps().length === 0
+  ? initializeApp(firebaseConfig)
+  : getApp();
 
-// Initialize Auth with React Native persistence
+// Auth のシングルトン管理。
+// initializeAuth は初回のみ呼ぶ必要があり、2回目以降は getAuth() で取得する。
+// try/catch で両方を安全に処理する。
 let auth: Auth;
-if (Platform.OS === 'web') {
+try {
+  auth = Platform.OS === 'web'
+    ? getAuth(app)
+    : initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) });
+} catch {
+  // 既に初期化済みの場合（hot reload 等）は getAuth() で既存インスタンスを取得
   auth = getAuth(app);
-} else {
-  auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
 }
 
 // Initialize Firestore

@@ -1,6 +1,6 @@
 export const ja = {
   app: {
-    title: 'BaseLedger',
+    title: 'BallPark',
     subtitle: '試合記録・分析システム',
   },
   metadata: {

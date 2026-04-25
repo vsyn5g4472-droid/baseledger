@@ -10,6 +10,8 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#1B3A5C"
     },
     "ios": {
@@ -18,7 +20,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1B3A5C"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A6BB5"
       },
       "package": "com.ballpark.app"
     },
@@ -28,6 +31,15 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#1B3A5C",
+          "imageWidth": 280
+        }
+      ],
       "expo-router",
       "expo-secure-store",
       [

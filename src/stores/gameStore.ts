@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { db } from '../db';
+import { incrementGameUsage } from '../services/planService';
 import type {
   GameState,
   GamePhase,
@@ -26,6 +27,11 @@ import type {
   PickoffResult,
   PickoffEvent,
   SubstitutionLog,
+  StolenBaseLog,
+  StolenBasePitchContext,
+  BuntType,
+  BuntOutcome,
+  SignPlayTag,
 } from '../types/game';
 import { RESULTS_NEEDING_ADVANCEMENT } from '../types/game';
 
@@ -79,12 +85,28 @@ interface GameActions {
   persist: () => Promise<void>;
 
   // --- 投球アクション ---
-  /** 1球を記録する。結果に応じてカウント・打席結果を自動進行 */
-  recordPitch: (pitchType: PitchType | string, zone: StrikeZone, result: PitchResult, velocity?: number, pitchX?: number, pitchY?: number) => void;
+  /**
+   * 1球を記録する。結果に応じてカウント・打席結果を自動進行
+   * pitchExtra: バント構え等（記録ON時）
+   */
+  recordPitch: (
+    pitchType: PitchType | string,
+    zone: StrikeZone,
+    result: PitchResult,
+    velocity?: number,
+    pitchX?: number,
+    pitchY?: number,
+    pitchExtra?: { buntAttempt?: boolean; buntOutcome?: BuntOutcome },
+  ) => void;
 
   // --- 打席結果アクション (インプレイ時に呼ぶ) ---
   /** インプレイの結果を確定する */
-  resolveAtBat: (result: AtBatResult, battedBall?: BattedBall, rbiCount?: number) => void;
+  resolveAtBat: (
+    result: AtBatResult,
+    battedBall?: BattedBall,
+    rbiCount?: number,
+    atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag },
+  ) => void;
 
   // --- ランナー操作 ---
   /** ランナーを進塁させる (得点を含む) */
@@ -92,9 +114,17 @@ interface GameActions {
 
   // --- 進塁確認フロー ---
   /** Phase 1: 進塁確認モードに入る */
-  beginAdvancementConfirmation: (result: AtBatResult, battedBall?: BattedBall, fielding?: FieldingRecord) => void;
+  beginAdvancementConfirmation: (
+    result: AtBatResult,
+    battedBall?: BattedBall,
+    fielding?: FieldingRecord,
+    atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag },
+  ) => void;
   /** Phase 2: 進塁確認を確定する */
-  confirmAdvancement: (finalAdvancements: RunnerAdvancement[]) => void;
+  confirmAdvancement: (
+    finalAdvancements: RunnerAdvancement[],
+    atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag },
+  ) => void;
   /** 進塁確認をキャンセルする */
   cancelAdvancement: () => void;
 
@@ -107,22 +137,24 @@ interface GameActions {
   undoLastPitch: () => void;
 
   // --- プレイログ編集 ---
-  /** 完了済み打席の結果・打点を修正し、スコアボードを再計算する */
-  editAtBatLog: (logId: string, newResult: AtBatResult, newRbi: number) => void;
+  /** 完了済み打席の結果・打点・メモを修正し、スコアボードを再計算する */
+  editAtBatLog: (logId: string, newResult: AtBatResult, newRbi: number, note?: string) => void;
 
   // --- 牽制 ---
   /** 牽制を記録する。結果に応じてランナー状態を更新 */
   recordPickoff: (targetBase: PickoffBase, result: PickoffResult) => void;
 
   // --- 盗塁 ---
-  /** 盗塁を記録する。ランナーを次の塁へ進める */
-  recordStolenBase: (fromBase: 'first' | 'second' | 'third') => void;
+  /** 盗塁成功を記録する。ランナーを次の塁へ進め StolenBaseLog を生成する */
+  recordStolenBase: (fromBase: 'first' | 'second' | 'third', pitchContext?: StolenBasePitchContext) => void;
+  /** 盗塁失敗（捕盗）を記録する。ランナーを消去しアウト数を増やし StolenBaseLog を生成する */
+  recordCaughtStealing: (fromBase: 'first' | 'second' | 'third', pitchContext?: StolenBasePitchContext) => void;
 
   // --- クイックスタート ---
   /** 仮選手でゲームを即時開始する */
   quickStartGame: (options?: { awayName?: string; homeName?: string; velocityEnabled?: boolean; pitchDistanceM?: number; fenceLeft?: number; fenceCenter?: number; fenceRight?: number }) => Promise<void>;
-  /** 仮選手を実選手名・背番号に紐付ける */
-  updatePlayerMapping: (mappings: { playerId: string; newName: string; newNumber: string }[]) => Promise<void>;
+  /** 仮選手を実選手名・背番号・ポジションに紐付ける */
+  updatePlayerMapping: (mappings: { playerId: string; newName: string; newNumber: string; newPosition?: string }[]) => Promise<void>;
 
   // --- 選手交代 ---
   /** 出場中の選手を控え選手に交代させる */
@@ -134,7 +166,7 @@ interface GameActions {
   addBenchAndSubstitute: (
     side: 'away' | 'home',
     playerOutId: string,
-    newPlayerData: { name: string; number: number | null; bats: 'L' | 'R' | 'S'; throws: 'L' | 'R' },
+    newPlayerData: { name: string; number: number | null; bats: 'L' | 'R' | 'S'; throws: 'L' | 'R'; position?: string },
   ) => void;
 }
 
@@ -233,6 +265,7 @@ function createInitialGameState(input: GameSetupInput): GameState {
     pitchLogs: [],
     atBatLogs: [],
     pickoffEvents: [],
+    stolenBaseLogs: [],
     currentAtBat: initialAtBat,
     totalPitchCount: { away: 0, home: 0 },
     pendingAdvancement: null,
@@ -732,6 +765,7 @@ export const useGameStore = create<GameStore>()(
     initGame: async (input) => {
       const gameState = createInitialGameState(input);
       await db.games.put(gameState);
+      await incrementGameUsage();
       set({ game: gameState });
     },
 
@@ -755,7 +789,7 @@ export const useGameStore = create<GameStore>()(
     },
 
     // --- 投球記録 ---
-    recordPitch: (pitchType, zone, result, velocity, pitchX, pitchY) => {
+    recordPitch: (pitchType, zone, result, velocity, pitchX, pitchY, pitchExtra) => {
       set((state) => {
         const g = state.game;
         if (!g || g.phase !== 'live') return;
@@ -823,6 +857,8 @@ export const useGameStore = create<GameStore>()(
           ...(pitchX !== undefined ? { pitchX } : {}),
           ...(pitchY !== undefined ? { pitchY } : {}),
           ...(velocity !== undefined ? { velocity } : {}),
+          ...(pitchExtra?.buntAttempt ? { buntAttempt: true } : {}),
+          ...(pitchExtra?.buntOutcome ? { buntOutcome: pitchExtra.buntOutcome } : {}),
         };
 
         g.pitchLogs.push(pitchLog);
@@ -841,14 +877,14 @@ export const useGameStore = create<GameStore>()(
     },
 
     // --- インプレイ結果の確定 ---
-    resolveAtBat: (result, battedBall, rbiCount = 0) => {
+    resolveAtBat: (result, battedBall, rbiCount = 0, atBatExtra) => {
       const g = get().game;
       if (!g) return;
 
       // ランナーがいれば全インプレイ結果で進塁確認モードへ
       const hasRunners = g.runners.first || g.runners.second || g.runners.third;
       if (hasRunners) {
-        get().beginAdvancementConfirmation(result, battedBall);
+        get().beginAdvancementConfirmation(result, battedBall, undefined, atBatExtra);
         return;
       }
 
@@ -859,6 +895,12 @@ export const useGameStore = create<GameStore>()(
 
         if (battedBall && gs.currentAtBat) {
           gs.currentAtBat.battedBall = battedBall;
+        }
+        if (atBatExtra?.buntType && gs.currentAtBat) {
+          gs.currentAtBat.buntType = atBatExtra.buntType;
+        }
+        if (atBatExtra?.signPlay && gs.currentAtBat) {
+          gs.currentAtBat.signPlay = atBatExtra.signPlay;
         }
 
         applyAtBatResultToRunners(gs, result, rbiCount);
@@ -899,7 +941,7 @@ export const useGameStore = create<GameStore>()(
     },
 
     // --- 進塁確認フロー ---
-    beginAdvancementConfirmation: (result, battedBall, fielding) => {
+    beginAdvancementConfirmation: (result, battedBall, fielding, atBatExtra) => {
       set((state) => {
         const g = state.game;
         if (!g || g.phase !== 'live') return;
@@ -909,6 +951,12 @@ export const useGameStore = create<GameStore>()(
         }
         if (fielding && g.currentAtBat) {
           g.currentAtBat.fielding = fielding;
+        }
+        if (atBatExtra?.buntType && g.currentAtBat) {
+          g.currentAtBat.buntType = atBatExtra.buntType;
+        }
+        if (atBatExtra?.signPlay && g.currentAtBat) {
+          g.currentAtBat.signPlay = atBatExtra.signPlay;
         }
 
         // ヒット数・エラー数の先行加算
@@ -926,17 +974,25 @@ export const useGameStore = create<GameStore>()(
           battedBall,
           fielding,
           advancements,
+          atBatExtra,
         };
         g.updatedAt = Date.now();
       });
     },
 
-    confirmAdvancement: (finalAdvancements) => {
+    confirmAdvancement: (finalAdvancements, atBatExtra) => {
       set((state) => {
         const g = state.game;
         if (!g || !g.pendingAdvancement) return;
 
-        const { result } = g.pendingAdvancement;
+        const { result, atBatExtra: pendingExtra } = g.pendingAdvancement;
+        const mergedExtra = { ...pendingExtra, ...atBatExtra };
+        if (mergedExtra.buntType && g.currentAtBat) {
+          g.currentAtBat.buntType = mergedExtra.buntType;
+        }
+        if (mergedExtra.signPlay && g.currentAtBat) {
+          g.currentAtBat.signPlay = mergedExtra.signPlay;
+        }
 
         // ランナーをクリアして再配置
         g.runners = { first: null, second: null, third: null };
@@ -1052,7 +1108,7 @@ export const useGameStore = create<GameStore>()(
     },
 
     // --- プレイログ編集 ---
-    editAtBatLog: (logId, newResult, newRbi) => {
+    editAtBatLog: (logId, newResult, newRbi, note) => {
       set((state) => {
         const g = state.game;
         if (!g) return;
@@ -1061,6 +1117,8 @@ export const useGameStore = create<GameStore>()(
 
         log.result = newResult;
         log.rbiCount = newRbi;
+        // note が渡された場合のみ更新（undefined のときは既存値を維持）
+        if (note !== undefined) log.note = note;
 
         // スコアボード全体を再計算
         recalculateScoreboard(g);
@@ -1139,7 +1197,7 @@ export const useGameStore = create<GameStore>()(
     },
 
     // --- 盗塁 ---
-    recordStolenBase: (fromBase) => {
+    recordStolenBase: (fromBase, pitchContext) => {
       set((state) => {
         const g = state.game;
         if (!g || g.phase !== 'live') return;
@@ -1147,17 +1205,70 @@ export const useGameStore = create<GameStore>()(
         const runner = g.runners[fromBase];
         if (!runner) return;
 
-        const nextBase = fromBase === 'first' ? 'second'
+        const toBase: StolenBaseLog['toBase'] = fromBase === 'first' ? 'second'
           : fromBase === 'second' ? 'third'
-          : null; // 3塁 → ホーム
+          : 'home';
 
-        if (nextBase && !g.runners[nextBase]) {
-          g.runners[nextBase] = runner;
+        // ランナー進塁
+        if (toBase !== 'home' && !g.runners[toBase]) {
+          g.runners[toBase] = runner;
           g.runners[fromBase] = null;
         } else if (fromBase === 'third') {
           addRun(g, 1);
           g.runners.third = null;
         }
+
+        // StolenBaseLog を生成
+        const log: StolenBaseLog = {
+          id: `sb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          inning: { ...g.inning },
+          runnerId: runner.id,
+          runnerName: runner.name,
+          fromBase,
+          toBase,
+          result: 'safe',
+          outsAtTime: g.count.outs,
+          timestamp: Date.now(),
+          ...pitchContext,
+        };
+        if (!g.stolenBaseLogs) g.stolenBaseLogs = [];
+        g.stolenBaseLogs.push(log);
+
+        g.updatedAt = Date.now();
+      });
+    },
+
+    recordCaughtStealing: (fromBase, pitchContext) => {
+      set((state) => {
+        const g = state.game;
+        if (!g || g.phase !== 'live') return;
+
+        const runner = g.runners[fromBase];
+        if (!runner) return;
+
+        const toBase: StolenBaseLog['toBase'] = fromBase === 'first' ? 'second'
+          : fromBase === 'second' ? 'third'
+          : 'home';
+
+        // ランナー消去 + アウト数 +1
+        g.runners[fromBase] = null;
+        g.count.outs += 1;
+
+        // StolenBaseLog を生成（result: 'out'）
+        const log: StolenBaseLog = {
+          id: `cs_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          inning: { ...g.inning },
+          runnerId: runner.id,
+          runnerName: runner.name,
+          fromBase,
+          toBase,
+          result: 'out',
+          outsAtTime: g.count.outs - 1, // アウト増加前の値を記録
+          timestamp: Date.now(),
+          ...pitchContext,
+        };
+        if (!g.stolenBaseLogs) g.stolenBaseLogs = [];
+        g.stolenBaseLogs.push(log);
 
         g.updatedAt = Date.now();
       });
@@ -1196,12 +1307,13 @@ export const useGameStore = create<GameStore>()(
       set((state) => {
         const g = state.game;
         if (!g) return;
-        for (const { playerId, newName, newNumber } of mappings) {
+        for (const { playerId, newName, newNumber, newPosition } of mappings) {
           for (const team of [g.awayTeam, g.homeTeam]) {
             const player = team.roster.starters.find((p) => p.id === playerId);
             if (player) {
               player.name = newName.trim() || player.name;
               player.number = newNumber.trim() ? parseInt(newNumber, 10) : player.number;
+              if (newPosition?.trim()) player.position = newPosition.trim() as any;
               player.isPlaceholder = false;
             }
           }
@@ -1219,29 +1331,46 @@ export const useGameStore = create<GameStore>()(
         if (!g) return;
 
         const team = side === 'away' ? g.awayTeam : g.homeTeam;
+        const inIdx = team.roster.bench.findIndex((p) => p.id === playerInId);
+        if (inIdx === -1) return;
+
+        const playerIn = team.roster.bench[inIdx];
+        let playerOut: Player | undefined;
+
         const outIdx = team.roster.starters.findIndex((p) => p.id === playerOutId);
-        const inIdx  = team.roster.bench.findIndex((p) => p.id === playerInId);
-        if (outIdx === -1 || inIdx === -1) return;
+        // DH制: 打順外の roster.pitcher が交代対象かチェック
+        const isDHPitcher = outIdx === -1 && !!g.isDH && team.roster.pitcher?.id === playerOutId;
 
-        const playerOut = team.roster.starters[outIdx];
-        const playerIn  = team.roster.bench[inIdx];
+        if (outIdx === -1 && !isDHPitcher) return;
 
-        // 入れ替え: 控えの選手がスターターのポジションを引き継ぐ
-        const positionToKeep = playerOut.position;
-        playerIn.position = positionToKeep;
+        if (isDHPitcher) {
+          // DH制の投手交代: roster.pitcher を更新（starters には手を付けない）
+          playerOut = team.roster.pitcher!;
+          playerIn.position = 'P';
+          team.roster.pitcher = playerIn;
+          team.roster.bench[inIdx] = playerOut;
 
-        // スターター/ベンチ入れ替え
-        team.roster.starters[outIdx] = playerIn;
-        team.roster.bench[inIdx] = playerOut;
-
-        // 投手交代の場合: currentPitcherId を更新
-        if (positionToKeep === 'P') {
           g.currentPitcherId[side] = playerIn.id;
-          // 進行中の打席ログの pitcherId も更新
           if (g.currentAtBat && g.currentAtBat.pitcherId === playerOutId) {
             g.currentAtBat.pitcherId = playerIn.id;
           }
+        } else {
+          // 通常の交代: starters を更新
+          playerOut = team.roster.starters[outIdx];
+          const positionToKeep = playerOut.position;
+          playerIn.position = positionToKeep;
+          team.roster.starters[outIdx] = playerIn;
+          team.roster.bench[inIdx] = playerOut;
+
+          if (positionToKeep === 'P') {
+            g.currentPitcherId[side] = playerIn.id;
+            if (g.currentAtBat && g.currentAtBat.pitcherId === playerOutId) {
+              g.currentAtBat.pitcherId = playerIn.id;
+            }
+          }
         }
+
+        if (!playerOut) return;
 
         // 交代選手がバッターボックスにいる場合: batterId を更新
         if (side === offenseSide(g) && g.currentAtBat?.batterId === playerOutId) {
@@ -1262,7 +1391,7 @@ export const useGameStore = create<GameStore>()(
           inning: { ...g.inning },
           outs: g.count.outs,
           side,
-          position: positionToKeep,
+          position: playerOut.position,
           playerOutId,
           playerOutName: playerOut.name,
           playerInId,
@@ -1283,27 +1412,36 @@ export const useGameStore = create<GameStore>()(
 
         const team = side === 'away' ? g.awayTeam : g.homeTeam;
         const outIdx = team.roster.starters.findIndex((p) => p.id === playerOutId);
-        if (outIdx === -1) return;
+        // DH制: 打順外の roster.pitcher が交代対象かチェック
+        const isDHPitcher = outIdx === -1 && !!g.isDH && team.roster.pitcher?.id === playerOutId;
 
-        const playerOut = team.roster.starters[outIdx];
+        if (outIdx === -1 && !isDHPitcher) return;
+
+        const playerOut = isDHPitcher ? team.roster.pitcher! : team.roster.starters[outIdx];
         const positionToKeep = playerOut.position;
 
-        // 新規選手をベンチに追加してからスターターへ昇格
+        // ユーザーが明示的にポジションを指定した場合はそちらを優先する
         const newPlayer: Player = {
           id: uid('new-player'),
           name: newPlayerData.name.trim(),
           number: newPlayerData.number,
-          position: positionToKeep,
+          position: (newPlayerData.position?.trim() as any) || positionToKeep,
           bats: newPlayerData.bats,
           throws: newPlayerData.throws,
           isPlaceholder: false,
         };
 
-        team.roster.starters[outIdx] = newPlayer;
+        if (isDHPitcher) {
+          // DH制の投手交代: roster.pitcher を更新（starters には手を付けない）
+          newPlayer.position = 'P';
+          team.roster.pitcher = newPlayer;
+        } else {
+          team.roster.starters[outIdx] = newPlayer;
+        }
         team.roster.bench.push(playerOut);
 
         // 投手交代の場合: currentPitcherId を更新
-        if (positionToKeep === 'P') {
+        if (positionToKeep === 'P' || isDHPitcher) {
           g.currentPitcherId[side] = newPlayer.id;
           if (g.currentAtBat && g.currentAtBat.pitcherId === playerOutId) {
             g.currentAtBat.pitcherId = newPlayer.id;

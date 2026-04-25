@@ -1,0 +1,13 @@
+{
+  "name": "baseledger-emulator-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "node seed.mjs",
+    "test": "node run-tests.mjs"
+  },
+  "dependencies": {
+    "firebase": "^10.7.0",
+    "firebase-admin": "^12.0.0"
+  }
+}

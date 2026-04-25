@@ -37,8 +37,16 @@ import {
   type RunnerAdvancement,
   type PickoffBase,
   type PickoffResult,
+  type BuntType,
+  type SignPlayTag,
+  type BuntOutcome,
 } from '../../../src/types/game';
 import FieldView from '../../../src/components/score/FieldView';
+import SignPlayPicker from '../../../src/components/score/SignPlayPicker';
+import PlayConfirmSnack from '../../../src/components/score/PlayConfirmSnack';
+import { useRecordingPreferences, isRecItem } from '../../../src/hooks/useRecordingPreferences';
+import { makeFieldViewFilter, filterPitchResultOptions } from '../../../src/utils/recordingFilters';
+import { mergeRecordingPreferences } from '../../../src/constants/recordingPreferences';
 import RunnerAdvancementView from '../../../src/components/score/RunnerAdvancementView';
 import PlayLogList from '../../../src/components/score/PlayLogList';
 import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
@@ -63,24 +71,29 @@ const SZ_BOT     = BALL_PAD_V + SZ_H;           // = 240
 
 const DRAFT_KEY = 'BASELEDGER_DRAFT_SESSION';
 
-/** タップ座標 (canvas px) → StrikeZone */
-function coordToZone(px: number, py: number): StrikeZone {
+/** タップ座標 (canvas px) → StrikeZone。simple 時は外角4領域を中芯 '5' に寄せる */
+function coordToZone(px: number, py: number, simple: boolean): StrikeZone {
   const inX = px >= SZ_LEFT && px <= SZ_RIGHT;
-  const inY = py >= SZ_TOP  && py <= SZ_BOT;
+  const inY = py >= SZ_TOP && py <= SZ_BOT;
   if (inX && inY) {
     const col = Math.min(Math.floor((px - SZ_LEFT) / (SZ_W / 3)), 2) + 1;
-    const row = Math.min(Math.floor((py - SZ_TOP)  / (SZ_H / 3)), 2) + 1;
+    const row = Math.min(Math.floor((py - SZ_TOP) / (SZ_H / 3)), 2) + 1;
     return String((row - 1) * 3 + col) as StrikeZone;
   }
-  if (py < SZ_TOP)  return 'BH';
-  if (py > SZ_BOT)  return 'BL';
+  if (simple) return '5';
+  if (py < SZ_TOP) return 'BH';
+  if (py > SZ_BOT) return 'BL';
   if (px < SZ_LEFT) return 'BI';
   return 'BO';
 }
 
 export default function LiveScoreScreen() {
   const { t } = useI18n();
-  const { currentUser } = useAuth();
+  const { currentUser, refreshUser } = useAuth();
+  const { prefs, isItemOn } = useRecordingPreferences(currentUser);
+  const fieldViewFilter = useMemo(() => makeFieldViewFilter(prefs), [prefs]);
+  const pitchResultRows = useMemo(() => filterPitchResultOptions(prefs), [prefs]);
+  const detailMode = mergeRecordingPreferences(prefs).detailMode;
   const game = useGameStore((s) => s.game);
   const recordPitch = useGameStore((s) => s.recordPitch);
   const resolveAtBat = useGameStore((s) => s.resolveAtBat);
@@ -97,6 +110,7 @@ export default function LiveScoreScreen() {
   const addBenchAndSubstitute = useGameStore((s) => s.addBenchAndSubstitute);
   const recordPickoff = useGameStore((s) => s.recordPickoff);
   const recordStolenBase = useGameStore((s) => s.recordStolenBase);
+  const recordCaughtStealing = useGameStore((s) => s.recordCaughtStealing);
 
   // ── バッターの打席（左右反転用） ────────────────────────────────────
   // game が null の場合もフックの呼び出し順を守るため早期に計算
@@ -123,21 +137,69 @@ export default function LiveScoreScreen() {
   const [subSide, setSubSide] = useState<'away' | 'home'>('home');
   const [showPickoffBase, setShowPickoffBase] = useState(false);
   const [pickoffTargetBase, setPickoffTargetBase] = useState<PickoffBase | null>(null);
-  const [showStealBase, setShowStealBase] = useState(false);
-  // スワイプ盗塁: どの塁からか
-  const [swipeStealBase, setSwipeStealBase] = useState<'first' | 'second' | 'third' | null>(null);
+  const [buntStance, setBuntStance] = useState(false);
+  const [atBatSign, setAtBatSign] = useState<SignPlayTag | 'none'>('none');
+  const [stealSign, setStealSign] = useState<SignPlayTag | 'none'>('none');
+  const [playSnack, setPlaySnack] = useState<{
+    id: string;
+    batter: string;
+    resultLabel: string;
+  } | null>(null);
+  const atBatLogCountRef = useRef(-1);
 
-  // ── 投球結果モーダル 層B: 走者イベントチップ ──────────────────────────
-  type RunnerEventType = 'stolen' | 'caught';
-  interface RunnerEventChoice { base: 'first' | 'second' | 'third'; type: RunnerEventType }
-  const [selectedRunnerEvents, setSelectedRunnerEvents] = useState<RunnerEventChoice[]>([]);
+  // 新しい打席ログが追記されたらメモ用スナックの表示用フラグを立てる
+  useEffect(() => {
+    if (!game) return;
+    if (atBatLogCountRef.current < 0) {
+      atBatLogCountRef.current = game.atBatLogs.length;
+      return;
+    }
+    if (game.atBatLogs.length > atBatLogCountRef.current) {
+      const last = game.atBatLogs[game.atBatLogs.length - 1];
+      if (last?.result) {
+        const team = last.inning.half === 'top' ? game.awayTeam : game.homeTeam;
+        const batter = team.roster.starters.find((p) => p.id === last.batterId);
+        setPlaySnack({
+          id: last.id,
+          batter: batter?.name ?? '',
+          resultLabel: t.atBatResults[last.result],
+        });
+      }
+    }
+    atBatLogCountRef.current = game.atBatLogs.length;
+  }, [game, game?.atBatLogs.length, t]);
 
-  const toggleRunnerEvent = useCallback((base: 'first' | 'second' | 'third', type: RunnerEventType) => {
-    setSelectedRunnerEvents(prev => {
-      const filtered = prev.filter(e => e.base !== base);
-      const wasSelected = prev.some(e => e.base === base && e.type === type);
-      if (wasSelected) return filtered;
-      return [...filtered, { base, type }];
+  useEffect(() => {
+    atBatLogCountRef.current = -1;
+  }, [game?.id]);
+
+  // ── ダイヤモンドタップ盗塁: 結果選択モーダル ──────────────────────────
+  const [pendingStealBase, setPendingStealBase] = useState<'first' | 'second' | 'third' | null>(null);
+
+  // ── 投球結果モーダル: 走者アクション（盗塁成功/失敗）─────────────────
+  type PitchRunnerAction = { type: 'steal'; result: 'safe' | 'out' };
+  const [runnerActions, setRunnerActions] = useState<
+    Partial<Record<'first' | 'second' | 'third', PitchRunnerAction>>
+  >({});
+
+  const toggleRunnerAction = useCallback((base: 'first' | 'second' | 'third') => {
+    setRunnerActions(prev => {
+      if (prev[base]) {
+        const next = { ...prev };
+        delete next[base];
+        return next;
+      }
+      return { ...prev, [base]: { type: 'steal' as const, result: 'safe' as const } };
+    });
+  }, []);
+
+  const setRunnerActionResult = useCallback((
+    base: 'first' | 'second' | 'third',
+    result: 'safe' | 'out',
+  ) => {
+    setRunnerActions(prev => {
+      if (!prev[base]) return prev;
+      return { ...prev, [base]: { ...prev[base]!, result } };
     });
   }, []);
 
@@ -309,13 +371,15 @@ export default function LiveScoreScreen() {
   const inningLabel = `${game.inning.number}${t.common.inning}${isTop ? t.common.top : t.common.bottom}`;
   const lastPitch = game.pitchLogs.length > 0 ? game.pitchLogs[game.pitchLogs.length - 1] : null;
 
+  const simpleZone = !isRecItem(prefs, 'pitch_zone_detail');
+
   const handleCanvasTap = useCallback((px: number, py: number) => {
-    const zone = coordToZone(px, py);
+    const zone = coordToZone(px, py, simpleZone);
     setTapCoord({ px, py });
     setPendingCoords({ x: px / CANVAS_W, y: py / CANVAS_H });
     setPendingZone(zone);
     setResultModalVisible(true);
-  }, []);
+  }, [simpleZone]);
 
   const handleResultSelect = useCallback((result: PitchResult) => {
     if (!pendingZone) return;
@@ -323,14 +387,27 @@ export default function LiveScoreScreen() {
     const normX = pendingCoords?.x;
     const normY = pendingCoords?.y;
 
-    // 層B: 走者イベントを取り出してリセット
-    const eventsToApply = [...selectedRunnerEvents];
-    setSelectedRunnerEvents([]);
+    // 走者アクション（盗塁成功/失敗）を取り出してリセット
+    const actionsToApply = { ...runnerActions };
+    setRunnerActions({});
 
-    const applyRunnerEvents = () => {
-      for (const ev of eventsToApply) {
-        if (ev.type === 'stolen') recordStolenBase(ev.base);
-        else recordPickoff(ev.base, 'out');
+    const applyRunnerActions = (pitchResult: typeof result, vel: number | undefined) => {
+      const pitchContext: Parameters<typeof recordStolenBase>[1] = {
+        pitchType:     selectedPitch,
+        pitchZone:     pendingZone ?? undefined,
+        pitchVelocity: vel,
+        countBefore:   game.count,
+        pitchResult,
+        ...(isItemOn('sign_play') && stealSign !== 'none' ? { signPlay: stealSign as SignPlayTag } : {}),
+      };
+      for (const [base, action] of Object.entries(actionsToApply)) {
+        if (!action) continue;
+        const b = base as 'first' | 'second' | 'third';
+        if (action.result === 'safe') {
+          recordStolenBase(b, pitchContext);
+        } else {
+          recordCaughtStealing(b, pitchContext);
+        }
       }
     };
 
@@ -344,39 +421,56 @@ export default function LiveScoreScreen() {
       setMeasuredVelocity(null);
     }
 
+    let pitchExtra: { buntAttempt?: boolean; buntOutcome?: BuntOutcome } | undefined;
+    if (buntStance && isItemOn('bunt_stance')) {
+      pitchExtra = { buntAttempt: true };
+      if (result === 'foul') pitchExtra.buntOutcome = 'foul';
+      else if (result === 'strike_swinging') pitchExtra.buntOutcome = 'swing_miss';
+      else if (result === 'in_play') pitchExtra.buntOutcome = 'in_play';
+      else if (result === 'ball' || result === 'strike_called') pitchExtra.buntOutcome = 'stance_only';
+    }
+
     if (result === 'in_play') {
-      recordPitch(selectedPitch, pendingZone, 'in_play', velocity, normX, normY);
-      applyRunnerEvents();
+      recordPitch(selectedPitch, pendingZone, 'in_play', velocity, normX, normY, pitchExtra);
+      applyRunnerActions('in_play', velocity);
       setPendingZone(null);
       setPendingCoords(null);
       setTapCoord(null);
+      setStealSign('none');
+      setBuntStance(false);
       setShowFieldView(true);
       return;
     }
 
-    recordPitch(selectedPitch, pendingZone, result, velocity, normX, normY);
-    applyRunnerEvents();
+    recordPitch(selectedPitch, pendingZone, result, velocity, normX, normY, pitchExtra);
+    applyRunnerActions(result, velocity);
     setPendingZone(null);
     setPendingCoords(null);
     setTapCoord(null);
+    setStealSign('none');
+    setBuntStance(false);
     persist();
-  }, [pendingZone, pendingCoords, selectedPitch, recordPitch, recordStolenBase, recordPickoff, persist, selectedRunnerEvents, velocityMode, measuredVelocity, averageVelocity]);
+  }, [pendingZone, pendingCoords, selectedPitch, recordPitch, recordStolenBase, recordCaughtStealing, persist, runnerActions, velocityMode, measuredVelocity, averageVelocity, game.count, buntStance, isItemOn, stealSign]);
 
-  const handleFieldConfirm = useCallback((result: AtBatResult, battedBall: BattedBall) => {
+  const handleFieldConfirm = useCallback((result: AtBatResult, battedBall: BattedBall, buntType?: BuntType) => {
     const g = useGameStore.getState().game;
     const hasRunners = g && (g.runners.first || g.runners.second || g.runners.third);
     if (!hasRunners) {
       setShowFieldView(false);
     }
-    resolveAtBat(result, battedBall);
+    const sp = atBatSign !== 'none' ? atBatSign : undefined;
+    resolveAtBat(result, battedBall, 0, { buntType, signPlay: sp });
+    setAtBatSign('none');
     persist();
-  }, [resolveAtBat, persist]);
+  }, [resolveAtBat, persist, atBatSign]);
 
   const handleAdvancementConfirm = useCallback((finalAdvancements: RunnerAdvancement[]) => {
-    confirmAdvancement(finalAdvancements);
+    const sp = atBatSign !== 'none' ? atBatSign : undefined;
+    confirmAdvancement(finalAdvancements, { signPlay: sp });
+    setAtBatSign('none');
     setShowFieldView(false);
     persist();
-  }, [confirmAdvancement, persist]);
+  }, [confirmAdvancement, persist, atBatSign]);
 
   const handleAdvancementCancel = useCallback(() => {
     cancelAdvancement();
@@ -412,7 +506,7 @@ export default function LiveScoreScreen() {
             // 保存完了 → 試合一覧（アナリティクス）へ遷移
             router.replace('/(tabs)/analytics' as any);
           } catch (error) {
-            console.error('[handleEndGame] 保存失敗:', error);
+            if (__DEV__) console.error('[handleEndGame] 保存失敗:', error);
             Alert.alert(t.live.saveFailed ?? '保存に失敗しました');
           }
         },
@@ -426,8 +520,8 @@ export default function LiveScoreScreen() {
     setEditModalVisible(true);
   }, [game?.atBatLogs]);
 
-  const handleSaveEdit = useCallback((logId: string, newResult: AtBatResult, newRbi: number) => {
-    editAtBatLog(logId, newResult, newRbi);
+  const handleSaveEdit = useCallback((logId: string, newResult: AtBatResult, newRbi: number, note: string) => {
+    editAtBatLog(logId, newResult, newRbi, note);
     persist();
   }, [editAtBatLog, persist]);
 
@@ -450,38 +544,31 @@ export default function LiveScoreScreen() {
     persist();
   }, [pickoffTargetBase, recordPickoff, persist]);
 
-  const handleStealPress = useCallback(() => {
-    if (!game) return;
-    const hasRunners = game.runners.first || game.runners.second || game.runners.third;
-    if (!hasRunners) return;
-    setShowStealBase(true);
-  }, [game]);
-
-  // ── スワイプ盗塁: ダイヤモンド上でランナーをスワイプ ──────────────
-  const handleRunnerSwipe = useCallback((fromBase: 'first' | 'second' | 'third') => {
-    setSwipeStealBase(fromBase);
+  // ── タップ盗塁: ランナータップ → 試み確認モーダルを開く ──────────────
+  const handleRunnerTap = useCallback((fromBase: 'first' | 'second' | 'third') => {
+    setPendingStealBase(fromBase);
   }, []);
 
-  const handleSwipeStealSuccess = useCallback(() => {
-    if (!swipeStealBase) return;
-    recordStolenBase(swipeStealBase);
-    setSwipeStealBase(null);
-    persist();
-  }, [swipeStealBase, recordStolenBase, persist]);
+  // 「盗塁を試みた」: runnerActions にフラグを立てるだけ。セーフ/アウトは投球後に入力
+  const handleStealAttempt = useCallback(() => {
+    if (!pendingStealBase) return;
+    setRunnerActions(prev => ({
+      ...prev,
+      [pendingStealBase]: { type: 'steal' as const, result: 'safe' as const },
+    }));
+    setPendingStealBase(null);
+  }, [pendingStealBase]);
 
-  const handleSwipeStealFail = useCallback(() => {
-    if (!swipeStealBase) return;
-    // 盗塁失敗 = 牽制アウトとして記録（ランナーを除去）
-    recordPickoff(swipeStealBase, 'out');
-    setSwipeStealBase(null);
-    persist();
-  }, [swipeStealBase, recordPickoff, persist]);
-
-  const handleStealBaseSelect = useCallback((fromBase: 'first' | 'second' | 'third') => {
-    setShowStealBase(false);
-    recordStolenBase(fromBase);
-    persist();
-  }, [recordStolenBase, persist]);
+  // 「盗塁試みを取り消す」: runnerActions から該当塁を削除
+  const handleCancelStealAttempt = useCallback(() => {
+    if (!pendingStealBase) return;
+    setRunnerActions(prev => {
+      const next = { ...prev };
+      delete next[pendingStealBase];
+      return next;
+    });
+    setPendingStealBase(null);
+  }, [pendingStealBase]);
 
   if (showFieldView) {
     return (
@@ -505,7 +592,28 @@ export default function LiveScoreScreen() {
               ballpark={game.ballpark}
               onConfirm={handleFieldConfirm}
               onCancel={handleFieldCancel}
+              filterAtBatResult={fieldViewFilter}
+              buntDetailEnabled={isItemOn('bunt_detail')}
+              fieldLocationEnabled={isItemOn('batted_ball_location')}
+              fieldDistanceLabelEnabled={isItemOn('batted_ball_distance')}
             />
+            {isItemOn('sign_play') && (
+              <View style={{ paddingHorizontal: 12, paddingBottom: 8, backgroundColor: Colors.background }}>
+                <SignPlayPicker
+                  value={atBatSign}
+                  onChange={setAtBatSign}
+                  labels={{
+                    none: 'なし',
+                    hit_and_run: 'H&R',
+                    run_and_hit: 'R&H',
+                    squeeze: 'スクイズ',
+                    double_steal: 'D盗',
+                    delayed_steal: '遅盗',
+                    bunt_and_run: 'B&R',
+                  }}
+                />
+              </View>
+            )}
           </View>
           {pendingAdvancement && (
             <View style={[StyleSheet.absoluteFill, styles.advancementOverlay]}>
@@ -593,10 +701,14 @@ export default function LiveScoreScreen() {
             <CountDots label="O" count={game.count.outs} max={2} color="#F44336" />
           </View>
           <View style={styles.diamondWrap}>
-            <SwipeableDiamond
+            <TappableDiamond
               runners={game.runners}
-              onRunnerSwipe={handleRunnerSwipe}
-              setScrollLocked={setScrollLocked}
+              onRunnerTap={handleRunnerTap}
+              stealingBases={{
+                first:  !!runnerActions.first,
+                second: !!runnerActions.second,
+                third:  !!runnerActions.third,
+              }}
             />
           </View>
         </View>
@@ -890,7 +1002,7 @@ export default function LiveScoreScreen() {
             <Text style={styles.lastPitchLabel}>{t.live.zoneTitle}</Text>
           )}
           <View style={styles.actionBtnsRow}>
-            {(game.runners.first || game.runners.second || game.runners.third) && (
+            {(game.runners.first || game.runners.second || game.runners.third) && isItemOn('pickoff') && (
               <TouchableOpacity style={styles.pickoffBtn} onPress={handlePickoffPress}>
                 <MaterialCommunityIcons name="arrow-left-bold" size={16} color="#FFD700" />
                 <Text style={styles.pickoffBtnText}>{t.live.pickoff}</Text>
@@ -906,6 +1018,7 @@ export default function LiveScoreScreen() {
         </View>
 
         {/* ===== 選手交代ボタン ===== */}
+        {isItemOn('substitution') && (
         <View style={styles.subRow}>
           <Button
             mode="outlined"
@@ -926,6 +1039,7 @@ export default function LiveScoreScreen() {
             {game.homeTeam.name} 交代
           </Button>
         </View>
+        )}
 
         {/* ===== 試合終了ボタン ===== */}
         <Button
@@ -999,44 +1113,104 @@ export default function LiveScoreScreen() {
               <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#E53935' }]} onPress={() => handlePickoffResult('out')}>
                 <Text style={styles.resultBtnText}>{t.live.pickoffOut}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#FB8C00' }]} onPress={() => handlePickoffResult('balk')}>
-                <Text style={styles.resultBtnText}>{t.live.pickoffBalk}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#795548' }]} onPress={() => handlePickoffResult('error')}>
-                <Text style={styles.resultBtnText}>{t.live.pickoffError}</Text>
-              </TouchableOpacity>
+              {isItemOn('pickoff_balk') && (
+                <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#FB8C00' }]} onPress={() => handlePickoffResult('balk')}>
+                  <Text style={styles.resultBtnText}>{t.live.pickoffBalk}</Text>
+                </TouchableOpacity>
+              )}
+              {isItemOn('pickoff_error') && (
+                <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#795548' }]} onPress={() => handlePickoffResult('error')}>
+                  <Text style={styles.resultBtnText}>{t.live.pickoffError}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </Modal>
       </Portal>
 
-      {/* ===== スワイプ盗塁: 結果選択モーダル ===== */}
+
+      {/* ===== ダイヤモンドタップ盗塁: 結果選択モーダル ===== */}
       <Portal>
-        <Modal visible={!!swipeStealBase} onDismiss={() => setSwipeStealBase(null)} contentContainerStyle={styles.modal}>
-          <View>
-            <Text style={styles.modalTitle}>{t.live.stealResult}</Text>
-            {swipeStealBase && (
-              <Text style={styles.lastPitchLabel}>
-                {(t.advancement as Record<string, string>)[swipeStealBase]}塁走者
+        <Modal
+          visible={!!pendingStealBase}
+          onDismiss={() => setPendingStealBase(null)}
+          contentContainerStyle={styles.modal}
+        >
+          {pendingStealBase && (
+            <View>
+              {/* タイトル */}
+              <View style={styles.stealModalHeader}>
+                <MaterialCommunityIcons name="run-fast" size={22} color={Colors.primary} />
+                <Text style={styles.modalTitle}>
+                  {pendingStealBase === 'first' ? '1塁' : pendingStealBase === 'second' ? '2塁' : '3塁'}走者
+                </Text>
+              </View>
+              <Text style={styles.stealModalSub}>
+                {game.runners[pendingStealBase]?.name ?? ''}
               </Text>
-            )}
-            <View style={[styles.resultGrid, { marginTop: Spacing.sm }]}>
-              <TouchableOpacity
-                style={[styles.resultBtn, { backgroundColor: '#43A047', width: 96 }]}
-                onPress={handleSwipeStealSuccess}
-              >
-                <MaterialCommunityIcons name="check-bold" size={20} color="#fff" />
-                <Text style={styles.resultBtnText}>{t.live.stealSuccess}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.resultBtn, { backgroundColor: '#E53935', width: 96 }]}
-                onPress={handleSwipeStealFail}
-              >
-                <MaterialCommunityIcons name="close-thick" size={20} color="#fff" />
-                <Text style={styles.resultBtnText}>{t.live.stealFail}</Text>
-              </TouchableOpacity>
+
+              {isItemOn('sign_play') && (
+                <SignPlayPicker
+                  value={stealSign}
+                  onChange={setStealSign}
+                  labels={{
+                    none: 'なし',
+                    hit_and_run: 'H&R',
+                    run_and_hit: 'R&H',
+                    squeeze: 'スクイズ',
+                    double_steal: 'D盗',
+                    delayed_steal: '遅盗',
+                    bunt_and_run: 'B&R',
+                  }}
+                />
+              )}
+
+              {runnerActions[pendingStealBase] ? (
+                /* 盗塁試み中 → 取り消しUI */
+                <>
+                  <View style={styles.stealAttemptHint}>
+                    <MaterialCommunityIcons name="run-fast" size={15} color="#2E7D32" />
+                    <Text style={styles.stealAttemptHintText}>盗塁試み中 — 投球後にセーフ/アウトを入力します</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.stealResultLargeBtn, { backgroundColor: '#C62828' }]}
+                    onPress={handleCancelStealAttempt}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialCommunityIcons name="close-circle-outline" size={26} color="#fff" />
+                    <Text style={styles.stealResultLargeBtnText}>盗塁試みを取り消す</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.stealCancelBtn}
+                    onPress={() => setPendingStealBase(null)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.stealCancelBtnText}>閉じる</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                /* 未登録 → 試み登録UI */
+                <>
+                  <TouchableOpacity
+                    style={[styles.stealResultLargeBtn, { backgroundColor: Colors.primary }]}
+                    onPress={handleStealAttempt}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialCommunityIcons name="run-fast" size={28} color="#fff" />
+                    <Text style={styles.stealResultLargeBtnText}>盗塁を試みた</Text>
+                    <Text style={styles.stealResultLargeBtnSub}>セーフ/アウトは投球後に入力</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.stealCancelBtn}
+                    onPress={() => setPendingStealBase(null)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.stealCancelBtnText}>キャンセル（盗塁なし）</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
-          </View>
+          )}
         </Modal>
       </Portal>
 
@@ -1117,31 +1291,6 @@ export default function LiveScoreScreen() {
         )}
       </Portal>
 
-      {/* ===== 盗塁: 走者選択モーダル ===== */}
-      <Portal>
-        <Modal visible={showStealBase} onDismiss={() => setShowStealBase(false)} contentContainerStyle={styles.modal}>
-          <View>
-            <Text style={styles.modalTitle}>{t.live.stealBase}</Text>
-            <View style={styles.resultGrid}>
-              {game.runners.first && (
-                <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#00ACC1' }]} onPress={() => handleStealBaseSelect('first')}>
-                  <Text style={styles.resultBtnText}>{t.advancement.first}</Text>
-                </TouchableOpacity>
-              )}
-              {game.runners.second && (
-                <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#00ACC1' }]} onPress={() => handleStealBaseSelect('second')}>
-                  <Text style={styles.resultBtnText}>{t.advancement.second}</Text>
-                </TouchableOpacity>
-              )}
-              {game.runners.third && (
-                <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#00ACC1' }]} onPress={() => handleStealBaseSelect('third')}>
-                  <Text style={styles.resultBtnText}>{t.advancement.third}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </Modal>
-      </Portal>
 
       {/* ===== 投球結果選択モーダル ===== */}
       <Portal>
@@ -1152,74 +1301,102 @@ export default function LiveScoreScreen() {
             setPendingZone(null);
             setPendingCoords(null);
             setTapCoord(null);
-            setSelectedRunnerEvents([]);
+            setRunnerActions({});
           }}
           contentContainerStyle={styles.modal}
         >
           <View>
             <Text style={styles.modalTitle}>{t.live.resultTitle}</Text>
 
-            {/* ── 層B: 走者イベントチップ (ランナーがいる時のみ) ── */}
+            {/* ── 走者アクション（盗塁）セクション ── */}
             {(game.runners.first || game.runners.second || game.runners.third) && (
-              <View style={styles.runnerEventSection}>
-                <Text style={styles.runnerEventLabel}>走者イベント（任意）</Text>
-                <View style={styles.chipRow}>
-                  {game.runners.first && (
-                    <>
-                      <RunnerEventChip
-                        label="1→2 盗塁"
-                        selected={selectedRunnerEvents.some(e => e.base === 'first' && e.type === 'stolen')}
-                        color={Colors.primary}
-                        onPress={() => toggleRunnerEvent('first', 'stolen')}
-                      />
-                      <RunnerEventChip
-                        label="1塁 刺殺"
-                        selected={selectedRunnerEvents.some(e => e.base === 'first' && e.type === 'caught')}
-                        color={Colors.secondary}
-                        onPress={() => toggleRunnerEvent('first', 'caught')}
-                      />
-                    </>
-                  )}
-                  {game.runners.second && (
-                    <>
-                      <RunnerEventChip
-                        label="2→3 盗塁"
-                        selected={selectedRunnerEvents.some(e => e.base === 'second' && e.type === 'stolen')}
-                        color={Colors.primary}
-                        onPress={() => toggleRunnerEvent('second', 'stolen')}
-                      />
-                      <RunnerEventChip
-                        label="2塁 刺殺"
-                        selected={selectedRunnerEvents.some(e => e.base === 'second' && e.type === 'caught')}
-                        color={Colors.secondary}
-                        onPress={() => toggleRunnerEvent('second', 'caught')}
-                      />
-                    </>
-                  )}
-                  {game.runners.third && (
-                    <>
-                      <RunnerEventChip
-                        label="3→本 盗塁"
-                        selected={selectedRunnerEvents.some(e => e.base === 'third' && e.type === 'stolen')}
-                        color={Colors.primary}
-                        onPress={() => toggleRunnerEvent('third', 'stolen')}
-                      />
-                      <RunnerEventChip
-                        label="3塁 刺殺"
-                        selected={selectedRunnerEvents.some(e => e.base === 'third' && e.type === 'caught')}
-                        color={Colors.secondary}
-                        onPress={() => toggleRunnerEvent('third', 'caught')}
-                      />
-                    </>
-                  )}
-                </View>
+              <View style={styles.runnerActionSection}>
+                <Text style={styles.runnerEventLabel}>走者アクション</Text>
+                {(['first', 'second', 'third'] as const).map((base) => {
+                  const runner = game.runners[base];
+                  if (!runner) return null;
+                  const action = runnerActions[base];
+                  const baseLabel = base === 'first' ? '1塁' : base === 'second' ? '2塁' : '3塁';
+                  return (
+                    <View key={base} style={styles.runnerActionRow}>
+                      {/* ランナー情報 */}
+                      <View style={styles.runnerActionInfo}>
+                        <View style={styles.runnerDot} />
+                        <Text style={styles.runnerActionName} numberOfLines={1}>
+                          {baseLabel}·{runner.name.slice(0, 4)}
+                        </Text>
+                      </View>
+                      {/* 盗塁ボタン */}
+                      <TouchableOpacity
+                        style={[styles.stealActionBtn, action && styles.stealActionBtnActive]}
+                        onPress={() => toggleRunnerAction(base)}
+                        activeOpacity={0.75}
+                      >
+                        <MaterialCommunityIcons
+                          name="run-fast"
+                          size={12}
+                          color={action ? '#fff' : Colors.primary}
+                        />
+                        <Text style={[styles.stealActionBtnText, action && styles.stealActionBtnTextActive]}>
+                          盗塁
+                        </Text>
+                      </TouchableOpacity>
+                      {/* 成功/失敗トグル（盗塁選択時のみ表示） */}
+                      {action && (
+                        <View style={styles.stealResultToggle}>
+                          <TouchableOpacity
+                            style={[
+                              styles.stealResultBtn,
+                              styles.stealResultBtnSafe,
+                              action.result === 'safe' && styles.stealResultBtnSafeActive,
+                            ]}
+                            onPress={() => setRunnerActionResult(base, 'safe')}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={[
+                              styles.stealResultBtnText,
+                              action.result === 'safe' && { color: '#fff' },
+                            ]}>✓ セーフ</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.stealResultBtn,
+                              styles.stealResultBtnOut,
+                              action.result === 'out' && styles.stealResultBtnOutActive,
+                            ]}
+                            onPress={() => setRunnerActionResult(base, 'out')}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={[
+                              styles.stealResultBtnText,
+                              action.result === 'out' && { color: '#fff' },
+                            ]}>✗ アウト</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             )}
 
             {/* ── 層A: メイン投球結果ボタン ── */}
             <Text style={styles.runnerEventLabel}>投球結果</Text>
+            {isItemOn('bunt_stance') && (
+              <TouchableOpacity
+                style={[styles.buntStanceRow, buntStance && styles.buntStanceRowOn]}
+                onPress={() => setBuntStance((v) => !v)}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons name="baseball" size={18} color={buntStance ? '#FFD54F' : Colors.textSecondary} />
+                <Text style={[styles.buntStanceText, buntStance && { color: '#FFD54F' }]}>
+                  バント構え
+                </Text>
+              </TouchableOpacity>
+            )}
+
             <View style={styles.resultGrid}>
-              {PITCH_RESULT_OPTIONS.map(({ result, color, label }) => (
+              {pitchResultRows.map(({ result, color, label }) => (
                 <TouchableOpacity
                   key={result}
                   style={[styles.resultBtn, { backgroundColor: color }]}
@@ -1232,23 +1409,25 @@ export default function LiveScoreScreen() {
           </View>
         </Modal>
       </Portal>
+
+      <PlayConfirmSnack
+        visible={!!playSnack}
+        batterLabel={playSnack?.batter ?? ''}
+        resultLabel={playSnack?.resultLabel ?? ''}
+        onSaveNote={(note) => {
+          if (!playSnack || !game) return;
+          const log = game.atBatLogs.find((l) => l.id === playSnack.id);
+          if (log && log.result) {
+            editAtBatLog(log.id, log.result, log.rbiCount, note);
+            persist();
+          }
+          setPlaySnack(null);
+        }}
+        onDismiss={() => setPlaySnack(null)}
+      />
     </View>
   );
 }
-
-// ============================================================
-// 投球結果の選択肢 (層A)
-// ============================================================
-
-const PITCH_RESULT_OPTIONS: { result: PitchResult; color: string; label?: string }[] = [
-  { result: 'ball',            color: '#2E7D9F', label: 'ボール' },
-  { result: 'strike_called',   color: '#C41E3A', label: '見逃し' },
-  { result: 'strike_swinging', color: '#9B1528', label: '空振り' },
-  { result: 'foul',            color: '#B87A00', label: 'ファウル' },
-  { result: 'foul_tip',        color: '#8B5E00', label: 'チップ' },
-  { result: 'in_play',         color: '#38A1F3', label: 'インプレイ' },
-  { result: 'hit_by_pitch',    color: '#5A1A5C', label: '死球' },
-];
 
 // ============================================================
 // サブコンポーネント
@@ -1271,39 +1450,40 @@ function CountDots({ label, count, max, color }: { label: string; count: number;
 }
 
 /**
- * SwipeableDiamond — インタラクティブなダイヤモンド表示
+ * TappableDiamond — ランナーをタップして盗塁を即記録するダイヤモンド
  *
- * ランナーがいる塁の走者サークルを水平スワイプすることで
- * 盗塁試行ダイアログを呼び出せます。
- * ScrollViewのスクロールと競合しないよう、走者にヒットした時のみ
- * ジェスチャーを取得します。
+ * 各ランナーサークルの下に「盗塁」バッジを表示し、
+ * タップするだけで盗塁を記録できます。
+ * スクロールと競合しないよう、ランナーにヒットした時のみ
+ * タッチイベントを取得します。
  */
-function SwipeableDiamond({
+function TappableDiamond({
   runners,
-  onRunnerSwipe,
-  setScrollLocked,
+  onRunnerTap,
+  stealingBases = {},
 }: {
   runners: { first: { name: string } | null; second: { name: string } | null; third: { name: string } | null };
-  onRunnerSwipe: (fromBase: 'first' | 'second' | 'third') => void;
-  setScrollLocked: (locked: boolean) => void;
+  onRunnerTap: (fromBase: 'first' | 'second' | 'third') => void;
+  stealingBases?: Partial<Record<'first' | 'second' | 'third', boolean>>;
 }) {
   const SIZE = 88;
+  const BADGE_H = 14; // 「盗塁」バッジ分の高さ
   const cx = SIZE / 2;
   const cy = SIZE / 2;
   const r = 30;
   const RUNNER_R = 12;
-  const HIT_R = 18;
-  const BASE_HS = 8; // half-size of base square
+  const HIT_R = 20;
+  const BASE_HS = 8;
 
   const POS = {
-    second: { x: cx, y: cy - r },
-    third:  { x: cx - r, y: cy },
-    first:  { x: cx + r, y: cy },
-    home:   { x: cx, y: cy + r },
+    second: { x: cx,     y: cy - r },
+    third:  { x: cx - r, y: cy     },
+    first:  { x: cx + r, y: cy     },
+    home:   { x: cx,     y: cy + r },
   };
 
-  const swipeRef = useRef<{ startX: number; base: 'first' | 'second' | 'third' | null }>({
-    startX: 0, base: null,
+  const tapRef = useRef<{ startX: number; startY: number; base: 'first' | 'second' | 'third' | null }>({
+    startX: 0, startY: 0, base: null,
   });
 
   function hitTest(lx: number, ly: number): 'first' | 'second' | 'third' | null {
@@ -1315,41 +1495,36 @@ function SwipeableDiamond({
     return null;
   }
 
-  const hasRunners = !!(runners.first || runners.second || runners.third);
-
   return (
     <View
-      style={{ width: SIZE, height: SIZE }}
+      style={{ width: SIZE, height: SIZE + BADGE_H }}
       onStartShouldSetResponder={(e) => {
         const base = hitTest(e.nativeEvent.locationX, e.nativeEvent.locationY);
         if (base) {
-          swipeRef.current = { startX: e.nativeEvent.locationX, base };
+          tapRef.current = { startX: e.nativeEvent.locationX, startY: e.nativeEvent.locationY, base };
           return true;
         }
         return false;
       }}
-      onMoveShouldSetResponder={() => !!swipeRef.current.base}
+      onMoveShouldSetResponder={() => !!tapRef.current.base}
       onResponderTerminationRequest={() => false}
-      onResponderGrant={() => {
-        if (swipeRef.current.base) setScrollLocked(true);
-      }}
       onResponderRelease={(e) => {
-        setScrollLocked(false);
-        const { base, startX } = swipeRef.current;
+        const { base, startX, startY } = tapRef.current;
         if (base) {
           const dx = e.nativeEvent.locationX - startX;
-          if (Math.abs(dx) >= 38) {
-            onRunnerSwipe(base);
+          const dy = e.nativeEvent.locationY - startY;
+          // 指がほぼ動いていない = タップと判定
+          if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+            onRunnerTap(base);
           }
         }
-        swipeRef.current = { startX: 0, base: null };
+        tapRef.current = { startX: 0, startY: 0, base: null };
       }}
       onResponderTerminate={() => {
-        setScrollLocked(false);
-        swipeRef.current = { startX: 0, base: null };
+        tapRef.current = { startX: 0, startY: 0, base: null };
       }}
     >
-      <Svg width={SIZE} height={SIZE}>
+      <Svg width={SIZE} height={SIZE + BADGE_H}>
         {/* ダイヤモンド線 */}
         <Line x1={POS.home.x}   y1={POS.home.y}   x2={POS.first.x}  y2={POS.first.y}  stroke={Colors.border} strokeWidth={1.5} />
         <Line x1={POS.first.x}  y1={POS.first.y}  x2={POS.second.x} y2={POS.second.y} stroke={Colors.border} strokeWidth={1.5} />
@@ -1375,13 +1550,25 @@ function SwipeableDiamond({
           );
         })}
 
-        {/* ランナーサークル (選手名2文字) */}
+        {/* ランナーサークル + 「盗塁」バッジ */}
         {(['first', 'second', 'third'] as const).map((base) => {
           const player = runners[base];
           if (!player) return null;
           const pos = POS[base];
+          const badgeY = pos.y + RUNNER_R + 8;
+
           return (
             <React.Fragment key={base}>
+              {/* タップ可能を示す点線リング */}
+              <Circle
+                cx={pos.x} cy={pos.y} r={RUNNER_R + 4}
+                fill="none"
+                stroke={Colors.accent}
+                strokeWidth={1}
+                strokeDasharray="3,2"
+                opacity={0.6}
+              />
+              {/* ランナーサークル本体 */}
               <Circle
                 cx={pos.x} cy={pos.y} r={RUNNER_R}
                 fill={Colors.primary}
@@ -1397,22 +1584,25 @@ function SwipeableDiamond({
               >
                 {player.name.slice(0, 2)}
               </SvgText>
+              {/* バッジ: 盗塁試み中は橙「走中」/ 通常は金「盗塁」 */}
+              <Rect
+                x={pos.x - 13} y={badgeY - 8}
+                width={26} height={11}
+                rx={3}
+                fill={stealingBases[base] ? '#E65100' : Colors.accent}
+              />
+              <SvgText
+                x={pos.x} y={badgeY}
+                textAnchor="middle"
+                fontSize={7}
+                fontWeight="bold"
+                fill={stealingBases[base] ? '#fff' : Colors.primary}
+              >
+                {stealingBases[base] ? '走中!' : '盗塁'}
+              </SvgText>
             </React.Fragment>
           );
         })}
-
-        {/* スワイプヒント */}
-        {hasRunners && (
-          <SvgText
-            x={cx} y={SIZE - 1}
-            textAnchor="middle"
-            fontSize={6.5}
-            fill={Colors.primary}
-            opacity={0.65}
-          >
-            ← → スワイプ=盗塁
-          </SvgText>
-        )}
       </Svg>
     </View>
   );
@@ -1483,37 +1673,6 @@ function BatterSilhouetteSVG({ side }: { side: 'L' | 'R' }) {
   );
 }
 
-/**
- * RunnerEventChip — 走者イベント選択チップ (層B)
- */
-function RunnerEventChip({
-  label,
-  selected,
-  color,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  color: string;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      style={[
-        styles.eventChip,
-        selected
-          ? { backgroundColor: color, borderColor: color }
-          : { backgroundColor: 'transparent', borderColor: color },
-      ]}
-      onPress={onPress}
-      activeOpacity={0.75}
-    >
-      <Text style={[styles.eventChipText, { color: selected ? '#fff' : color }]}>
-        {selected ? '✓ ' : ''}{label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
 
 // rdStyles: RunnerDiamond → SwipeableDiamond に移行済み (削除)
 
@@ -1539,10 +1698,8 @@ function VelocityDragMeter({
 }) {
   const fillRatio = (value - VEL_MIN) / (VEL_MAX - VEL_MIN);
 
-  const handleTouch = (locationX: number) => {
-    const ratio = Math.max(0, Math.min(1, locationX / METER_TRACK_W));
-    onChange(Math.round(VEL_MIN + ratio * (VEL_MAX - VEL_MIN)));
-  };
+  // デルタドラッグ: タッチ開始時の位置と値を記録し、移動量だけ値を変化させる
+  const dragRef = useRef<{ startPageX: number; startValue: number } | null>(null);
 
   return (
     <View style={meterStyles.wrap}>
@@ -1564,11 +1721,29 @@ function VelocityDragMeter({
         onResponderTerminationRequest={() => false}
         onResponderGrant={(e) => {
           setScrollLocked(true);
-          handleTouch(e.nativeEvent.locationX);
+          // タッチ開始位置と現在値を記録 (値はジャンプしない)
+          dragRef.current = {
+            startPageX: e.nativeEvent.pageX,
+            startValue: value,
+          };
         }}
-        onResponderMove={(e) => handleTouch(e.nativeEvent.locationX)}
-        onResponderRelease={() => setScrollLocked(false)}
-        onResponderTerminate={() => setScrollLocked(false)}
+        onResponderMove={(e) => {
+          if (!dragRef.current) return;
+          const deltaX = e.nativeEvent.pageX - dragRef.current.startPageX;
+          const deltaV = (deltaX / METER_TRACK_W) * (VEL_MAX - VEL_MIN);
+          const next = Math.round(
+            Math.max(VEL_MIN, Math.min(VEL_MAX, dragRef.current.startValue + deltaV))
+          );
+          onChange(next);
+        }}
+        onResponderRelease={() => {
+          setScrollLocked(false);
+          dragRef.current = null;
+        }}
+        onResponderTerminate={() => {
+          setScrollLocked(false);
+          dragRef.current = null;
+        }}
       >
         {/* 背景 */}
         <View style={meterStyles.trackBg} />
@@ -1911,6 +2086,23 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
   },
+  buntStanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 4,
+    borderRadius: 8,
+  },
+  buntStanceRowOn: {
+    backgroundColor: 'rgba(255,193,7,0.12)',
+  },
+  buntStanceText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
   modalTitle: {
     fontSize: Typography.h4,
     fontWeight: '800',
@@ -1939,37 +2131,162 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // ── 層B: 走者イベントチップ ───────────────────────────────
-  runnerEventSection: {
-    marginBottom: Spacing.md,
+  // ── 走者アクション セクション ──────────────────────────────
+  runnerActionSection: {
+    marginBottom: Spacing.sm,
     backgroundColor: Colors.surfaceGray,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.md,
     padding: Spacing.sm,
+    gap: 6,
   },
   runnerEventLabel: {
     fontSize: Typography.tiny,
     fontWeight: '700',
     color: Colors.textSecondary,
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
     letterSpacing: 0.5,
-    marginBottom: Spacing.xs,
+    marginBottom: 2,
   },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  runnerActionRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     gap: 6,
   },
-  eventChip: {
-    paddingHorizontal: 10,
+  runnerActionInfo: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    flex: 1,
+    minWidth: 70,
+  },
+  runnerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.accent,
+  },
+  runnerActionName: {
+    fontSize: 11,
+    fontWeight: '600' as const,
+    color: Colors.text,
+    flexShrink: 1,
+  },
+  stealActionBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 3,
+    paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: BorderRadius.full,
     borderWidth: 1.5,
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderColor: Colors.primary,
+    backgroundColor: 'transparent',
   },
-  eventChipText: {
+  stealActionBtnActive: {
+    backgroundColor: Colors.primary,
+  },
+  stealActionBtnText: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    color: Colors.primary,
+  },
+  stealActionBtnTextActive: {
+    color: '#fff',
+  },
+  stealResultToggle: {
+    flexDirection: 'row' as const,
+    gap: 4,
+  },
+  stealResultBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1.5,
+  },
+  stealResultBtnSafe: {
+    borderColor: '#2E7D32',
+  },
+  stealResultBtnSafeActive: {
+    backgroundColor: '#2E7D32',
+  },
+  stealResultBtnOut: {
+    borderColor: '#C41E3A',
+  },
+  stealResultBtnOutActive: {
+    backgroundColor: '#C41E3A',
+  },
+  stealResultBtnText: {
+    fontSize: 10,
+    fontWeight: '700' as const,
+    color: Colors.textSecondary,
+  },
+
+  // ── ダイヤモンドタップ盗塁 結果モーダル ─────────────────────────────
+  stealModalHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    marginBottom: 2,
+  },
+  stealModalSub: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.md,
+    marginLeft: 2,
+  },
+  stealResultRow: {
+    flexDirection: 'row' as const,
+    gap: 10,
+    marginBottom: Spacing.md,
+  },
+  stealResultLargeBtn: {
+    flex: 1,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 16,
+    alignItems: 'center' as const,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  stealResultLargeBtnText: {
+    fontSize: Typography.h4,
+    fontWeight: '800' as const,
+    color: '#fff',
+  },
+  stealResultLargeBtnSub: {
+    fontSize: Typography.tiny,
+    color: 'rgba(255,255,255,0.75)',
+    fontWeight: '600' as const,
+  },
+  stealCancelBtn: {
+    alignItems: 'center' as const,
+    paddingVertical: Spacing.sm,
+  },
+  stealCancelBtnText: {
     fontSize: Typography.caption,
-    fontWeight: '700',
+    color: Colors.textSecondary,
+    fontWeight: '600' as const,
+  },
+  stealAttemptHint: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    backgroundColor: 'rgba(46,125,50,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(46,125,50,0.3)',
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 8,
+    marginBottom: Spacing.md,
+  },
+  stealAttemptHintText: {
+    flex: 1,
+    fontSize: Typography.caption,
+    color: '#2E7D32',
+    fontWeight: '600' as const,
   },
 
   // ── 球速計測ストリップ ────────────────────────────────────────────

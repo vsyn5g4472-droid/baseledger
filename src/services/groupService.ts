@@ -134,6 +134,7 @@ export async function sendGroupMessage(
 export function onGroupMessagesUpdate(
   groupId: string,
   callback: (messages: GroupMessage[]) => void,
+  onError?: (error: Error) => void,
 ): () => void {
   const messagesRef = collection(db, GROUPS_COLLECTION, groupId, GROUP_MESSAGES_SUBCOLLECTION);
   const q = query(messagesRef, orderBy('createdAt', 'asc'), fbLimit(100));
@@ -141,7 +142,7 @@ export function onGroupMessagesUpdate(
   return onSnapshot(q, (snap) => {
     const messages = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as GroupMessage[];
     callback(messages);
-  });
+  }, onError);
 }
 
 /**
@@ -150,6 +151,7 @@ export function onGroupMessagesUpdate(
 export function onUserGroupsUpdate(
   userId: string,
   callback: (groups: Group[]) => void,
+  onError?: (error: Error) => void,
 ): () => void {
   const groupsRef = collection(db, GROUPS_COLLECTION);
   const q = query(
@@ -161,7 +163,7 @@ export function onUserGroupsUpdate(
   return onSnapshot(q, (snap) => {
     const groups = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Group[];
     callback(groups);
-  });
+  }, onError);
 }
 
 /**

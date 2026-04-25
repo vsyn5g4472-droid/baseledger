@@ -247,14 +247,16 @@ export async function markAsRead(conversationId: string, userId: string): Promis
 }
 
 /**
- * Real-time listener for messages in a conversation.
+ * Real-time listener for messages in a conversation (ascending order for chat display).
  * @param conversationId - Conversation to listen to
- * @param callback - Called with updated messages
+ * @param callback - Called with updated messages (oldest first)
+ * @param onError - Optional error handler
  * @returns Unsubscribe function
  */
 export function onMessagesUpdate(
   conversationId: string,
   callback: (messages: Message[]) => void,
+  onError?: (error: Error) => void,
 ): () => void {
   const messagesRef = collection(
     db,
@@ -262,7 +264,7 @@ export function onMessagesUpdate(
     conversationId,
     MESSAGES_SUBCOLLECTION,
   );
-  const q = query(messagesRef, orderBy('createdAt', 'desc'), fbLimit(100));
+  const q = query(messagesRef, orderBy('createdAt', 'asc'), fbLimit(100));
 
   return onSnapshot(q, (snap) => {
     const messages = snap.docs.map((d) => ({
@@ -270,5 +272,63 @@ export function onMessagesUpdate(
       ...d.data(),
     })) as Message[];
     callback(messages);
-  });
+  }, onError);
+}
+
+/**
+ * Real-time listener for conversations a user participates in.
+ * @param userId - User to listen for
+ * @param callback - Called with updated conversation list (most recent first)
+ * @param onError - Optional error handler
+ * @returns Unsubscribe function
+ */
+export function onConversationsUpdate(
+  userId: string,
+  callback: (conversations: Conversation[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  const convosRef = collection(db, CONVERSATIONS_COLLECTION);
+  const q = query(
+    convosRef,
+    where('participants', 'array-contains', userId),
+    orderBy('lastMessageAt', 'desc'),
+  );
+  return onSnapshot(q, (snap) => {
+    const convos = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Conversation[];
+    callback(convos);
+  }, onError);
+}
+
+/**
+ * Send a message to an existing conversation without mutual-follow check.
+ * Use when the conversation is already established (e.g., replying in an open DM thread).
+ * @param conversationId - Target conversation ID
+ * @param senderId - Sender's user ID
+ * @param content - Message text
+ */
+export async function sendDirectMessage(
+  conversationId: string,
+  senderId: string,
+  content: string,
+): Promise<Message> {
+  try {
+    const messageData = {
+      senderId,
+      content,
+      createdAt: Timestamp.now(),
+      readBy: [senderId],
+    };
+    const messagesRef = collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION);
+    const msgRef = await addDoc(messagesRef, messageData);
+
+    // setDoc with merge so this works even if the conversation doc is missing
+    await setDoc(doc(db, CONVERSATIONS_COLLECTION, conversationId), {
+      lastMessage: content,
+      lastMessageAt: Timestamp.now(),
+    }, { merge: true });
+
+    return { id: msgRef.id, ...messageData } as Message;
+  } catch (error) {
+    throw new AppError('NETWORK', `Failed to send message: ${(error as Error).message}`);
+  }
 }

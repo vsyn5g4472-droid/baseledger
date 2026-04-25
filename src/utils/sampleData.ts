@@ -13,6 +13,7 @@ import type {
   PitchingScore,
   FieldingScore,
 } from '../models/types';
+import { UserPlan } from '../services/planService';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,7 @@ function makeStats(overrides?: Partial<UserStats>): UserStats {
 export const sampleUsers: User[] = [
   {
     uid: 'user_0001',
+    plan: UserPlan.FREE,
     email: 'tanaka.yuki@example.com',
     displayName: '田中 悠希',
     photoURL: null,
@@ -93,6 +95,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0002',
+    plan: UserPlan.FREE,
     email: 'suzuki.haruto@example.com',
     displayName: '鈴木 陽翔',
     photoURL: null,
@@ -117,6 +120,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0003',
+    plan: UserPlan.FREE,
     email: 'sato.ren@example.com',
     displayName: '佐藤 蓮',
     photoURL: null,
@@ -141,6 +145,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0004',
+    plan: UserPlan.FREE,
     email: 'takahashi.minato@example.com',
     displayName: '高橋 湊',
     photoURL: null,
@@ -165,6 +170,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0005',
+    plan: UserPlan.FREE,
     email: 'ito.sora@example.com',
     displayName: '伊藤 蒼空',
     photoURL: null,
@@ -189,6 +195,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0006',
+    plan: UserPlan.FREE,
     email: 'watanabe.kaito@example.com',
     displayName: '渡辺 海斗',
     photoURL: null,
@@ -213,6 +220,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0007',
+    plan: UserPlan.FREE,
     email: 'yamamoto.riku@example.com',
     displayName: '山本 陸',
     photoURL: null,
@@ -237,6 +245,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0008',
+    plan: UserPlan.FREE,
     email: 'nakamura.aoi@example.com',
     displayName: '中村 碧',
     photoURL: null,
@@ -261,6 +270,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0009',
+    plan: UserPlan.FREE,
     email: 'kobayashi.haru@example.com',
     displayName: '小林 晴',
     photoURL: null,
@@ -282,6 +292,7 @@ export const sampleUsers: User[] = [
   },
   {
     uid: 'user_0010',
+    plan: UserPlan.FREE,
     email: 'yoshida.coach@example.com',
     displayName: '吉田 大輝',
     photoURL: null,

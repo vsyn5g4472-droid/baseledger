@@ -15,6 +15,7 @@ import { useLocalSearchParams, Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGroupMessages } from '../../../src/hooks/useGroupChat';
 import { useChat as useDMChat } from '../../../src/hooks/useMessages';
+import { useAuth } from '../../../src/contexts/AuthContext';
 import { GroupMessage, Message } from '../../../src/models/types';
 import {
   Colors,
@@ -259,9 +260,8 @@ function AttachMenu({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-const DM_MOCK_USER_ID = 'mock-user-001';
-
 export default function ChatDetailScreen() {
+  const { currentUser } = useAuth();
   const { chatId, type, title } = useLocalSearchParams<{
     chatId: string;
     type: 'group' | 'dm';
@@ -342,7 +342,7 @@ export default function ChatDetailScreen() {
             ) : (
               <DMBubble
                 msg={item as Message}
-                isMine={(item as Message).senderId === DM_MOCK_USER_ID}
+                isMine={(item as Message).senderId === currentUser?.uid}
               />
             )
           }

@@ -15,12 +15,47 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { db } from '../../../src/db';
 import { buildLeaderboard, type LeaderboardData, type LeaderboardEntry, type LeaderboardCategory } from '../../../src/utils/multiGameStats';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
+import { usePlanGate, useUserPlan } from '../../../src/hooks/usePlanGate';
+import PlanUpgradeCard from '../../../src/components/PlanUpgradeCard';
+
+// ── 指標説明ツールチップ ──────────────────────────────────────────────────────
+const STAT_TOOLTIPS: Record<string, string> = {
+  ops:          'OPS: 出塁率 + 長打率の合計。1.000 以上が超一流の目安',
+  kPct:         'K%（打者）: 打数に占める三振率。低いほど確実性が高い（TOP3 は三振率の低い選手順）',
+  bbPct:        'BB%: 打席に占める四球率。選球眼・忍耐力を示す指標',
+  woba:         'wOBA: 四球・単打・二塁打・本塁打などに重みをつけた出塁指標。0.400 以上が一流打者の目安',
+  avgHitDist:   '平均打球距離: フライ・ライナー打球の推定飛距離の平均。パワーの指標',
+  kRate:        'K%（投手）: 対戦打者に占める奪三振率。高いほど支配的',
+  strikeRate:   'ストライク率: 全投球に占めるストライク割合。65% 以上が制球力の目安',
+};
+
+/** カテゴリIDに「?」バッジ付きラベルを表示するコンポーネント */
+function StatLabel({ id, label }: { id: string; label: string }) {
+  const tip = STAT_TOOLTIPS[id];
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+      <Text style={statLabelStyles.text}>{label}</Text>
+      {tip && (
+        <TouchableOpacity
+          onPress={() => Alert.alert(label.replace(' TOP3', ''), tip)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={0.7}
+        >
+          <View style={statLabelStyles.badge}>
+            <Text style={statLabelStyles.badgeText}>?</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
 
 // ── 表彰台カラー ──────────────────────────────────────────────────────────────
 const RANK_COLORS = {
@@ -91,7 +126,7 @@ function CategoryCard({ category }: { category: LeaderboardCategory }) {
             color={Colors.white}
           />
         </View>
-        <Text style={cardStyles.title}>{category.label}</Text>
+        <StatLabel id={category.id} label={category.label} />
       </View>
 
       {/* 表彰台 */}
@@ -159,6 +194,8 @@ function CategoryTabs({
 // ── メイン画面 ────────────────────────────────────────────────────────────────
 
 export default function LeaderboardScreen() {
+  const leaderboardGate = usePlanGate('leaderboard');
+  const userPlan = useUserPlan();
   const [leaderboard, setLeaderboard] = useState<LeaderboardData | null>(null);
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
@@ -187,7 +224,15 @@ export default function LeaderboardScreen() {
     (c) => c.id === selectedCategoryId,
   ) ?? leaderboard?.categories[0];
 
-  // ── ローディング ──
+  if (!leaderboardGate.allowed) {
+    return (
+      <View style={styles.center}>
+        <Stack.Screen options={{ title: 'チーム内ランキング' }} />
+        <PlanUpgradeCard featureLabel="リーダーボード" currentPlan={userPlan} />
+      </View>
+    );
+  }
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -219,7 +264,7 @@ export default function LeaderboardScreen() {
         {/* ── ヘッダバナー ── */}
         <View style={styles.banner}>
           <MaterialCommunityIcons name="trophy" size={22} color={Colors.accent} />
-          <Text style={styles.bannerTitle}>BASELEDGER RANKING</Text>
+          <Text style={styles.bannerTitle}>BALLPARK RANKING</Text>
           <Text style={styles.bannerSub}>{leaderboard.gameCount}試合分を集計</Text>
         </View>
 
@@ -265,7 +310,7 @@ export default function LeaderboardScreen() {
                       color={Colors.white}
                     />
                   </View>
-                  <Text style={miniStyles.title}>{cat.label}</Text>
+                  <StatLabel id={cat.id} label={cat.label} />
                 </View>
                 <View style={miniStyles.entries}>
                   {cat.entries.slice(0, 3).map((e) => {
@@ -291,6 +336,31 @@ export default function LeaderboardScreen() {
     </>
   );
 }
+
+// ── StatLabel styles ──────────────────────────────────────────────────────────
+const statLabelStyles = StyleSheet.create({
+  text: {
+    fontSize: Typography.h4,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  badge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.textSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+    marginTop: 1,
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.white,
+    lineHeight: 12,
+  },
+});
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 

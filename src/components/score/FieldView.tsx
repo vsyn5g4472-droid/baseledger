@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -17,7 +17,10 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { useI18n } from '../../i18n';
-import type { BallparkInfo, BattedBallType, BattedBall, AtBatResult } from '../../types/game';
+import type { BallparkInfo, BattedBallType, BattedBall, AtBatResult, BuntType } from '../../types/game';
+import BuntTypeModal from './BuntTypeModal';
+import type { FieldViewFilter } from '../../utils/recordingFilters';
+export type { FieldViewFilter };
 
 // ============================================================
 // 定数
@@ -154,9 +157,10 @@ function calcDist(svgX: number, svgY: number, bp: BallparkInfo): number {
   const dx = svgX - CENTER_X;
   const dy = svgY - CENTER_Y;
   const pxDist = Math.sqrt(dx * dx + dy * dy);
+  if (pxDist < 1) return 0;
   const angle = Math.atan2(dy, dx);
-  const norm = Math.min(pxDist / FIELD_RADIUS, 1.0);
   const { left, center, right } = bp.fenceDistance;
+  // 角度に応じたフェンス距離 (FIELD_RADIUS px に相当するメートル数)
   let fd: number;
   if (angle < ANGLE_LEFT) fd = left;
   else if (angle > ANGLE_RIGHT) fd = right;
@@ -167,7 +171,8 @@ function calcDist(svgX: number, svgY: number, bp: BallparkInfo): number {
     const tt = (angle - ANGLE_CENTER) / (ANGLE_RIGHT - ANGLE_CENTER);
     fd = center + (right - center) * Math.max(0, Math.min(1, tt));
   }
-  return Math.round(norm * fd);
+  // 線形スケール: フェンス外も上限なしで比例計算 (FIELD_RADIUS px = fd m)
+  return Math.max(0, Math.round((pxDist / FIELD_RADIUS) * fd));
 }
 
 // ============================================================
@@ -228,15 +233,33 @@ function FieldSvgContent({ ballpark }: { ballpark: BallparkInfo }) {
 
 interface FieldViewProps {
   ballpark: BallparkInfo;
-  onConfirm: (result: AtBatResult, battedBall: BattedBall) => void;
+  onConfirm: (result: AtBatResult, battedBall: BattedBall, buntType?: BuntType) => void;
   onCancel: () => void;
+  /** 各打席結果ボタンを出すか（未指定はすべて表示） */
+  filterAtBatResult?: FieldViewFilter;
+  /** バント分類の二次確認（主に犠打時） */
+  buntDetailEnabled?: boolean;
+  /** false のとき描画を簡略化し既定位置で打球を確定 */
+  fieldLocationEnabled?: boolean;
+  /** false のとき推定飛距離を非表示 */
+  fieldDistanceLabelEnabled?: boolean;
 }
 
 // ============================================================
 // メインコンポーネント
 // ============================================================
 
-export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewProps) {
+const defaultFilter: FieldViewFilter = () => true;
+
+export default function FieldView({
+  ballpark,
+  onConfirm,
+  onCancel,
+  filterAtBatResult = defaultFilter,
+  buntDetailEnabled = false,
+  fieldLocationEnabled = true,
+  fieldDistanceLabelEnabled = true,
+}: FieldViewProps) {
   const { t } = useI18n();
 
   // --- React State (JSスレッド) ---
@@ -254,12 +277,21 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
   const savedX = useSharedValue(INITIAL_TARGET.x);
   const savedY = useSharedValue(INITIAL_TARGET.y);
   const zoomSV = useSharedValue(1);
+  const savedZoom = useSharedValue(1);
   const hasMoved = useSharedValue(false);
 
   // ダブルタップ検出
   const lastTapTs = useRef(0);
 
-  const showDistance = DIST_TYPES.includes(battedType);
+  const showDistance = DIST_TYPES.includes(battedType) && fieldDistanceLabelEnabled;
+
+  const [pendingBunt, setPendingBunt] = useState<{ result: AtBatResult; battedBall: BattedBall } | null>(null);
+
+  useEffect(() => {
+    if (!fieldLocationEnabled) {
+      setConfirmedPos({ x: CENTER_X, y: CENTER_Y, foul: false, dist: 0 });
+    }
+  }, [fieldLocationEnabled]);
 
   // --- JS スレッドコールバック (runOnJSから呼び出し) ---
   const onDragStart = useCallback(() => {
@@ -294,8 +326,10 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
     }
   }, [targetX, targetY, zoomSV]);
 
-  // --- Gesture.Pan (UIスレッドで座標更新 → 再レンダリングなし) ---
+  // --- Gesture.Pan (1本指専用: ピンチと干渉しないよう maxPointers(1) を設定) ---
   const panGesture = Gesture.Pan()
+    .minPointers(1)
+    .maxPointers(1)
     .minDistance(0)
     .shouldCancelWhenOutside(false)
     .onStart(() => {
@@ -333,6 +367,33 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
       }
     });
 
+  // --- Gesture.Pinch (2本指ピンチでズーム) ---
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      'worklet';
+      savedZoom.value = zoomSV.value;
+    })
+    .onUpdate((e) => {
+      'worklet';
+      const newZoom = clamp(savedZoom.value * e.scale, 1, 4);
+      zoomSV.value = newZoom;
+      runOnJS(setZoomDisplay)(Math.round(newZoom * 10) / 10);
+    })
+    .onEnd(() => {
+      'worklet';
+      // ズーム1倍に近づいたら初期位置にスナップ
+      if (zoomSV.value <= 1.05) {
+        zoomSV.value = 1;
+        targetX.value = INITIAL_TARGET.x;
+        targetY.value = INITIAL_TARGET.y;
+        runOnJS(setZoomDisplay)(1);
+      }
+      runOnJS(setConfirmedPos)(null);
+    });
+
+  // パン + ピンチを同時認識
+  const combinedGesture = Gesture.Simultaneous(panGesture, pinchGesture);
+
   // --- フィールドのアニメーションスタイル (UIスレッド) ---
   // SVG座標 (targetX, targetY) がコンテナ中央に来るように変換
   // RN transform は配列左→右で合成、右端が先に適用:
@@ -348,19 +409,19 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
     };
   });
 
-  // --- ズームボタン ---
+  // --- ズームボタン (整数値にスナップ: 1〜3) ---
   const handleZoomIn = useCallback(() => {
-    if (zoomSV.value >= 3) return;
-    zoomSV.value = zoomSV.value + 1;
-    setZoomDisplay(zoomSV.value);
+    const next = Math.min(Math.floor(zoomSV.value) + 1, 3);
+    zoomSV.value = next;
+    setZoomDisplay(next);
     setConfirmedPos(null);
   }, [zoomSV]);
 
   const handleZoomOut = useCallback(() => {
-    if (zoomSV.value <= 1) return;
-    zoomSV.value = zoomSV.value - 1;
-    setZoomDisplay(zoomSV.value);
-    if (zoomSV.value === 1) {
+    const next = Math.max(Math.ceil(zoomSV.value) - 1, 1);
+    zoomSV.value = next;
+    setZoomDisplay(next);
+    if (next === 1) {
       targetX.value = INITIAL_TARGET.x;
       targetY.value = INITIAL_TARGET.y;
     }
@@ -379,14 +440,27 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
   // --- 結果選択 ---
   const handleResult = useCallback((result: AtBatResult) => {
     if (!confirmedPos) return;
+
+    // SprayChart の極座標系に合わせた正規化:
+    //   fieldX: 0 = 左翼ファウルライン / 0.5 = 中堅 / 1 = 右翼ファウルライン
+    //   fieldY: 1 = ホームプレート / 0 = 外野フェンス
+    const dx = confirmedPos.x - CENTER_X;           // 中堅方向を基準とした横方向の距離
+    const dy = CENTER_Y - confirmedPos.y;            // ホームから外野へ向かう縦方向の距離（正=外野側）
+    const radialDist = Math.sqrt(dx * dx + dy * dy); // ホームプレートからの実際の距離
+    const angle = Math.atan2(dx, dy);               // 中堅を0°とした方向角（左=-π/4, 右=+π/4）
+
     const battedBall: BattedBall = {
       type: battedType,
-      fieldX: confirmedPos.x / FIELD_SIZE,
-      fieldY: confirmedPos.y / FIELD_SIZE,
+      fieldX: 0.5 + angle / (Math.PI / 2),     // −π/4〜+π/4 → 0〜1
+      fieldY: 1 - radialDist / FIELD_RADIUS,    // 本塁=1, フェンス=0, フェンス外は負値 (上限なし)
       estimatedDistance: confirmedPos.dist,
     };
-    onConfirm(result, battedBall);
-  }, [battedType, confirmedPos, onConfirm]);
+    if (buntDetailEnabled && result === 'sacrifice_bunt') {
+      setPendingBunt({ result, battedBall });
+      return;
+    }
+    onConfirm(result, battedBall, undefined);
+  }, [battedType, buntDetailEnabled, confirmedPos, onConfirm]);
 
   // --- マグニファイア viewBox ---
   const magVB = magTarget
@@ -407,7 +481,9 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
       {/* タイトル + ズーム */}
       <View style={styles.topRow}>
         <Text style={styles.title}>{t.live.fieldTitle}</Text>
-        <Text style={styles.zoomBadge}>{zoomDisplay}x</Text>
+        <Text style={styles.zoomBadge}>
+          {Number.isInteger(zoomDisplay) ? zoomDisplay : zoomDisplay.toFixed(1)}x
+        </Text>
       </View>
 
       {/* 打球種類 */}
@@ -416,7 +492,10 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
           <TouchableOpacity
             key={tp}
             style={[styles.typeBtn, battedType === tp && styles.typeBtnActive]}
-            onPress={() => { setBattedType(tp); setConfirmedPos(null); }}
+            onPress={() => {
+              setBattedType(tp);
+              if (fieldLocationEnabled) setConfirmedPos(null);
+            }}
           >
             <Text style={[styles.typeLabel, battedType === tp && styles.typeLabelActive]}>
               {t.battedBallTypes[tp]}
@@ -425,7 +504,8 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
         ))}
       </View>
 
-      {/* ===== フィールド + マグニファイア ===== */}
+      {fieldLocationEnabled && (
+      <>
       <View style={styles.fieldSection}>
         {/* マグニファイア (フィールド上に絶対配置) */}
         {isDragging && magTarget && (
@@ -452,8 +532,8 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
           </View>
         )}
 
-        {/* GestureDetector でドラッグ操作を捕捉 */}
-        <GestureDetector gesture={panGesture}>
+        {/* GestureDetector でドラッグ + ピンチ操作を捕捉 */}
+        <GestureDetector gesture={combinedGesture}>
           <View style={styles.fieldWrap}>
             {/* Animated.View: UIスレッドで transform 更新 (再レンダリングなし) */}
             <Animated.View style={[styles.fieldInner, animatedFieldStyle]}>
@@ -498,6 +578,14 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
           </Text>
         </TouchableOpacity>
       )}
+      </>
+      )}
+
+      {!fieldLocationEnabled && (
+        <Text style={{ textAlign: 'center', color: Colors.textSecondary, marginVertical: 8, paddingHorizontal: 12 }}>
+          {(t as any).fieldView?.simplifiedMapHint ?? '打球の落下位置は記録を省略します（設定）'}
+        </Text>
+      )}
 
       {/* ===== 確定後: 距離 + 結果選択 ===== */}
       {confirmedPos && (
@@ -513,7 +601,7 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
             <>
               <Text style={styles.resultTitle}>{t.live.selectResult}</Text>
               <View style={styles.resultRow}>
-                {HIT_RESULTS.map(({ result, color }) => (
+                {HIT_RESULTS.filter((x) => filterAtBatResult(x.result, 'hit')).map(({ result, color }) => (
                   <TouchableOpacity key={result} style={[styles.resultBtn, { backgroundColor: color }]}
                     onPress={() => handleResult(result)}>
                     <Text style={styles.resultBtnText}>{t.atBatResults[result]}</Text>
@@ -521,7 +609,7 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
                 ))}
               </View>
               <View style={styles.resultRow}>
-                {OUT_RESULTS.map(({ result, color }) => (
+                {OUT_RESULTS.filter((x) => filterAtBatResult(x.result, 'out')).map(({ result, color }) => (
                   <TouchableOpacity key={result} style={[styles.resultBtn, { backgroundColor: color }]}
                     onPress={() => handleResult(result)}>
                     <Text style={styles.resultBtnText}>{t.atBatResults[result]}</Text>
@@ -535,7 +623,7 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
             <>
               <Text style={styles.foulTitle}>FOUL</Text>
               <View style={styles.resultRow}>
-                {FOUL_RESULTS.map(({ result, color }) => (
+                {FOUL_RESULTS.filter((x) => filterAtBatResult(x.result, 'foul')).map(({ result, color }) => (
                   <TouchableOpacity key={result} style={[styles.resultBtn, { backgroundColor: color }]}
                     onPress={() => handleResult(result)}>
                     <Text style={styles.resultBtnText}>{t.atBatResults[result]}</Text>
@@ -551,6 +639,16 @@ export default function FieldView({ ballpark, onConfirm, onCancel }: FieldViewPr
       <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
         <Text style={styles.cancelText}>{t.live.cancel}</Text>
       </TouchableOpacity>
+
+      <BuntTypeModal
+        visible={!!pendingBunt}
+        onSelect={(buntType) => {
+          if (!pendingBunt) return;
+          onConfirm(pendingBunt.result, pendingBunt.battedBall, buntType);
+          setPendingBunt(null);
+        }}
+        onDismiss={() => setPendingBunt(null)}
+      />
     </ScrollView>
   );
 }

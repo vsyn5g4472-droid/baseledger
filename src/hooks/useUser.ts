@@ -3,11 +3,13 @@ import { Timestamp } from 'firebase/firestore';
 import { User } from '../models/types';
 import { getUser } from '../services/userService';
 import { useAuth } from '../contexts/AuthContext';
+import { UserPlan } from '../services/planService';
 
 // All mock users covering every authorId used in the feed mock data
 const ALL_MOCK_USERS: Record<string, User> = {
   'mock-user-001': {
     uid: 'mock-user-001',
+    plan: UserPlan.FREE,
     email: 'tanaka@example.com',
     displayName: '田中 翔太',
     photoURL: null,
@@ -33,6 +35,7 @@ const ALL_MOCK_USERS: Record<string, User> = {
   },
   'mock-user-002': {
     uid: 'mock-user-002',
+    plan: UserPlan.FREE,
     email: 'sato@example.com',
     displayName: '佐藤 健太',
     photoURL: null,
@@ -58,6 +61,7 @@ const ALL_MOCK_USERS: Record<string, User> = {
   },
   'mock-user-003': {
     uid: 'mock-user-003',
+    plan: UserPlan.FREE,
     email: 'suzuki@example.com',
     displayName: '鈴木 大輔',
     photoURL: null,
@@ -83,6 +87,7 @@ const ALL_MOCK_USERS: Record<string, User> = {
   },
   'mock-user-004': {
     uid: 'mock-user-004',
+    plan: UserPlan.FREE,
     email: 'yamamoto@example.com',
     displayName: '山本 誠',
     photoURL: null,
@@ -108,6 +113,7 @@ const ALL_MOCK_USERS: Record<string, User> = {
   },
   'mock-user-005': {
     uid: 'mock-user-005',
+    plan: UserPlan.FREE,
     email: 'nakamura@example.com',
     displayName: '中村 拓也',
     photoURL: null,

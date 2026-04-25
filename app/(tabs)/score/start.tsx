@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { Text, TextInput, ActivityIndicator } from 'react-native-paper';
 import { router } from 'expo-router';
@@ -13,21 +14,35 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
 import { useGameStore } from '../../../src/stores/gameStore';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
+import { useUserPlan } from '../../../src/hooks/usePlanGate';
+import { checkGameUsage, incrementGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 
 export default function ScoreStartScreen() {
   const quickStartGame = useGameStore((s) => s.quickStartGame);
+  const userPlan = useUserPlan();
   const [awayName, setAwayName] = useState('');
   const [homeName, setHomeName] = useState('');
-  const [fenceWing, setFenceWing]     = useState('');   // 両翼 (m)
-  const [fenceCenter, setFenceCenter] = useState('');   // センター (m)
+  const [fenceWing, setFenceWing]     = useState('');
+  const [fenceCenter, setFenceCenter] = useState('');
   const [loading, setLoading] = useState(false);
+  const [gameUsage, setGameUsage] = useState<UsageCheckResult | null>(null);
 
-  // 球速設定: AsyncStorage から読み込み (index.tsx と共有)
+  useEffect(() => {
+    checkGameUsage(userPlan).then(setGameUsage);
+  }, [userPlan]);
+
   const { settings: velocitySettings, loaded: velocityLoaded, update: updateVelocity } = useVelocitySettings();
   const velocityEnabled = velocitySettings.enabled;
   const pitchDistanceMode = velocitySettings.pitchDistanceM === 16.00 ? 'youth' : 'standard';
 
   const handleQuickStart = async () => {
+    if (gameUsage && !gameUsage.allowed) {
+      Alert.alert(
+        '試合数の上限',
+        `今月の試合記録数（${gameUsage.limit}試合）に達しました。プランをアップグレードすると、より多くの試合を記録できます。`,
+      );
+      return;
+    }
     setLoading(true);
     try {
       const parsedWing   = parseInt(fenceWing,   10);

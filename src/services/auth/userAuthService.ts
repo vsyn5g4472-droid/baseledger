@@ -14,6 +14,7 @@ import {
 import { User as FirebaseUser } from 'firebase/auth';
 import { db, COLLECTIONS } from '../firebase';
 import { User, UserRole, UserStats, AppError } from '../../models/types';
+import { UserPlan } from '../planService';
 
 const DEFAULT_STATS: UserStats = {
   batting: {
@@ -46,7 +47,9 @@ export async function getFirestoreUser(uid: string): Promise<User | null> {
   try {
     const snap = await getDoc(doc(db, COLLECTIONS.USERS, uid));
     if (!snap.exists()) return null;
-    return snap.data() as User;
+    const data = snap.data() as User;
+    if (!data.plan) data.plan = UserPlan.FREE;
+    return data;
   } catch (error) {
     throw new AppError('NETWORK', `Failed to fetch user: ${(error as Error).message}`);
   }
@@ -75,6 +78,7 @@ export async function createFirestoreUser(
     batHand: null,
     bio: '',
     stats: DEFAULT_STATS,
+    plan: UserPlan.FREE,
     followersCount: 0,
     followingCount: 0,
     postsCount: 0,
@@ -113,6 +117,22 @@ export async function checkUsernameAvailable(username: string): Promise<boolean>
   );
   const snap = await getDocs(q);
   return snap.empty;
+}
+
+/**
+ * ユーザーIDからメールアドレスを引き当てる。
+ * 存在しない場合は null を返す。
+ */
+export async function getEmailByUsername(username: string): Promise<string | null> {
+  const q = query(
+    collection(db, COLLECTIONS.USERS),
+    where('username', '==', username),
+    limit(1),
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const userData = snap.docs[0].data() as User;
+  return userData.email ?? null;
 }
 
 /**

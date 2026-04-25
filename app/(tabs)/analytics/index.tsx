@@ -20,9 +20,22 @@ function formatDate(ts: number): string {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// ── 試合カード ────────────────────────────────────────────────────────────────
+// 視線の流れ:
+//   ① スコア (何対何?) — 最大要素・画面中央
+//   ② チーム名 (どこ対どこ?) — スコアの左右
+//   ③ 状態バッジ + 日付 (いつ・どんな状態?) — 上部の補足情報
+//   ④ 球数・打席数 (どのくらいのボリューム?) — 下部のメタ情報
+// カード全体がタップ領域 → 「分析を見る」テキストリンクは不要なので削除
 function GameCard({ game }: { game: GameState }) {
   const { t } = useI18n();
   const isCompleted = game.phase === 'finished';
+
+  // 勝ち負けの判定
+  const awayScore = game.scoreboard.awayTotal;
+  const homeScore = game.scoreboard.homeTotal;
+  const awayWins = awayScore > homeScore;
+  const homeWins = homeScore > awayScore;
 
   return (
     <TouchableOpacity
@@ -30,18 +43,23 @@ function GameCard({ game }: { game: GameState }) {
       onPress={() => router.push(`/(tabs)/analytics/${game.id}` as any)}
       activeOpacity={0.8}
     >
-      {/* Status + Date row */}
-      <View style={styles.cardTop}>
+      {/* ③ 状態バッジ + 日付 — 主役の前に文脈を与える補足行 */}
+      <View style={styles.cardMeta}>
         <View
           style={[
             styles.statusBadge,
-            { backgroundColor: isCompleted ? Colors.primaryLight : Colors.accentSoft },
+            {
+              backgroundColor: isCompleted ? Colors.statusDoneBg : Colors.statusLiveBg,
+            },
           ]}
         >
+          {!isCompleted ? (
+            <View style={styles.liveDot} />
+          ) : null}
           <Text
             style={[
               styles.statusText,
-              { color: isCompleted ? Colors.primary : Colors.accent },
+              { color: isCompleted ? Colors.statusDone : Colors.statusLive },
             ]}
           >
             {isCompleted ? t.analytics.completed : t.analytics.inProgress}
@@ -50,41 +68,58 @@ function GameCard({ game }: { game: GameState }) {
         <Text style={styles.dateText}>{formatDate(game.createdAt)}</Text>
       </View>
 
-      {/* Score row */}
+      {/* ① スコア + ② チーム名 — 画面中央の主役 */}
       <View style={styles.scoreRow}>
+        {/* 表チーム */}
         <View style={styles.teamBlock}>
-          <Text style={styles.teamLabel}>{t.common.top}</Text>
-          <Text style={styles.teamName} numberOfLines={1}>
+          <Text
+            style={[styles.teamName, awayWins && styles.teamNameWinner]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {game.awayTeam.name}
           </Text>
+          <Text style={styles.teamSide}>{t.common.top}</Text>
         </View>
+
+        {/* スコア */}
         <View style={styles.scoreBlock}>
-          <Text style={styles.scoreNum}>{game.scoreboard.awayTotal}</Text>
-          <Text style={styles.scoreSep}>:</Text>
-          <Text style={styles.scoreNum}>{game.scoreboard.homeTotal}</Text>
+          <Text style={[styles.scoreNum, awayWins && styles.scoreNumWinner]}>
+            {awayScore}
+          </Text>
+          <Text style={styles.scoreSep}>–</Text>
+          <Text style={[styles.scoreNum, homeWins && styles.scoreNumWinner]}>
+            {homeScore}
+          </Text>
         </View>
-        <View style={[styles.teamBlock, { alignItems: 'flex-end' }]}>
-          <Text style={styles.teamLabel}>{t.common.bottom}</Text>
-          <Text style={styles.teamName} numberOfLines={1}>
+
+        {/* 裏チーム */}
+        <View style={[styles.teamBlock, styles.teamBlockRight]}>
+          <Text
+            style={[styles.teamName, styles.teamNameRight, homeWins && styles.teamNameWinner]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {game.homeTeam.name}
           </Text>
+          <Text style={[styles.teamSide, styles.teamSideRight]}>{t.common.bottom}</Text>
         </View>
       </View>
 
-      {/* Footer */}
+      {/* ④ メタ情報 — 最後に読むボリューム感 */}
       <View style={styles.cardFooter}>
         <Text style={styles.footerText}>
-          {game.pitchLogs.length}球 · {game.atBatLogs.length}打席
+          {game.pitchLogs.length > 0 || game.atBatLogs.length > 0
+            ? `${game.pitchLogs.length}球 · ${game.atBatLogs.length}打席`
+            : 'データ未記録'}
         </Text>
-        <View style={styles.viewBtn}>
-          <Text style={styles.viewBtnText}>{t.analytics.viewAnalysis}</Text>
-          <MaterialCommunityIcons name="chevron-right" size={14} color={Colors.primary} />
-        </View>
+        <MaterialCommunityIcons name="chevron-right" size={16} color={Colors.textDisabled} />
       </View>
     </TouchableOpacity>
   );
 }
 
+// ── メイン画面 ────────────────────────────────────────────────────────────────
 export default function AnalyticsIndexScreen() {
   const { t } = useI18n();
   const [games, setGames] = useState<GameState[]>([]);
@@ -109,7 +144,7 @@ export default function AnalyticsIndexScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={Colors.action} />
       </View>
     );
   }
@@ -118,33 +153,30 @@ export default function AnalyticsIndexScreen() {
     <>
       <Stack.Screen options={{ title: t.analytics.title }} />
 
-      {/* ランキングバナー */}
-      <TouchableOpacity
-        style={styles.rankingBanner}
-        onPress={() => router.push('/(tabs)/analytics/leaderboard' as any)}
-        activeOpacity={0.85}
-      >
-        <MaterialCommunityIcons name="trophy" size={20} color={Colors.accent} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.rankingTitle}>チーム内ランキング</Text>
-          <Text style={styles.rankingSubtitle}>打率・球速王など5カテゴリのTOP3</Text>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.accent} />
-      </TouchableOpacity>
+      {/* ツールリンク — 主コンテンツ(試合リスト)の邪魔をしない最小限の導線
+          バナー2枚 → テキストリンク2項目に変更
+          理由: 主役は試合データ。ランキング・選手分析は補助ツール */}
+      <View style={styles.toolBar}>
+        <TouchableOpacity
+          style={styles.toolLink}
+          onPress={() => router.push('/(tabs)/analytics/leaderboard' as any)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="trophy-outline" size={14} color={Colors.action} />
+          <Text style={styles.toolLinkText}>チーム内ランキング</Text>
+        </TouchableOpacity>
 
-      {/* 選手・バッテリー分析バナー */}
-      <TouchableOpacity
-        style={styles.analysisBanner}
-        onPress={() => router.push('/analysis' as any)}
-        activeOpacity={0.85}
-      >
-        <MaterialCommunityIcons name="chart-scatter-plot" size={20} color={Colors.primary} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.analysisTitle}>選手・バッテリー分析</Text>
-          <Text style={styles.analysisSubtitle}>打者の癖・配球パターンを深掘り</Text>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.primary} />
-      </TouchableOpacity>
+        <View style={styles.toolDivider} />
+
+        <TouchableOpacity
+          style={styles.toolLink}
+          onPress={() => router.push('/analysis' as any)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="chart-scatter-plot" size={14} color={Colors.action} />
+          <Text style={styles.toolLinkText}>選手・バッテリー分析</Text>
+        </TouchableOpacity>
+      </View>
 
       <FlatList
         data={games}
@@ -157,12 +189,12 @@ export default function AnalyticsIndexScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.primary}
+            tintColor={Colors.action}
           />
         }
         ListEmptyComponent={
           <View style={styles.emptyContent}>
-            <MaterialCommunityIcons name="chart-bar" size={60} color={Colors.border} />
+            <MaterialCommunityIcons name="baseball-bat" size={48} color={Colors.border} />
             <Text style={styles.emptyTitle}>{t.analytics.noGames}</Text>
             <Text style={styles.emptySub}>{t.analytics.noGamesSub}</Text>
           </View>
@@ -173,131 +205,179 @@ export default function AnalyticsIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },
-  rankingBanner: {
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.background,
+  },
+
+  // ツールバー: 2つの補助リンクをコンパクトな1行にまとめる
+  toolBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
-    margin: Spacing.md,
-    marginBottom: 0,
-    padding: Spacing.md,
-    backgroundColor: Colors.accentSoft,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.accent,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    backgroundColor: Colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
-  rankingTitle: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  rankingSubtitle: {
-    fontSize: Typography.tiny,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  analysisBanner: {
+  toolLink: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
-    marginHorizontal: Spacing.md,
-    marginTop: Spacing.sm,
+    gap: 4,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  toolLinkText: {
+    fontSize: Typography.caption,
+    color: Colors.action,
+    fontWeight: '600',
+  },
+  toolDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: Colors.border,
+  },
+
+  // リスト
+  listContent: {
     padding: Spacing.md,
-    backgroundColor: Colors.primaryLight,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.primary,
+    gap: Spacing.sm,
   },
-  analysisTitle: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  analysisSubtitle: {
-    fontSize: Typography.tiny,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  listContent: { padding: Spacing.md, gap: Spacing.md },
   emptyContainer: { flex: 1 },
   emptyContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.xl,
-    marginTop: 100,
+    marginTop: 80,
+    gap: Spacing.sm,
   },
   emptyTitle: {
     fontSize: Typography.h4,
     fontWeight: '600',
     color: Colors.text,
-    marginTop: Spacing.md,
     textAlign: 'center',
   },
   emptySub: {
     fontSize: Typography.bodySmall,
     color: Colors.textSecondary,
     textAlign: 'center',
-    marginTop: Spacing.sm,
   },
+
+  // ── 試合カード ──────────────────────────────────────────────────────────────
   card: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.card,
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     shadowColor: '#000',
-    shadowOpacity: 0.09,
-    shadowRadius: 6,
-    elevation: 2,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 1,
+    shadowOffset: { width: 0, height: 1 },
   },
-  cardTop: {
+
+  // ③ メタ行 (上部)
+  cardMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: Spacing.xs,
+    marginBottom: Spacing.sm,
   },
   statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: BorderRadius.sm,
   },
-  statusText: { fontSize: Typography.tiny, fontWeight: '700' },
-  dateText: { fontSize: Typography.caption, color: Colors.textSecondary },
+  liveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: Colors.statusLive,
+  },
+  statusText: {
+    fontSize: Typography.tiny,
+    fontWeight: '700',
+  },
+  dateText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+  },
+
+  // ① スコア + ② チーム名
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: Spacing.sm,
+    gap: Spacing.xs,
   },
-  teamBlock: { flex: 1 },
-  teamLabel: { fontSize: Typography.tiny, color: Colors.textSecondary },
-  teamName: { fontSize: Typography.body, fontWeight: '700', color: Colors.text },
+  teamBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  teamBlockRight: {
+    alignItems: 'flex-end',
+  },
+  teamName: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  teamNameRight: {
+    textAlign: 'right',
+  },
+  // 勝者チーム名を強調
+  teamNameWinner: {
+    color: Colors.text,
+    fontWeight: '800',
+  },
+  teamSide: {
+    fontSize: Typography.tiny,
+    color: Colors.textDisabled,
+    marginTop: 2,
+  },
+  teamSideRight: {
+    textAlign: 'right',
+  },
   scoreBlock: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
   },
+  // スコア数字: 最大フォントで主役を張る
   scoreNum: {
-    fontSize: Typography.h2,
+    fontSize: Typography.h1,
     fontWeight: '800',
-    color: Colors.primary,
-    minWidth: 32,
+    color: Colors.textSecondary,
+    minWidth: 36,
     textAlign: 'center',
+  },
+  // 勝者スコアをさらに強調
+  scoreNumWinner: {
+    color: Colors.text,
   },
   scoreSep: {
     fontSize: Typography.h4,
-    color: Colors.textSecondary,
-    marginHorizontal: Spacing.xs,
+    color: Colors.border,
+    fontWeight: '300',
   },
+
+  // ④ フッター (下部メタ情報)
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: Spacing.xs,
     paddingTop: Spacing.sm,
     borderTopWidth: 0.5,
     borderTopColor: Colors.border,
   },
-  footerText: { fontSize: Typography.caption, color: Colors.textSecondary },
-  viewBtn: { flexDirection: 'row', alignItems: 'center' },
-  viewBtnText: { fontSize: Typography.caption, color: Colors.primary, fontWeight: '600' },
+  footerText: {
+    fontSize: Typography.caption,
+    color: Colors.textDisabled,
+  },
 });

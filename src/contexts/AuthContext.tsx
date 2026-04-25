@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Timestamp } from 'firebase/firestore';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -11,6 +10,7 @@ import { auth } from '../services/firebase';
 import {
   getOrCreateFirestoreUser,
   getFirestoreUser,
+  getEmailByUsername,
 } from '../services/auth/userAuthService';
 import {
   signInWithGoogleCredential,
@@ -18,71 +18,57 @@ import {
 } from '../services/auth/socialAuth';
 import {
   authenticateWithBiometrics,
-  saveBiometricCredentials,
   clearBiometricCredentials,
 } from '../services/auth/passkeyAuth';
+import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import type { User, UserRole } from '../models/types';
-
-const USE_MOCK = process.env.EXPO_PUBLIC_USE_MOCK_AUTH === 'true';
+import { UserPlan } from '../services/planService';
 
 interface AuthContextType {
   currentUser: User | null;
+  userPlan: UserPlan;
   loading: boolean;
   isNewUser: boolean;
   clearNewUser: () => void;
+  /** Firestore ユーザーを再取得（設定保存後など） */
+  refreshUser: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithUsername: (username: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string, role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
   signInWithPasskey: () => Promise<void>;
   signInWithGoogle: (idToken: string | null, accessToken: string | null) => Promise<void>;
   signInWithApple: (identityToken: string, rawNonce: string) => Promise<void>;
+  signInAsGuest: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// ─── Mock helpers ─────────────────────────────────────────────────────────────
-
-const createMockUser = (email: string, displayName: string, role: UserRole): User => ({
-  uid: 'mock-user-' + Date.now(),
-  email,
-  displayName,
-  photoURL: null,
-  username: null,
-  role,
-  position: role === 'player' ? 'Shortstop' : null,
-  team: 'Tokyo Giants',
-  age: 22,
-  throwHand: 'right',
-  batHand: 'right',
-  bio: 'Passionate about baseball!',
-  stats: {
-    batting: { avg: 0.285, gamesPlayed: 45, totalAtBats: 180, totalHits: 51, totalHomeRuns: 8, totalRbis: 32 },
-    pitching: { era: 3.42, gamesPlayed: 12, totalInningsPitched: 68, totalStrikeouts: 55, totalEarnedRuns: 26 },
-    fielding: { fieldingPct: 0.975, totalPutouts: 120, totalAssists: 85, totalErrors: 5 },
-  },
-  followersCount: 128,
-  followingCount: 64,
-  postsCount: 23,
-  isPublic: true,
-  createdAt: Timestamp.now(),
-  updatedAt: Timestamp.now(),
-});
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(!USE_MOCK); // real auth starts loading
+  const [loading, setLoading] = useState(true);
   const [isNewUser, setIsNewUser] = useState(false);
-  // Carries displayName/role from signUp into the onAuthStateChanged handler
+  // signUp 時に displayName/role を onAuthStateChanged ハンドラへ橋渡しするための ref
   const pendingExtras = useRef<{ displayName: string; role: UserRole } | null>(null);
 
   const clearNewUser = useCallback(() => setIsNewUser(false), []);
 
-  // ── Real Firebase Auth ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (USE_MOCK) return;
+  const refreshUser = useCallback(async () => {
+    const u = auth.currentUser;
+    if (!u) return;
+    try {
+      const user = await getFirestoreUser(u.uid);
+      if (user) setCurrentUser(user);
+    } catch {
+      // keep previous currentUser
+    }
+  }, []);
 
+  // ── Firebase Auth 状態監視 ──────────────────────────────────────────────────
+  // onAuthStateChanged はアプリ起動時・ログイン・ログアウト時に発火する
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
         setCurrentUser(null);
@@ -97,9 +83,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCurrentUser(user);
         if (isNew) setIsNewUser(true);
       } catch {
-        // Profile fetch failed — still mark as authenticated with basic info
-        const fallback = await getFirestoreUser(firebaseUser.uid);
-        setCurrentUser(fallback);
+        // Firestore 取得失敗時（オフライン等）は null のままローディングを解除する
+        try {
+          const fallback = await getFirestoreUser(firebaseUser.uid);
+          setCurrentUser(fallback);
+        } catch {
+          setCurrentUser(null);
+        }
       } finally {
         setLoading(false);
       }
@@ -108,129 +98,137 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe;
   }, []);
 
-  // ── Sign-in ─────────────────────────────────────────────────────────────────
+  // ── メールアドレス + パスワード ログイン ────────────────────────────────────
   const signIn = useCallback(async (email: string, password: string) => {
-    if (USE_MOCK) {
-      setLoading(true);
-      await new Promise((r) => setTimeout(r, 800));
-      setIsNewUser(false);
-      setCurrentUser(createMockUser(email, email.split('@')[0], 'player'));
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // onAuthStateChanged will update currentUser
-    } finally {
+      // currentUser の更新は onAuthStateChanged が担う
+    } catch (error) {
       setLoading(false);
+      throw new Error(getFirebaseErrorMessage(error));
     }
   }, []);
 
-  // ── Sign-up ─────────────────────────────────────────────────────────────────
+  // ── ユーザーID + パスワード ログイン ─────────────────────────────────────────
+  // Firestore で username を検索してメールアドレスに変換してからサインイン
+  const signInWithUsername = useCallback(async (username: string, password: string) => {
+    setLoading(true);
+    try {
+      const email = await getEmailByUsername(username);
+      if (!email) {
+        throw new Error('このユーザーIDは存在しません。');
+      }
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      setLoading(false);
+      // すでに日本語メッセージならそのまま、Firebase エラーなら変換
+      const msg = error instanceof Error && error.message.includes('ユーザーID')
+        ? error.message
+        : getFirebaseErrorMessage(error);
+      throw new Error(msg);
+    }
+  }, []);
+
+  // ── 新規登録 ────────────────────────────────────────────────────────────────
   const signUp = useCallback(async (
     email: string,
     password: string,
     displayName: string,
     role: UserRole,
   ) => {
-    if (USE_MOCK) {
-      setLoading(true);
-      await new Promise((r) => setTimeout(r, 800));
-      setIsNewUser(true);
-      setCurrentUser(createMockUser(email, displayName, role));
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     try {
-      // Store extras so onAuthStateChanged creates the Firestore doc with correct data
+      // extras を先にセットしておき onAuthStateChanged で Firestore ドキュメントを作成
       pendingExtras.current = { displayName, role };
       const credential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(credential.user, { displayName });
-      // getOrCreateFirestoreUser called in onAuthStateChanged with pendingExtras
       setIsNewUser(true);
-      // onAuthStateChanged will set currentUser
-    } finally {
+      // currentUser の更新は onAuthStateChanged が担う
+    } catch (error) {
+      pendingExtras.current = null;
       setLoading(false);
+      throw new Error(getFirebaseErrorMessage(error));
     }
   }, []);
 
-  // ── Sign-out ─────────────────────────────────────────────────────────────────
+  // ── ログアウト ───────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
-    if (USE_MOCK) {
-      setLoading(true);
-      await new Promise((r) => setTimeout(r, 300));
-      setCurrentUser(null);
-      setIsNewUser(false);
-      setLoading(false);
-      return;
-    }
-
     await clearBiometricCredentials().catch(() => {});
     await fbSignOut(auth);
     setCurrentUser(null);
     setIsNewUser(false);
   }, []);
 
-  // ── Google Sign-in ──────────────────────────────────────────────────────────
+  // ── Google ログイン ──────────────────────────────────────────────────────────
   const signInWithGoogle = useCallback(async (idToken: string | null, accessToken: string | null) => {
-    if (USE_MOCK) {
-      setLoading(true);
-      await new Promise((r) => setTimeout(r, 800));
-      setCurrentUser(createMockUser('google@example.com', 'Google User', 'player'));
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     try {
       const { user, isNew } = await signInWithGoogleCredential(idToken, accessToken);
       setCurrentUser(user);
       if (isNew) setIsNewUser(true);
+    } catch (error) {
+      throw new Error(getFirebaseErrorMessage(error));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // ── Apple Sign-in ────────────────────────────────────────────────────────────
+  // ── Apple ログイン ───────────────────────────────────────────────────────────
   const signInWithApple = useCallback(async (identityToken: string, rawNonce: string) => {
-    if (USE_MOCK) {
-      setLoading(true);
-      await new Promise((r) => setTimeout(r, 800));
-      setCurrentUser(createMockUser('apple@privaterelay.appleid.com', 'Apple User', 'player'));
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     try {
       const { user, isNew } = await signInWithAppleToken(identityToken, rawNonce);
       setCurrentUser(user);
       if (isNew) setIsNewUser(true);
+    } catch (error) {
+      throw new Error(getFirebaseErrorMessage(error));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // ── Passkey / Biometric sign-in ─────────────────────────────────────────────
+  // ── パスキー（生体認証）ログイン ─────────────────────────────────────────────
+  // SecureStore に保存された email/password を生体認証で取り出してサインイン
   const signInWithPasskey = useCallback(async () => {
-    if (USE_MOCK) return;
-
     const creds = await authenticateWithBiometrics();
     if (!creds) return;
 
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, creds.email, creds.password);
-    } finally {
+    } catch (error) {
       setLoading(false);
+      throw new Error(getFirebaseErrorMessage(error));
     }
   }, []);
 
+  // ── ゲスト（テストプレイ用スキップ）────────────────────────────────────────
+  // currentUser を null のままにし、認証が必要な機能はブロックされる状態でフィードへ進む
+  const signInAsGuest = useCallback(() => {
+    setLoading(false);
+  }, []);
+
+  const userPlan = currentUser?.plan ?? UserPlan.FREE;
+
   const value = useMemo(
-    () => ({ currentUser, loading, isNewUser, clearNewUser, signIn, signUp, signOut, signInWithPasskey, signInWithGoogle, signInWithApple }),
-    [currentUser, loading, isNewUser, clearNewUser, signIn, signUp, signOut, signInWithPasskey, signInWithGoogle, signInWithApple],
+    () => ({
+      currentUser,
+      userPlan,
+      loading,
+      isNewUser,
+      clearNewUser,
+      refreshUser,
+      signIn,
+      signInWithUsername,
+      signUp,
+      signOut,
+      signInWithPasskey,
+      signInWithGoogle,
+      signInWithApple,
+      signInAsGuest,
+    }),
+    [currentUser, userPlan, loading, isNewUser, clearNewUser, refreshUser, signIn, signInWithUsername, signUp, signOut, signInWithPasskey, signInWithGoogle, signInWithApple, signInAsGuest],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

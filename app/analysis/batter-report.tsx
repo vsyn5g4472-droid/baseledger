@@ -10,7 +10,7 @@
  *  6. 作戦傾向チップス
  */
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -32,6 +32,9 @@ import {
 import ZoneHeatmap from '../../src/components/analysis/ZoneHeatmap';
 import SprayChart from '../../src/components/analytics/SprayChart';
 import { generateBatterAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
+import PlanUpgradeCard from '../../src/components/PlanUpgradeCard';
+import AIReportErrorCard from '../../src/components/AIReportErrorCard';
+import { useUserPlan, usePlanGate } from '../../src/hooks/usePlanGate';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -188,10 +191,25 @@ export default function BatterReportScreen() {
   const { batterId, batterName } =
     useLocalSearchParams<{ batterId: string; batterName: string }>();
 
+  const userPlan = useUserPlan();
+  const aiGate = usePlanGate('ai_report');
+  const sprayGate = usePlanGate('spray_chart');
+  const heatmapGate = usePlanGate('zone_heatmap');
+
   const [profile, setProfile]   = useState<BatterProfile | null>(null);
   const [loading, setLoading]   = useState(true);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+
+  const loadAIReport = useCallback(async (p: BatterProfile) => {
+    setAiLoading(true);
+    try {
+      const report = await generateBatterAIReport(p, userPlan);
+      setAiReport(report);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [userPlan]);
 
   useEffect(() => {
     (async () => {
@@ -200,16 +218,10 @@ export default function BatterReportScreen() {
       setProfile(p);
       setLoading(false);
       if (p && p.totalAtBats > 0) {
-        setAiLoading(true);
-        try {
-          const report = await generateBatterAIReport(p);
-          setAiReport(report);
-        } finally {
-          setAiLoading(false);
-        }
+        await loadAIReport(p);
       }
     })();
-  }, [batterId]);
+  }, [batterId, loadAIReport]);
 
   // SprayChart 用の AtBatLog 配列に変換
   const atBatLogsForSpray = useMemo(
@@ -294,62 +306,69 @@ export default function BatterReportScreen() {
         </View>
 
         {/* ── ② 打球散布図 ── */}
-        <View style={styles.card}>
-          <SectionHeader icon="baseball" label="打球散布図" />
-          <SprayChart atBatLogs={atBatLogsForSpray} />
-          <View style={styles.legendRow}>
-            <LegendDot color={Colors.primary} label="安打" />
-            <LegendDot color={Colors.accent}  label="エラー" />
-            <LegendDot color={Colors.textSecondary} label="アウト" />
+        {sprayGate.allowed ? (
+          <View style={styles.card}>
+            <SectionHeader icon="baseball" label="打球散布図" />
+            <SprayChart atBatLogs={atBatLogsForSpray} />
+            <View style={styles.legendRow}>
+              <LegendDot color={Colors.primary} label="安打" />
+              <LegendDot color={Colors.accent}  label="エラー" />
+              <LegendDot color={Colors.textSecondary} label="アウト" />
+            </View>
           </View>
-        </View>
+        ) : (
+          <PlanUpgradeCard featureLabel="スプレーチャート" currentPlan={userPlan} />
+        )}
 
         {/* ── ③ コース別成績 ── */}
-        <View style={styles.card}>
-          <SectionHeader icon="target" label="コース別成績" />
-          <View style={styles.heatmapPair}>
-            <View style={styles.heatmapBlock}>
-              <Text style={styles.heatmapLabel}>空振り率</Text>
-              <ZoneHeatmap
-                heatData={weakHeatData}
-                labelData={labelDataWeak}
-                colorTheme="red"
-                compact
-              />
+        {heatmapGate.allowed ? (
+          <View style={styles.card}>
+            <SectionHeader icon="target" label="コース別成績" />
+            <View style={styles.heatmapPair}>
+              <View style={styles.heatmapBlock}>
+                <Text style={styles.heatmapLabel}>空振り率</Text>
+                <ZoneHeatmap
+                  heatData={weakHeatData}
+                  labelData={labelDataWeak}
+                  colorTheme="red"
+                  compact
+                />
+              </View>
+              <View style={styles.heatmapBlock}>
+                <Text style={styles.heatmapLabel}>被打率</Text>
+                <ZoneHeatmap
+                  heatData={strongHeatData}
+                  labelData={labelDataStrong}
+                  colorTheme="green"
+                  compact
+                />
+              </View>
             </View>
-            <View style={styles.heatmapBlock}>
-              <Text style={styles.heatmapLabel}>被打率</Text>
-              <ZoneHeatmap
-                heatData={strongHeatData}
-                labelData={labelDataStrong}
-                colorTheme="green"
-                compact
-              />
-            </View>
-          </View>
 
-          {/* 苦手 / 得意コース */}
-          {profile.weakZones.length > 0 && (
-            <View>
-              <Text style={styles.subHeading}>苦手コース (空振り率上位)</Text>
-              <View style={styles.badgeRow}>
-                {profile.weakZones.map((z) => (
-                  <ZoneBadge key={z.zone} stat={z} mode="weak" />
-                ))}
+            {profile.weakZones.length > 0 && (
+              <View>
+                <Text style={styles.subHeading}>苦手コース (空振り率上位)</Text>
+                <View style={styles.badgeRow}>
+                  {profile.weakZones.map((z) => (
+                    <ZoneBadge key={z.zone} stat={z} mode="weak" />
+                  ))}
+                </View>
               </View>
-            </View>
-          )}
-          {profile.strongZones.length > 0 && (
-            <View>
-              <Text style={styles.subHeading}>得意コース (被打率上位)</Text>
-              <View style={styles.badgeRow}>
-                {profile.strongZones.map((z) => (
-                  <ZoneBadge key={z.zone} stat={z} mode="strong" />
-                ))}
+            )}
+            {profile.strongZones.length > 0 && (
+              <View>
+                <Text style={styles.subHeading}>得意コース (被打率上位)</Text>
+                <View style={styles.badgeRow}>
+                  {profile.strongZones.map((z) => (
+                    <ZoneBadge key={z.zone} stat={z} mode="strong" />
+                  ))}
+                </View>
               </View>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        ) : (
+          <PlanUpgradeCard featureLabel="ゾーンヒートマップ" currentPlan={userPlan} />
+        )}
 
         {/* ── ④ 球速帯別成績 ── */}
         {profile.velocityBands.length > 0 && (
@@ -406,31 +425,43 @@ export default function BatterReportScreen() {
         </View>
 
         {/* ── ⑦ AI 分析サマリ ── */}
-        <View style={[styles.card, styles.aiCard]}>
-          <View style={styles.aiHeader}>
-            <MaterialCommunityIcons name="robot-outline" size={20} color={Colors.primary} />
-            <Text style={styles.aiTitle}>
-              AI 分析サマリ{aiReport?.isMock ? '（サンプル）' : ''}
-            </Text>
-          </View>
-          {aiLoading ? (
+        {aiLoading ? (
+          <View style={[styles.card, styles.aiCard]}>
+            <View style={styles.aiHeader}>
+              <MaterialCommunityIcons name="robot-outline" size={20} color={Colors.primary} />
+              <Text style={styles.aiTitle}>AI 分析サマリ</Text>
+            </View>
             <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 8 }} />
-          ) : aiReport ? (
-            <>
-              <Text style={styles.aiOverall}>{aiReport.overall}</Text>
-              {reportToSections(aiReport)
-                .filter((s) => s.title !== '総合評価')
-                .map((s) => (
-                  <View key={s.title} style={styles.aiSection}>
-                    <Text style={styles.aiSectionTitle}>{s.title}</Text>
-                    <Text style={styles.aiSectionBody}>{s.content}</Text>
-                  </View>
-                ))}
-            </>
-          ) : (
-            <Text style={styles.aiOverall}>分析データがありません</Text>
-          )}
-        </View>
+          </View>
+        ) : aiReport && !aiReport.isMock ? (
+          <View style={[styles.card, styles.aiCard]}>
+            <View style={styles.aiHeader}>
+              <MaterialCommunityIcons name="robot-outline" size={20} color={Colors.primary} />
+              <Text style={styles.aiTitle}>AI 分析サマリ</Text>
+              {aiReport.usage ? (
+                <Text style={styles.aiUsage}>
+                  本日 残り {aiReport.usage.remaining}/{aiReport.usage.limit} 回
+                </Text>
+              ) : null}
+            </View>
+            <Text style={styles.aiOverall}>{aiReport.overall}</Text>
+            {reportToSections(aiReport)
+              .filter((s) => s.title !== '総合評価')
+              .map((s) => (
+                <View key={s.title} style={styles.aiSection}>
+                  <Text style={styles.aiSectionTitle}>{s.title}</Text>
+                  <Text style={styles.aiSectionBody}>{s.content}</Text>
+                </View>
+              ))}
+          </View>
+        ) : aiReport ? (
+          <AIReportErrorCard
+            report={aiReport}
+            currentPlan={userPlan}
+            featureLabel="AI 分析サマリ"
+            onRetry={profile ? () => loadAIReport(profile) : undefined}
+          />
+        ) : null}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -513,7 +544,8 @@ const styles = StyleSheet.create({
 
   aiCard:    { backgroundColor: Colors.primaryLight },
   aiHeader:  { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  aiTitle:   { fontSize: Typography.bodySmall, fontWeight: '800', color: Colors.primary },
+  aiTitle:   { fontSize: Typography.bodySmall, fontWeight: '800', color: Colors.primary, flex: 1 },
+  aiUsage:   { fontSize: Typography.tiny, fontWeight: '600', color: Colors.textSecondary },
   aiOverall: { fontSize: Typography.bodySmall, color: Colors.text, lineHeight: 22 },
   aiSection: {
     marginTop: Spacing.xs,

@@ -18,15 +18,16 @@ interface PostCardProps {
   onAuthorPress?: () => void;
   onLike?: () => void;
   onComment?: () => void;
-  /** When true, like tap calls onLike() without toggling local state (for guests) */
   requiresAuth?: boolean;
 }
 
-const typeConfig: Record<string, { icon: string; color: string; label: string }> = {
-  highlight: { icon: 'star',        color: Colors.accent,   label: '注目' },
-  stats:     { icon: 'chart-bar',   color: Colors.primary,  label: 'Stats' },
-  text:      { icon: 'text',        color: Colors.textSecondary, label: 'テキスト' },
-  video:     { icon: 'video',       color: Colors.secondary, label: '動画' },
+// 投稿タイプ → カード左端のアクセントカラー
+// 同じ色を複数タイプで使わない。視覚的なラベルではなくアクセントとして使用
+const typeAccentColor: Record<string, string> = {
+  highlight: Colors.caution,    // ゴールド: 注目・ハイライト
+  stats:     Colors.action,     // アクションブルー: データ・数字
+  video:     Colors.statusLive, // 赤: 動画（注意を引く）
+  text:      Colors.border,     // グレー: 通常テキスト（装飾なし）
 };
 
 export default function PostCard({
@@ -49,97 +50,93 @@ export default function PostCard({
   const [likes, setLikes] = useState(likesCount);
 
   const handleLike = () => {
-    if (requiresAuth) {
-      onLike?.();
-      return;
-    }
+    if (requiresAuth) { onLike?.(); return; }
     setLiked(!liked);
     setLikes(liked ? likes - 1 : likes + 1);
     onLike?.();
   };
 
-  const cfg = typeConfig[type] ?? typeConfig.text;
+  const accentColor = typeAccentColor[type] ?? Colors.border;
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.97}>
-      {/* Header ─ author row */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.authorRow}
-          onPress={onAuthorPress}
-          disabled={!onAuthorPress}
-          activeOpacity={0.7}
-        >
-          {authorPhotoURL ? (
-            <Avatar.Image size={40} source={{ uri: authorPhotoURL }} />
-          ) : (
-            <Avatar.Text
-              size={40}
-              label={authorName.charAt(0).toUpperCase()}
-              style={styles.avatar}
-              labelStyle={styles.avatarLabel}
-            />
-          )}
-          <View style={styles.authorInfo}>
-            <Text style={styles.authorName}>{authorName}</Text>
-            <Text style={styles.timeAgo}>{timeAgo}</Text>
-          </View>
-        </TouchableOpacity>
+      {/* 投稿タイプを左端ボーダーで示す — バッジより省スペースかつ邪魔にならない */}
+      <View style={[styles.typeAccent, { backgroundColor: accentColor }]} />
 
-        {/* Type badge */}
-        <View style={[styles.typeBadge, { backgroundColor: cfg.color + '18' }]}>
-          <MaterialCommunityIcons name={cfg.icon as any} size={13} color={cfg.color} />
-          <Text style={[styles.typeBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
-        </View>
-      </View>
+      <View style={styles.inner}>
+        {/* 1. コンテンツ — 最初に目が行く主役 */}
+        <Text style={styles.content} numberOfLines={5}>
+          {content || '(本文なし)'}
+        </Text>
 
-      {/* Content */}
-      <Text style={styles.content}>{content}</Text>
-
-      {/* Media */}
-      {mediaURLs.length > 0 && (
-        <Image source={{ uri: mediaURLs[0] }} style={styles.mediaImage} resizeMode="cover" />
-      )}
-
-      {/* External video link */}
-      {externalVideoUrl && (
-        <TouchableOpacity
-          style={styles.videoLinkBtn}
-          onPress={() => Linking.openURL(externalVideoUrl)}
-        >
-          <MaterialCommunityIcons name="play-circle" size={18} color={Colors.primary} />
-          <Text style={styles.videoLinkText}>動画を見る</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Divider */}
-      <View style={styles.divider} />
-
-      {/* Actions */}
-      <View style={styles.actions}>
-        <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.6}>
-          <MaterialCommunityIcons
-            name={liked ? 'heart' : 'heart-outline'}
-            size={22}
-            color={liked ? Colors.secondary : Colors.textSecondary}
+        {/* メディア */}
+        {mediaURLs.length > 0 && (
+          <Image
+            source={{ uri: mediaURLs[0] }}
+            style={styles.mediaImage}
+            resizeMode="cover"
           />
-          {likes > 0 && (
-            <Text style={[styles.actionCount, liked && { color: Colors.secondary }]}>
-              {likes}
-            </Text>
-          )}
-        </TouchableOpacity>
+        )}
 
-        <TouchableOpacity style={styles.actionBtn} onPress={onComment} activeOpacity={0.6}>
-          <MaterialCommunityIcons name="comment-outline" size={22} color={Colors.textSecondary} />
-          {commentsCount > 0 && (
-            <Text style={styles.actionCount}>{commentsCount}</Text>
-          )}
-        </TouchableOpacity>
+        {/* 外部動画リンク */}
+        {externalVideoUrl ? (
+          <TouchableOpacity
+            style={styles.videoLinkBtn}
+            onPress={() => Linking.openURL(externalVideoUrl)}
+          >
+            <MaterialCommunityIcons name="play-circle-outline" size={16} color={Colors.action} />
+            <Text style={styles.videoLinkText}>動画を見る</Text>
+          </TouchableOpacity>
+        ) : null}
 
-        <TouchableOpacity style={styles.actionBtn} activeOpacity={0.6}>
-          <MaterialCommunityIcons name="share-outline" size={22} color={Colors.textSecondary} />
-        </TouchableOpacity>
+        {/* 区切り */}
+        <View style={styles.divider} />
+
+        {/* 2. 著者行 — コンテンツを読んだ後に「誰が書いたか」を確認する */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.authorRow}
+            onPress={onAuthorPress}
+            disabled={!onAuthorPress}
+            activeOpacity={0.7}
+          >
+            {authorPhotoURL ? (
+              <Avatar.Image size={28} source={{ uri: authorPhotoURL }} />
+            ) : (
+              <Avatar.Text
+                size={28}
+                label={authorName ? authorName.charAt(0).toUpperCase() : '?'}
+                style={styles.avatar}
+                labelStyle={styles.avatarLabel}
+              />
+            )}
+            <Text style={styles.authorName} numberOfLines={1}>{authorName || '不明なユーザー'}</Text>
+            <Text style={styles.timeAgo}>{timeAgo}</Text>
+          </TouchableOpacity>
+
+          {/* 3. アクション — 最後に「どう反応するか」 */}
+          <View style={styles.actions}>
+            <TouchableOpacity style={styles.actionBtn} onPress={handleLike} activeOpacity={0.6}>
+              <MaterialCommunityIcons
+                name={liked ? 'heart' : 'heart-outline'}
+                size={18}
+                color={liked ? Colors.secondary : Colors.textSecondary}
+              />
+              {likes > 0 ? (
+                <Text style={[styles.actionCount, liked && { color: Colors.secondary }]}>
+                  {likes}
+                </Text>
+              ) : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionBtn} onPress={onComment} activeOpacity={0.6}>
+              <MaterialCommunityIcons name="comment-outline" size={18} color={Colors.textSecondary} />
+              {commentsCount > 0 ? (
+                <Text style={styles.actionCount}>{commentsCount}</Text>
+              ) : null}
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -149,104 +146,101 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.card,
     marginHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
-    borderRadius: BorderRadius.xl,
-    // Instagram-style soft shadow (no border)
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    flexDirection: 'row',
+    overflow: 'hidden',
     ...CardShadow,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.md,
+  // 左端アクセントボーダー: 投稿タイプをバッジなしで示す
+  typeAccent: {
+    width: 3,
+    borderRadius: 0,
+    flexShrink: 0,
+  },
+  inner: {
+    flex: 1,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
+    paddingHorizontal: Spacing.md,
   },
-  authorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  avatar: {
-    backgroundColor: Colors.primary,
-  },
-  avatarLabel: {
-    color: Colors.white,
-    fontWeight: '700',
-  },
-  authorInfo: {
-    marginLeft: Spacing.sm,
-    flex: 1,
-  },
-  authorName: {
-    fontSize: Typography.body,
-    fontWeight: '700',
-    color: Colors.text,
-  },
-  timeAgo: {
-    fontSize: Typography.caption,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  typeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-  },
-  typeBadgeText: {
-    fontSize: Typography.tiny,
-    fontWeight: '700',
-    textTransform: 'capitalize',
-  },
+  // 1. コンテンツ — 最大フォントで最初に視認
   content: {
     fontSize: Typography.body,
     color: Colors.text,
-    lineHeight: 23,
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
+    lineHeight: 24,
+    marginBottom: Spacing.sm,
   },
   mediaImage: {
     width: '100%',
-    height: 220,
+    height: 200,
+    borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
   },
   videoLinkBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    marginHorizontal: Spacing.md,
     marginBottom: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    backgroundColor: Colors.primaryLight,
-    borderRadius: BorderRadius.full,
     alignSelf: 'flex-start',
   },
   videoLinkText: {
-    color: Colors.primary,
-    fontSize: Typography.bodySmall,
+    color: Colors.action,
+    fontSize: Typography.caption,
     fontWeight: '600',
   },
   divider: {
     height: 0.5,
     backgroundColor: Colors.border,
-    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
   },
+  // 2. フッター: 著者 + アクション
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    flex: 1,
+    minWidth: 0,
+  },
+  avatar: {
+    backgroundColor: Colors.primary,
+    flexShrink: 0,
+  },
+  avatarLabel: {
+    color: Colors.white,
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  authorName: {
+    fontSize: Typography.caption,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    flexShrink: 1,
+  },
+  timeAgo: {
+    fontSize: Typography.caption,
+    color: Colors.textDisabled,
+    flexShrink: 0,
+  },
+  // 3. アクション
   actions: {
     flexDirection: 'row',
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    gap: Spacing.lg,
+    alignItems: 'center',
+    gap: Spacing.md,
+    flexShrink: 0,
   },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
+    gap: 3,
   },
   actionCount: {
-    fontSize: Typography.bodySmall,
+    fontSize: Typography.caption,
     color: Colors.textSecondary,
     fontWeight: '500',
   },

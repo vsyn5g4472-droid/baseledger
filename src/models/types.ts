@@ -1,4 +1,7 @@
 import { Timestamp } from 'firebase/firestore';
+import type { UserPlan } from '../services/planService';
+
+export type { UserPlan };
 
 // ============================================================
 // User
@@ -38,6 +41,32 @@ export interface UserStats {
   fielding: FieldingStats;
 }
 
+/** スコアキーピングの表示項目ON/OFF（17項目、velocity は試合ごと velocityEnabled） */
+export type RecordingItemId =
+  | 'foul_tip'
+  | 'sacrifice_fly'
+  | 'fielders_choice'
+  | 'double_play'
+  | 'triple_play'
+  | 'error_at_bat'
+  | 'pickoff'
+  | 'pickoff_balk'
+  | 'pickoff_error'
+  | 'bunt_stance'
+  | 'bunt_detail'
+  | 'sign_play'
+  | 'pitch_zone_detail'
+  | 'batted_ball_location'
+  | 'batted_ball_distance'
+  | 'runner_advancement_detail'
+  | 'substitution';
+
+export interface RecordingPreferences {
+  /** true のとき詳細ON/OFFのうち上級向けの項目を表示 */
+  detailMode: boolean;
+  items: Partial<Record<RecordingItemId, boolean>>;
+}
+
 export interface User {
   uid: string;
   email: string;
@@ -53,12 +82,15 @@ export interface User {
   batHand: BatHand | null;
   bio: string;
   stats: UserStats;
+  plan: UserPlan;
   followersCount: number;
   followingCount: number;
   postsCount: number;
   isPublic: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  /** 未設定のユーザーは mergeWithDefaults で補完 */
+  recordingPreferences?: RecordingPreferences;
 }
 
 // ============================================================

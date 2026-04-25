@@ -4,12 +4,13 @@ import { Text, Avatar, Button, Card, Chip, Divider } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../src/contexts/AuthContext';
+import BuntSignStatsCard from '../../../src/components/BuntSignStatsCard';
 import StatsChart from '../../../src/components/StatsChart';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
 
 export default function ProfileScreen() {
-  const { currentUser, signOut } = useAuth();
+  const { currentUser, signOut, userPlan } = useAuth();
   const { t } = useI18n();
 
   // Guest landing — show sign-up CTA
@@ -145,6 +146,8 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Card>
+
+      <BuntSignStatsCard userPlan={userPlan} />
 
       <Divider style={styles.divider} />
 

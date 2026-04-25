@@ -1,20 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { Text, TextInput, Button } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
-import { useAuth } from '../../../src/contexts/AuthContext';
-import AuthPromptCard from '../../../src/components/AuthPromptCard';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
+import { useUserPlan } from '../../../src/hooks/usePlanGate';
+import { checkGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 import type { GameCategory } from '../../../src/types/game';
 
 const CATEGORIES: GameCategory[] = ['practice', 'official', 'tournament', 'other'];
 
 export default function ScoreIndexScreen() {
   const { t } = useI18n();
-  const { currentUser } = useAuth();
+  const userPlan = useUserPlan();
+  const [gameUsage, setGameUsage] = useState<UsageCheckResult | null>(null);
+
+  useEffect(() => {
+    checkGameUsage(userPlan).then(setGameUsage);
+  }, [userPlan]);
 
   // 試合メタデータ
   const [category, setCategory] = useState<GameCategory>('practice');
@@ -35,18 +40,14 @@ export default function ScoreIndexScreen() {
   const velocityEnabled = velocitySettings.enabled;
   const pitchDistanceMode = velocitySettings.pitchDistanceM === 16.00 ? 'youth' : 'standard';
 
-  // Guest users see an auth prompt instead of the score form
-  if (!currentUser) {
-    return (
-      <AuthPromptCard
-        title={t.authGate.scoreTitle}
-        subtitle={t.authGate.scoreSubtitle}
-        icon="baseball"
-      />
-    );
-  }
-
   const handleNext = () => {
+    if (gameUsage && !gameUsage.allowed) {
+      Alert.alert(
+        '試合数の上限',
+        `今月の試合記録数（${gameUsage.limit}試合）に達しました。プランをアップグレードすると、より多くの試合を記録できます。`,
+      );
+      return;
+    }
     if (!awayName.trim() || !homeName.trim()) {
       Alert.alert(t.setup.validation.teamNameRequired);
       return;

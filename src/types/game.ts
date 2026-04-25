@@ -130,6 +130,21 @@ export interface RunnerAdvancement {
   outDetail?: OutDetail;   // アウトの場合の詳細理由
 }
 
+/** バント球の付加情報（構え・結果） */
+export type BuntOutcome = 'stance_only' | 'foul' | 'swing_miss' | 'in_play';
+
+/** 打席におけるバントの分類 */
+export type BuntType = 'sacrifice' | 'squeeze' | 'safety' | 'push' | 'drag';
+
+/** チーム戦術タグ（サインプレー） */
+export type SignPlayTag =
+  | 'hit_and_run'
+  | 'run_and_hit'
+  | 'squeeze'
+  | 'double_steal'
+  | 'delayed_steal'
+  | 'bunt_and_run';
+
 // ============================================================
 // 進塁確認ペンディング状態
 // ============================================================
@@ -138,6 +153,8 @@ export interface PendingAdvancement {
   battedBall?: BattedBall;
   fielding?: FieldingRecord;
   advancements: RunnerAdvancement[];
+  /** 打席完了時に AtBatLog へ取り込む */
+  atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag };
 }
 
 /** 手動進塁確認が必要な打席結果 */
@@ -208,6 +225,43 @@ export interface PitchLog {
   countBefore: Count;         // この球を投げる前のカウント
   countAfter: Count;          // この球を投げた後のカウント
   timestamp: number;
+  /** バントの構えを見せたか */
+  buntAttempt?: boolean;
+  /** バント意図がある球の詳細 */
+  buntOutcome?: BuntOutcome;
+}
+
+// ============================================================
+// 盗塁企図ログ
+// ============================================================
+
+/** recordStolenBase / recordCaughtStealing に渡す投球コンテキスト */
+export interface StolenBasePitchContext {
+  pitchType?: PitchType | string;
+  pitchZone?: StrikeZone;
+  pitchVelocity?: number;
+  countBefore?: Count;
+  pitchResult?: PitchResult;
+  signPlay?: SignPlayTag;
+}
+
+export interface StolenBaseLog {
+  id: string;
+  inning: InningState;
+  runnerId: string;
+  runnerName: string;
+  fromBase: 'first' | 'second' | 'third';
+  toBase: 'second' | 'third' | 'home';
+  result: 'safe' | 'out';
+  // 投球コンテキスト（投球モーダル経由で自動付与）
+  pitchType?: PitchType | string;
+  pitchZone?: StrikeZone;
+  pitchVelocity?: number;
+  countBefore?: Count;       // 投球前のカウント
+  pitchResult?: PitchResult; // その球の結果（ボール/ストライク等）
+  outsAtTime: number;
+  timestamp: number;
+  signPlay?: SignPlayTag;
 }
 
 // ============================================================
@@ -262,6 +316,11 @@ export interface AtBatLog {
   runnersAfterPlay: Runners;
   runnerAdvancements?: RunnerAdvancement[];  // 進塁詳細（outDetail含む）永続化用
   timestamp: number;
+  note?: string;               // 打者・打席に関するフリーメモ
+  /** バントの分類（犠打・スクイズ等） */
+  buntType?: BuntType;
+  /** サインプレー */
+  signPlay?: SignPlayTag;
 }
 
 // ============================================================
@@ -343,6 +402,7 @@ export interface GameState {
   pitchLogs: PitchLog[];
   atBatLogs: AtBatLog[];
   pickoffEvents: PickoffEvent[];
+  stolenBaseLogs: StolenBaseLog[];
   currentAtBat: AtBatLog | null;
 
   // 統計 (通算球数)

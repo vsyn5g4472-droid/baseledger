@@ -202,7 +202,7 @@ export async function searchKyureki(query: string): Promise<KyurekiSearchRespons
   try {
     items = await callGoogleSearchAPI(query);
   } catch (err) {
-    console.error('[googleSearchService] API call failed:', err);
+    if (__DEV__) console.error('[googleSearchService] API call failed:', err);
     throw err; // 呼び出し元でハンドリング
   }
 

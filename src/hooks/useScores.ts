@@ -124,7 +124,7 @@ export function useScores(playerId?: string): {
       const converted = finished.map(gameToScore);
       setScores(converted);
     } catch (err) {
-      console.error('Failed to load scores from AsyncStorage:', err);
+      if (__DEV__) console.error('Failed to load scores from AsyncStorage:', err);
       setScores([]);
     } finally {
       setLoading(false);
@@ -217,7 +217,7 @@ export function usePlayerStats(playerId: string): {
         },
       });
     } catch (err) {
-      console.error('Failed to compute stats:', err);
+      if (__DEV__) console.error('Failed to compute stats:', err);
       setStats(null);
     } finally {
       setLoading(false);
