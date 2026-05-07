@@ -8,9 +8,9 @@ import {
 } from 'firebase/auth';
 import { auth } from '../services/firebase';
 import {
-  getOrCreateFirestoreUser,
   getFirestoreUser,
   getEmailByUsername,
+  syncFirestoreUser,
 } from '../services/auth/userAuthService';
 import {
   signInWithGoogleCredential,
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isNewUser, setIsNewUser] = useState(false);
-  // signUp 時に displayName/role を onAuthStateChanged ハンドラへ橋渡しするための ref
+  // signUp 時に displayName/role を onAuthStateChanged / sync へ橋渡しするための ref
   const pendingExtras = useRef<{ displayName: string; role: UserRole } | null>(null);
 
   const clearNewUser = useCallback(() => setIsNewUser(false), []);
@@ -76,36 +76,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      try {
-        const extras = pendingExtras.current ?? undefined;
-        pendingExtras.current = null;
-        const { user, isNew } = await getOrCreateFirestoreUser(firebaseUser, extras);
-        setCurrentUser(user);
-        if (isNew) setIsNewUser(true);
-      } catch {
-        // Firestore 取得失敗時（オフライン等）は null のままローディングを解除する
-        try {
-          const fallback = await getFirestoreUser(firebaseUser.uid);
-          setCurrentUser(fallback);
-        } catch {
-          setCurrentUser(null);
-        }
-      } finally {
-        setLoading(false);
-      }
+      const extras = pendingExtras.current
+        ? { displayName: pendingExtras.current.displayName, role: pendingExtras.current.role }
+        : null;
+      pendingExtras.current = null;
+      const _t0 = Date.now();
+      const { user, isNew } = await syncFirestoreUser(firebaseUser, extras);
+      if (__DEV__) console.log(`[perf][auth] onAuthStateChanged.sync: ${Date.now() - _t0}ms`);
+      setCurrentUser(user);
+      if (isNew) setIsNewUser(true);
+      setLoading(false);
     });
 
     return unsubscribe;
   }, []);
 
   // ── メールアドレス + パスワード ログイン ────────────────────────────────────
+  // Firebase Auth のみ実行。Firestore sync は onAuthStateChanged に一本化して二重呼び出しを防ぐ
   const signIn = useCallback(async (email: string, password: string) => {
     setLoading(true);
+    const _tTotal = Date.now();
     try {
+      const _tAuth = Date.now();
       await signInWithEmailAndPassword(auth, email, password);
-      // currentUser の更新は onAuthStateChanged が担う
+      if (__DEV__) console.log(`[perf][auth] signIn.firebaseAuth: ${Date.now() - _tAuth}ms`);
+      if (__DEV__) console.log(`[perf][auth] signIn.TOTAL: ${Date.now() - _tTotal}ms`);
+      // currentUser 更新と setLoading(false) は onAuthStateChanged が担当
     } catch (error) {
-      setLoading(false);
+      if (__DEV__) console.log(`[perf][auth] signIn.TOTAL: ${Date.now() - _tTotal}ms`);
+      setLoading(false); // 認証失敗時は onAuthStateChanged が発火しないため手動で解除
       throw new Error(getFirebaseErrorMessage(error));
     }
   }, []);
@@ -116,13 +115,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const email = await getEmailByUsername(username);
-      if (!email) {
-        throw new Error('このユーザーIDは存在しません。');
-      }
+      if (!email) throw new Error('このユーザーIDは存在しません。');
       await signInWithEmailAndPassword(auth, email, password);
+      // currentUser 更新と setLoading(false) は onAuthStateChanged が担当
     } catch (error) {
       setLoading(false);
-      // すでに日本語メッセージならそのまま、Firebase エラーなら変換
       const msg = error instanceof Error && error.message.includes('ユーザーID')
         ? error.message
         : getFirebaseErrorMessage(error);
@@ -143,8 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       pendingExtras.current = { displayName, role };
       const credential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(credential.user, { displayName });
-      setIsNewUser(true);
-      // currentUser の更新は onAuthStateChanged が担う
+      // isNew / currentUser は onAuthStateChanged 内の syncFirestoreUser に任せる
     } catch (error) {
       pendingExtras.current = null;
       setLoading(false);
@@ -197,6 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, creds.email, creds.password);
+      // currentUser 更新と setLoading(false) は onAuthStateChanged が担当
     } catch (error) {
       setLoading(false);
       throw new Error(getFirebaseErrorMessage(error));

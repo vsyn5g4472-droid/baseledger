@@ -34,18 +34,27 @@ export default function OnboardingScreen() {
 
     setSuggestions(candidates.map((id) => ({ id, status: 'checking' })));
 
-    candidates.forEach(async (id) => {
-      try {
-        const available = await checkUsernameAvailable(id);
-        setSuggestions((prev) =>
-          prev.map((s) => (s.id === id ? { ...s, status: available ? 'available' : 'taken' } : s)),
-        );
-      } catch {
-        setSuggestions((prev) =>
-          prev.map((s) => (s.id === id ? { ...s, status: 'taken' } : s)),
-        );
+    let cancelled = false;
+    (async () => {
+      for (const id of candidates) {
+        if (cancelled) break;
+        try {
+          const available = await checkUsernameAvailable(id);
+          if (!cancelled) {
+            setSuggestions((prev) =>
+              prev.map((s) => (s.id === id ? { ...s, status: available ? 'available' : 'taken' } : s)),
+            );
+          }
+        } catch {
+          if (!cancelled) {
+            setSuggestions((prev) =>
+              prev.map((s) => (s.id === id ? { ...s, status: 'taken' } : s)),
+            );
+          }
+        }
       }
-    });
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const handleConfirm = async () => {
@@ -54,10 +63,12 @@ export default function OnboardingScreen() {
       return;
     }
     setSaving(true);
+    const _t = Date.now();
     try {
       if (currentUser) {
         await updateUsername(currentUser.uid, username);
       }
+      if (__DEV__) console.log(`[perf][onboarding] handleConfirm.TOTAL: ${Date.now() - _t}ms`);
       clearNewUser();
       router.replace('/(tabs)/feed');
     } catch {

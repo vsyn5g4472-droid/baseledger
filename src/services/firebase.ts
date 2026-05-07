@@ -3,7 +3,7 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth, initializeAuth } from 'firebase/auth';
 // @ts-ignore
 import { getReactNativePersistence } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, memoryLocalCache, Firestore } from 'firebase/firestore';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 import { getFunctions, Functions } from 'firebase/functions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -46,8 +46,13 @@ try {
   auth = getAuth(app);
 }
 
-// Initialize Firestore
-const db: Firestore = getFirestore(app);
+// Initialize Firestore with memory cache (persistentLocalCache は RN 非対応)
+let db: Firestore;
+try {
+  db = initializeFirestore(app, { localCache: memoryLocalCache() });
+} catch {
+  db = getFirestore(app);
+}
 
 // Initialize Storage
 const storage: FirebaseStorage = getStorage(app);
