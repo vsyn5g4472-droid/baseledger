@@ -1,14 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, TextInput, Button } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
+import { useGameStore } from '../../../src/stores/gameStore';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
 import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 import type { GameCategory } from '../../../src/types/game';
+import { DRAFT_GAME_KEY } from '../../../src/db';
 
 const CATEGORIES: GameCategory[] = ['practice', 'official', 'tournament', 'other'];
 
@@ -16,10 +20,22 @@ export default function ScoreIndexScreen() {
   const { t } = useI18n();
   const userPlan = useUserPlan();
   const [gameUsage, setGameUsage] = useState<UsageCheckResult | null>(null);
+  const loadGame = useGameStore((s) => s.loadGame);
+  const game = useGameStore((s) => s.game);
 
   useEffect(() => {
     checkGameUsage(userPlan).then(setGameUsage);
   }, [userPlan]);
+
+  // ── 下書き存在チェック（画面フォーカス時に毎回再確認） ────────────────
+  const [hasDraft, setHasDraft] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem(DRAFT_GAME_KEY).then((json) => {
+        setHasDraft(!!json);
+      });
+    }, []),
+  );
 
   // 試合メタデータ
   const [category, setCategory] = useState<GameCategory>('practice');
@@ -40,7 +56,21 @@ export default function ScoreIndexScreen() {
   const velocityEnabled = velocitySettings.enabled;
   const pitchDistanceMode = velocitySettings.pitchDistanceM === 16.00 ? 'youth' : 'standard';
 
-  const handleNext = () => {
+  const handleResumeDraft = async () => {
+    const json = await AsyncStorage.getItem(DRAFT_GAME_KEY);
+    if (!json) return;
+    try {
+      const { gameId } = JSON.parse(json);
+      if (!game || game.id !== gameId) {
+        await loadGame(gameId);
+      }
+      await AsyncStorage.removeItem(DRAFT_GAME_KEY);
+      setHasDraft(false);
+      router.push('/(tabs)/score/main');
+    } catch {}
+  };
+
+  const handleNext = async () => {
     if (gameUsage && !gameUsage.allowed) {
       Alert.alert(
         '試合数の上限',
@@ -52,21 +82,40 @@ export default function ScoreIndexScreen() {
       Alert.alert(t.setup.validation.teamNameRequired);
       return;
     }
-    router.push({
-      pathname: '/(tabs)/score/setup',
-      params: {
-        awayName: awayName.trim(),
-        homeName: homeName.trim(),
-        ballparkName: ballparkName.trim(),
-        fenceLeft,
-        fenceCenter,
-        fenceRight,
-        category,
-        tournamentName: tournamentName.trim(),
-        velocityEnabled: velocitySettings.enabled ? 'true' : 'false',
-        pitchDistanceM: String(velocitySettings.pitchDistanceM),
-      },
-    } as any);
+    const setupParams = {
+      awayName: awayName.trim(),
+      homeName: homeName.trim(),
+      ballparkName: ballparkName.trim(),
+      fenceLeft,
+      fenceCenter,
+      fenceRight,
+      category,
+      tournamentName: tournamentName.trim(),
+      velocityEnabled: velocitySettings.enabled ? 'true' : 'false',
+      pitchDistanceM: String(velocitySettings.pitchDistanceM),
+    };
+    const draftJson = await AsyncStorage.getItem(DRAFT_GAME_KEY);
+    if (draftJson) {
+      Alert.alert(
+        '下書きが保存されています',
+        '新しい試合を開始すると、保存中の下書きは削除されます。',
+        [
+          { text: 'キャンセル', style: 'cancel' },
+          { text: '下書きを再開する', onPress: handleResumeDraft },
+          {
+            text: '新しい試合を開始する',
+            style: 'destructive',
+            onPress: async () => {
+              await AsyncStorage.removeItem(DRAFT_GAME_KEY);
+              setHasDraft(false);
+              router.push({ pathname: '/(tabs)/score/setup', params: setupParams } as any);
+            },
+          },
+        ],
+      );
+      return;
+    }
+    router.push({ pathname: '/(tabs)/score/setup', params: setupParams } as any);
   };
 
   return (
@@ -280,6 +329,21 @@ export default function ScoreIndexScreen() {
         {t.setup.lineupSetup}
       </Button>
 
+      {/* 下書き再開ボタン */}
+      {hasDraft && (
+        <>
+          <TouchableOpacity
+            style={styles.draftResumeBtn}
+            onPress={handleResumeDraft}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={18} color={Colors.primary} />
+            <Text style={styles.draftResumeBtnText}>下書きの試合を再開する</Text>
+          </TouchableOpacity>
+          <Text style={styles.draftResumeNote}>※ 下書きは1試合まで保存できます</Text>
+        </>
+      )}
+
       {/* 履歴リンク */}
       <Button
         mode="text"
@@ -370,6 +434,30 @@ const styles = StyleSheet.create({
   nextButton: { borderRadius: BorderRadius.lg, paddingVertical: 6, marginTop: Spacing.sm },
   nextLabel: { fontSize: Typography.body, fontWeight: '700' },
   historyLink: { marginTop: Spacing.md },
+
+  draftResumeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.sm + 2,
+    marginTop: Spacing.sm,
+  },
+  draftResumeBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  draftResumeNote: {
+    fontSize: Typography.tiny,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
 
   // 計測設定
   settingRow: {
