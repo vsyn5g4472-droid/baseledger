@@ -25,7 +25,11 @@ export default function ScoreLayout() {
       />
       <Stack.Screen
         name="main"
-        options={{ title: t.nav.liveScore, headerShown: false }}
+        options={{
+          title: t.nav.liveScore,
+          headerShown: false,
+          headerBackButtonMenuEnabled: false,
+        }}
       />
       <Stack.Screen
         name="history"

@@ -17,7 +17,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 import { Text, Button, Modal, Portal, TextInput } from 'react-native-paper';
 import { router } from 'expo-router';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Rect, Line, Text as SvgText, Circle, Path, Ellipse } from 'react-native-svg';
 import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
@@ -27,6 +27,7 @@ import { useGameStore } from '../../../src/stores/gameStore';
 import { useI18n } from '../../../src/i18n';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { gameService } from '../../../src/services/gameService';
+import { DRAFT_GAME_KEY } from '../../../src/db';
 import {
   PITCH_TYPES,
   type PitchType,
@@ -51,7 +52,7 @@ import RunnerAdvancementView from '../../../src/components/score/RunnerAdvanceme
 import PlayLogList from '../../../src/components/score/PlayLogList';
 import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
 import PlayerSubstitutionModal from '../../../src/components/score/PlayerSubstitutionModal';
-import type { AtBatLog } from '../../../src/types/game';
+import type { AtBatLog, Player } from '../../../src/types/game';
 
 // ── 投球コース記録キャンバス定数 (横4:縦7 ストライクゾーン) ──────────
 const SZ_W       = 112;
@@ -69,7 +70,6 @@ const SZ_TOP     = BALL_PAD_V;                  // = 44
 const SZ_RIGHT   = BALL_PAD_H + SZ_W;           // = 164
 const SZ_BOT     = BALL_PAD_V + SZ_H;           // = 240
 
-const DRAFT_KEY = 'BASELEDGER_DRAFT_SESSION';
 
 /** タップ座標 (canvas px) → StrikeZone。simple 時は外角4領域を中芯 '5' に寄せる */
 function coordToZone(px: number, py: number, simple: boolean): StrikeZone {
@@ -111,6 +111,7 @@ export default function LiveScoreScreen() {
   const recordPickoff = useGameStore((s) => s.recordPickoff);
   const recordStolenBase = useGameStore((s) => s.recordStolenBase);
   const recordCaughtStealing = useGameStore((s) => s.recordCaughtStealing);
+  const recordSignMiss = useGameStore((s) => s.recordSignMiss);
 
   // ── バッターの打席（左右反転用） ────────────────────────────────────
   // game が null の場合もフックの呼び出し順を守るため早期に計算
@@ -137,6 +138,8 @@ export default function LiveScoreScreen() {
   const [subSide, setSubSide] = useState<'away' | 'home'>('home');
   const [showPickoffBase, setShowPickoffBase] = useState(false);
   const [pickoffTargetBase, setPickoffTargetBase] = useState<PickoffBase | null>(null);
+  const [showSignMissModal, setShowSignMissModal] = useState(false);
+  const [signMissToast, setSignMissToast] = useState<string | null>(null);
   const [buntStance, setBuntStance] = useState(false);
   const [atBatSign, setAtBatSign] = useState<SignPlayTag | 'none'>('none');
   const [stealSign, setStealSign] = useState<SignPlayTag | 'none'>('none');
@@ -244,9 +247,10 @@ export default function LiveScoreScreen() {
   const draftToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // マウント時: 下書き復元チェック (game が null の時のみ)
+  // start.tsx の「下書きを再開する」経由では game がロード済みのためスキップされる
   useEffect(() => {
     if (game) return;
-    AsyncStorage.getItem(DRAFT_KEY).then((json) => {
+    AsyncStorage.getItem(DRAFT_GAME_KEY).then((json) => {
       if (!json) return;
       try {
         const { gameId } = JSON.parse(json);
@@ -257,13 +261,13 @@ export default function LiveScoreScreen() {
             {
               text: '破棄する',
               style: 'destructive',
-              onPress: () => AsyncStorage.removeItem(DRAFT_KEY),
+              onPress: () => AsyncStorage.removeItem(DRAFT_GAME_KEY),
             },
             {
               text: '再開する',
               onPress: async () => {
                 await loadGame(gameId);
-                await AsyncStorage.removeItem(DRAFT_KEY);
+                await AsyncStorage.removeItem(DRAFT_GAME_KEY);
               },
             },
           ],
@@ -274,54 +278,51 @@ export default function LiveScoreScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 戻るガード: 進行中の記録セッション中は確認ダイアログを表示
+  // usePreventRemove により native-stack がスワイプバックを事前に無効化し
+  // 「ネイティブ除去と JS 状態の乖離」による警告を解消する
+  usePreventRemove(!!game && game.phase === 'live', ({ data }) => {
+    Alert.alert(
+      '記録を中断しますか？',
+      '入力中のデータは破棄されます。一時保存して終了することも可能です。',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '破棄して戻る',
+          style: 'destructive',
+          onPress: () => {
+            AsyncStorage.removeItem(DRAFT_GAME_KEY);
+            navigation.dispatch(data.action);
+          },
+        },
+        {
+          text: '下書きに保存して戻る',
+          onPress: async () => {
+            const currentGame = gameRef.current;
+            if (currentGame) {
+              await persistRef.current();
+              await AsyncStorage.setItem(
+                DRAFT_GAME_KEY,
+                JSON.stringify({ gameId: currentGame.id }),
+              );
+            }
+            setDraftSaved(true);
+            if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
+            draftToastTimerRef.current = setTimeout(() => {
+              setDraftSaved(false);
+              navigation.dispatch(data.action);
+            }, 1400);
+          },
+        },
+      ],
+    );
+  });
+
+  // draftToastTimer のクリーンアップ
   useEffect(() => {
-    const unsubscribe = (navigation as any).addListener('beforeRemove', (e: any) => {
-      const g = gameRef.current;
-      if (!g || g.phase !== 'live') return; // 進行中でなければ通過
-
-      e.preventDefault();
-
-      Alert.alert(
-        '記録を中断しますか？',
-        '入力中のデータは破棄されます。一時保存して終了することも可能です。',
-        [
-          { text: 'キャンセル', style: 'cancel' },
-          {
-            text: '破棄して戻る',
-            style: 'destructive',
-            onPress: () => {
-              AsyncStorage.removeItem(DRAFT_KEY);
-              (navigation as any).dispatch(e.data.action);
-            },
-          },
-          {
-            text: '下書きに保存して戻る',
-            onPress: async () => {
-              const currentGame = gameRef.current;
-              if (currentGame) {
-                await persistRef.current();
-                await AsyncStorage.setItem(
-                  DRAFT_KEY,
-                  JSON.stringify({ gameId: currentGame.id }),
-                );
-              }
-              setDraftSaved(true);
-              if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
-              draftToastTimerRef.current = setTimeout(() => {
-                setDraftSaved(false);
-                (navigation as any).dispatch(e.data.action);
-              }, 1400);
-            },
-          },
-        ],
-      );
-    });
-
     return () => {
-      unsubscribe();
       if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
     };
-  }, [navigation]); // navigation は安定参照
+  }, []);
 
   // ── Reanimated カーソル (タッチ中のみ表示・JS再レンダなしで追従) ───
   const [isTouching, setIsTouching] = useState(false);
@@ -543,6 +544,23 @@ export default function LiveScoreScreen() {
     setPickoffTargetBase(null);
     persist();
   }, [pickoffTargetBase, recordPickoff, persist]);
+
+  // ── サインミス: 選手選択 → 記録 ─────────────────────────────────────
+  const handleSignMissSelect = useCallback(
+    (player: Player, side: 'away' | 'home', context: 'batting' | 'baserunning' | 'fielding' | 'pitching') => {
+      recordSignMiss({
+        playerId: player.id,
+        playerName: player.name,
+        side,
+        context,
+      });
+      setShowSignMissModal(false);
+      setSignMissToast(`${player.name} のサインミスを記録しました`);
+      setTimeout(() => setSignMissToast(null), 2000);
+      persist();
+    },
+    [recordSignMiss, persist],
+  );
 
   // ── タップ盗塁: ランナータップ → 試み確認モーダルを開く ──────────────
   const handleRunnerTap = useCallback((fromBase: 'first' | 'second' | 'third') => {
@@ -957,11 +975,9 @@ export default function LiveScoreScreen() {
                   x2={SZ_RIGHT} y2={SZ_TOP + SZ_H / 2}
                   stroke="rgba(56,161,243,0.22)" strokeWidth={1}
                 />
-                {/* ボールゾーンラベル */}
+                {/* ボールゾーンラベル（高/低のみ。内外は打者シルエットで自明） */}
                 <SvgText x={SZ_LEFT + SZ_W / 2} y={SZ_TOP / 2 + 5}                        textAnchor="middle" fontSize={11} fill="#8E8E93">高</SvgText>
                 <SvgText x={SZ_LEFT + SZ_W / 2} y={SZ_BOT + (CANVAS_H - SZ_BOT) / 2 + 5} textAnchor="middle" fontSize={11} fill="#8E8E93">低</SvgText>
-                <SvgText x={SZ_LEFT / 2}         y={SZ_TOP + SZ_H / 2 + 5}                textAnchor="middle" fontSize={11} fill="#8E8E93">{isLeftBatter ? '外' : '内'}</SvgText>
-                <SvgText x={SZ_RIGHT + (CANVAS_W - SZ_RIGHT) / 2} y={SZ_TOP + SZ_H / 2 + 5} textAnchor="middle" fontSize={11} fill="#8E8E93">{isLeftBatter ? '内' : '外'}</SvgText>
                 {/* 確定マーカー: 指を離した後・結果選択中に表示 */}
                 {tapCoord && (
                   <Circle
@@ -1006,6 +1022,12 @@ export default function LiveScoreScreen() {
               <TouchableOpacity style={styles.pickoffBtn} onPress={handlePickoffPress}>
                 <MaterialCommunityIcons name="arrow-left-bold" size={16} color="#FFD700" />
                 <Text style={styles.pickoffBtnText}>{t.live.pickoff}</Text>
+              </TouchableOpacity>
+            )}
+            {isItemOn('sign_miss') && (
+              <TouchableOpacity style={styles.signMissBtn} onPress={() => setShowSignMissModal(true)}>
+                <MaterialCommunityIcons name="alert-octagon-outline" size={16} color="#fff" />
+                <Text style={styles.signMissBtnText}>サインミス</Text>
               </TouchableOpacity>
             )}
             {game.pitchLogs.length > 0 && (
@@ -1291,6 +1313,122 @@ export default function LiveScoreScreen() {
         )}
       </Portal>
 
+      {/* ===== サインミス: 選手選択モーダル ===== */}
+      <Portal>
+        <Modal
+          visible={showSignMissModal}
+          onDismiss={() => setShowSignMissModal(false)}
+          contentContainerStyle={styles.modal}
+        >
+          <View>
+            <View style={styles.signMissHeader}>
+              <MaterialCommunityIcons name="alert-octagon-outline" size={22} color="#E64A19" />
+              <Text style={styles.modalTitle}>サインミス記録</Text>
+            </View>
+            <Text style={styles.signMissSub}>
+              ミスをした選手を選択してください
+            </Text>
+
+            {/* 攻撃側: 打者・走者 */}
+            <Text style={styles.signMissSection}>攻撃側（打席・走塁）</Text>
+            <View style={styles.signMissList}>
+              {(() => {
+                const offSide = game.inning.half === 'top' ? 'away' : 'home';
+                const offTeam = offSide === 'away' ? game.awayTeam : game.homeTeam;
+                const batter = offTeam.roster.starters[
+                  game.currentBatterIndex[offSide]
+                ];
+                const candidates: { player: Player; ctx: 'batting' | 'baserunning'; label: string }[] = [];
+                if (batter) candidates.push({ player: batter, ctx: 'batting', label: '打席' });
+                (['first', 'second', 'third'] as const).forEach((b) => {
+                  const r = game.runners[b];
+                  if (r) {
+                    const baseLabel = b === 'first' ? '1塁' : b === 'second' ? '2塁' : '3塁';
+                    candidates.push({ player: r, ctx: 'baserunning', label: `${baseLabel}走者` });
+                  }
+                });
+                return candidates.map(({ player, ctx, label }) => (
+                  <TouchableOpacity
+                    key={`${player.id}-${ctx}`}
+                    style={styles.signMissItem}
+                    onPress={() => handleSignMissSelect(player, offSide, ctx)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.signMissItemLeft}>
+                      <Text style={styles.signMissItemName} numberOfLines={1}>
+                        {player.name}
+                      </Text>
+                      <Text style={styles.signMissItemRole}>{label}</Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                ));
+              })()}
+            </View>
+
+            {/* 守備側: 投手・スタメン */}
+            <Text style={styles.signMissSection}>守備側（投球・守備）</Text>
+            <View style={styles.signMissList}>
+              {(() => {
+                const defSide = game.inning.half === 'top' ? 'home' : 'away';
+                const defTeam = defSide === 'away' ? game.awayTeam : game.homeTeam;
+                const pitcherId = game.currentPitcherId[defSide];
+                const fielders: Player[] = [
+                  ...defTeam.roster.starters,
+                  ...(defTeam.roster.pitcher ? [defTeam.roster.pitcher] : []),
+                ];
+                // 重複排除（DH制で starters と pitcher が別の場合を考慮）
+                const seen = new Set<string>();
+                const unique = fielders.filter((p) => {
+                  if (seen.has(p.id)) return false;
+                  seen.add(p.id);
+                  return true;
+                });
+                return unique.map((p) => {
+                  const isPitcher = p.id === pitcherId;
+                  const ctx: 'pitching' | 'fielding' = isPitcher ? 'pitching' : 'fielding';
+                  const label = isPitcher ? '投手' : p.position;
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.signMissItem}
+                      onPress={() => handleSignMissSelect(p, defSide, ctx)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.signMissItemLeft}>
+                        <Text style={styles.signMissItemName} numberOfLines={1}>
+                          {p.name}
+                        </Text>
+                        <Text style={styles.signMissItemRole}>{label}</Text>
+                      </View>
+                      <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                  );
+                });
+              })()}
+            </View>
+
+            <TouchableOpacity
+              style={styles.signMissCancelBtn}
+              onPress={() => setShowSignMissModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.signMissCancelText}>キャンセル</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* ===== サインミストースト ===== */}
+      <Portal>
+        {signMissToast && (
+          <View style={styles.draftToast} pointerEvents="none">
+            <MaterialCommunityIcons name="alert-octagon-outline" size={18} color={Colors.white} />
+            <Text style={styles.draftToastText}>{signMissToast}</Text>
+          </View>
+        )}
+      </Portal>
+
 
       {/* ===== 投球結果選択モーダル ===== */}
       <Portal>
@@ -1387,11 +1525,22 @@ export default function LiveScoreScreen() {
                 style={[styles.buntStanceRow, buntStance && styles.buntStanceRowOn]}
                 onPress={() => setBuntStance((v) => !v)}
                 activeOpacity={0.8}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: buntStance }}
               >
-                <MaterialCommunityIcons name="baseball" size={18} color={buntStance ? '#FFD54F' : Colors.textSecondary} />
-                <Text style={[styles.buntStanceText, buntStance && { color: '#FFD54F' }]}>
+                <MaterialCommunityIcons
+                  name={buntStance ? 'baseball-bat' : 'baseball'}
+                  size={18}
+                  color={buntStance ? '#FFFFFF' : Colors.textSecondary}
+                />
+                <Text style={[styles.buntStanceText, buntStance && styles.buntStanceTextOn]}>
                   バント構え
                 </Text>
+                <View style={[styles.buntStanceBadge, buntStance && styles.buntStanceBadgeOn]}>
+                  <Text style={[styles.buntStanceBadgeText, buntStance && styles.buntStanceBadgeTextOn]}>
+                    {buntStance ? 'あり' : 'なし'}
+                  </Text>
+                </View>
               </TouchableOpacity>
             )}
 
@@ -2050,6 +2199,90 @@ const styles = StyleSheet.create({
     borderColor: '#FFD700',
   },
   pickoffBtnText: { fontSize: Typography.tiny, color: '#FFD700', fontWeight: '700' },
+  signMissBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#E64A19',
+  },
+  signMissBtnText: {
+    fontSize: Typography.tiny,
+    color: '#fff',
+    fontWeight: '700',
+  },
+  signMissHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  signMissSub: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
+  signMissSection: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginTop: Spacing.sm,
+    marginBottom: 6,
+    paddingHorizontal: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  signMissList: {
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  signMissItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  signMissItemLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  signMissItemName: {
+    flex: 1,
+    fontSize: Typography.body,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  signMissItemRole: {
+    fontSize: Typography.tiny,
+    fontWeight: '700',
+    color: Colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: Colors.primaryLight,
+    overflow: 'hidden',
+  },
+  signMissCancelBtn: {
+    marginTop: Spacing.md,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  signMissCancelText: {
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
   undoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2090,18 +2323,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginBottom: 4,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: 'transparent',
   },
   buntStanceRowOn: {
-    backgroundColor: 'rgba(255,193,7,0.12)',
+    backgroundColor: '#2E7D32',
+    borderColor: '#1B5E20',
   },
   buntStanceText: {
+    flex: 1,
     fontSize: 13,
     fontWeight: '700',
     color: Colors.textSecondary,
+  },
+  buntStanceTextOn: {
+    color: '#FFFFFF',
+  },
+  buntStanceBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  buntStanceBadgeOn: {
+    backgroundColor: '#FFFFFF',
+  },
+  buntStanceBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.textSecondary,
+    letterSpacing: 0.5,
+  },
+  buntStanceBadgeTextOn: {
+    color: '#1B5E20',
   },
   modalTitle: {
     fontSize: Typography.h4,

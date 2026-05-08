@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,15 +10,20 @@ import {
 } from 'react-native';
 import { Text, TextInput, ActivityIndicator } from 'react-native-paper';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
 import { useGameStore } from '../../../src/stores/gameStore';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
 import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, incrementGameUsage, type UsageCheckResult } from '../../../src/services/planService';
+import { DRAFT_GAME_KEY } from '../../../src/db';
 
 export default function ScoreStartScreen() {
   const quickStartGame = useGameStore((s) => s.quickStartGame);
+  const loadGame = useGameStore((s) => s.loadGame);
+  const game = useGameStore((s) => s.game);
   const userPlan = useUserPlan();
   const [awayName, setAwayName] = useState('');
   const [homeName, setHomeName] = useState('');
@@ -30,6 +35,16 @@ export default function ScoreStartScreen() {
   useEffect(() => {
     checkGameUsage(userPlan).then(setGameUsage);
   }, [userPlan]);
+
+  // ── 下書き存在チェック（画面フォーカス時に毎回再確認） ────────────────
+  const [hasDraft, setHasDraft] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem(DRAFT_GAME_KEY).then((json) => {
+        setHasDraft(!!json);
+      });
+    }, []),
+  );
 
   const { settings: velocitySettings, loaded: velocityLoaded, update: updateVelocity } = useVelocitySettings();
   const velocityEnabled = velocitySettings.enabled;
@@ -45,6 +60,7 @@ export default function ScoreStartScreen() {
     }
     setLoading(true);
     try {
+      await AsyncStorage.removeItem(DRAFT_GAME_KEY); // 新規試合開始時に古い下書きポインタをクリア
       const parsedWing   = parseInt(fenceWing,   10);
       const parsedCenter = parseInt(fenceCenter, 10);
       await quickStartGame({
@@ -60,6 +76,20 @@ export default function ScoreStartScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResumeDraft = async () => {
+    const json = await AsyncStorage.getItem(DRAFT_GAME_KEY);
+    if (!json) return;
+    try {
+      const { gameId } = JSON.parse(json);
+      if (!game || game.id !== gameId) {
+        await loadGame(gameId);
+      }
+      await AsyncStorage.removeItem(DRAFT_GAME_KEY);
+      setHasDraft(false);
+      router.push('/(tabs)/score/main');
+    } catch {}
   };
 
   return (
@@ -242,6 +272,18 @@ export default function ScoreStartScreen() {
             </>
           )}
         </TouchableOpacity>
+
+        {/* Draft Resume Button */}
+        {hasDraft && (
+          <TouchableOpacity
+            style={styles.draftResumeBtn}
+            onPress={handleResumeDraft}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={18} color={Colors.primary} />
+            <Text style={styles.draftResumeBtnText}>下書きの試合を再開する</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Divider */}
         <View style={styles.divider}>
@@ -476,6 +518,23 @@ const styles = StyleSheet.create({
     fontSize: Typography.h4,
     fontWeight: '800',
     color: Colors.white,
+  },
+
+  draftResumeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.sm + 2,
+    marginBottom: Spacing.lg,
+  },
+  draftResumeBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.primary,
   },
 
   divider: {
