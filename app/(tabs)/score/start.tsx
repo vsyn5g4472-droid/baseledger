@@ -21,6 +21,8 @@ import { DRAFT_GAME_KEY } from '../../../src/db';
 
 export default function ScoreStartScreen() {
   const quickStartGame = useGameStore((s) => s.quickStartGame);
+  const loadGame = useGameStore((s) => s.loadGame);
+  const game = useGameStore((s) => s.game);
   const userPlan = useUserPlan();
   const [awayName, setAwayName] = useState('');
   const [homeName, setHomeName] = useState('');
@@ -36,6 +38,19 @@ export default function ScoreStartScreen() {
   const { settings: velocitySettings, loaded: velocityLoaded, update: updateVelocity } = useVelocitySettings();
   const velocityEnabled = velocitySettings.enabled;
   const pitchDistanceMode = velocitySettings.pitchDistanceM === 16.00 ? 'youth' : 'standard';
+
+  const handleResumeDraft = async () => {
+    const json = await AsyncStorage.getItem(DRAFT_GAME_KEY);
+    if (!json) return;
+    try {
+      const { gameId } = JSON.parse(json);
+      if (!game || game.id !== gameId) {
+        await loadGame(gameId);
+      }
+      await AsyncStorage.removeItem(DRAFT_GAME_KEY);
+      router.push('/(tabs)/score/main');
+    } catch {}
+  };
 
   const startNewQuickGame = async () => {
     setLoading(true);
@@ -73,7 +88,7 @@ export default function ScoreStartScreen() {
         '新しい試合を開始すると、保存中の下書きは削除されます。',
         [
           { text: 'キャンセル', style: 'cancel' },
-          { text: '下書きを再開する', onPress: () => router.back() },
+          { text: '下書きを再開する', onPress: handleResumeDraft },
           { text: '新しい試合を開始する', style: 'destructive', onPress: startNewQuickGame },
         ],
       );
