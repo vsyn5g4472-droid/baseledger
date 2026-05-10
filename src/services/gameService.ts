@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
 import type { GameState } from '../types/game';
+import { sanitizeForFirestore } from '../utils/firestoreUtils';
 
 const GAMES = 'games';
 
@@ -21,7 +22,8 @@ export interface SavedGame extends GameState {
 export const gameService = {
   async saveGame(game: GameState, userId: string): Promise<void> {
     const ref = doc(firestoreDb, GAMES, game.id);
-    await setDoc(ref, { ...game, ownerId: userId, savedAt: Date.now() });
+    const data = sanitizeForFirestore({ ...game, ownerId: userId, savedAt: Date.now() });
+    await setDoc(ref, data);
   },
 
   async getGame(gameId: string): Promise<SavedGame | null> {
