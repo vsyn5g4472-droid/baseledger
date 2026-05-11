@@ -47,12 +47,11 @@ const OUT_DETAILS: { key: OutDetail; labelKey: string }[] = [
 ];
 
 // ベース選択ボタン定義
-const BASE_BUTTONS: { base: BaseTarget; labelKey: 'first' | 'second' | 'third' | 'home' | 'out' }[] = [
+const BASE_BUTTONS: { base: BaseTarget; labelKey: 'first' | 'second' | 'third' | 'home' }[] = [
   { base: 'first',  labelKey: 'first' },
   { base: 'second', labelKey: 'second' },
   { base: 'third',  labelKey: 'third' },
   { base: 'home',   labelKey: 'home' },
-  { base: 'out',    labelKey: 'out' },
 ];
 
 // 進塁理由 (サブメニュー用)
@@ -165,7 +164,6 @@ export default function RunnerAdvancementView({
 
   // ベースボタン: 無効化判定
   const isBaseButtonDisabled = (adv: RunnerAdvancement, base: BaseTarget): boolean => {
-    if (base === 'out') return false;
     const baseNum = BASE_ORDER[base] ?? 0;
     const fromNum = BASE_ORDER[adv.fromBase] ?? 0;
     const minNum = adv.minBase !== 'out' ? (BASE_ORDER[adv.minBase] ?? 0) : 0;
@@ -175,11 +173,7 @@ export default function RunnerAdvancementView({
 
   // ベースボタンタップ → ダイアログ表示
   const handleBaseButtonTap = useCallback((runnerId: string, base: BaseTarget) => {
-    if (base === 'out') {
-      setOutDetailDialog({ runnerId });
-    } else {
-      setSafeOutDialog({ runnerId, base });
-    }
+    setSafeOutDialog({ runnerId, base });
   }, []);
 
   // セーフ選択
@@ -429,15 +423,12 @@ export default function RunnerAdvancementView({
                   {BASE_BUTTONS.map(({ base, labelKey }) => {
                     const disabled = isBaseButtonDisabled(adv, base);
                     const isActive = adv.targetBase === base;
-                    const isOutBtn = base === 'out';
                     return (
                       <TouchableOpacity
                         key={base}
                         style={[
                           styles.baseBtn,
-                          isOutBtn && styles.baseBtnOut,
-                          isActive && !isOutBtn && styles.baseBtnActive,
-                          isActive && isOutBtn && styles.baseBtnOutActive,
+                          isActive && styles.baseBtnActive,
                           disabled && styles.baseBtnDisabled,
                         ]}
                         onPress={() => handleBaseButtonTap(adv.runnerId, base)}
@@ -445,7 +436,6 @@ export default function RunnerAdvancementView({
                       >
                         <Text style={[
                           styles.baseBtnText,
-                          isOutBtn && styles.baseBtnTextOut,
                           isActive && styles.baseBtnTextActive,
                           disabled && styles.baseBtnTextDisabled,
                         ]}>
