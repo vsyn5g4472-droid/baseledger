@@ -60,7 +60,8 @@ export default function TeamDetailScreen() {
     try {
       const results = await searchUsers(q.trim());
       setSearchResults(results);
-    } catch {
+    } catch (err) {
+      if (__DEV__) console.error('[handleSearch] searchUsers failed:', err);
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
