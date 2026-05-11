@@ -29,7 +29,6 @@ const ALL_RESULTS: { result: AtBatResult; color: string }[] = [
   { result: 'groundout',         color: '#C41E3A' },
   { result: 'flyout',            color: '#C41E3A' },
   { result: 'lineout',           color: '#C41E3A' },
-  { result: 'pop_out',           color: '#C41E3A' },
   { result: 'strikeout',         color: '#9B1528' },
   { result: 'strikeout_looking', color: '#9B1528' },
   { result: 'walk',              color: '#28A745' },
