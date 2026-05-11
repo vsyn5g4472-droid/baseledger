@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, FlatList } from 'react-native';
+import { View, StyleSheet, FlatList, ScrollView } from 'react-native';
 import { Text, Avatar, Button, Card, Chip } from 'react-native-paper';
 import { useLocalSearchParams, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -8,24 +8,30 @@ import PostCard from '../../../../src/components/PostCard';
 import EmptyState from '../../../../src/components/EmptyState';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../../src/constants/theme';
 
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'オーナー',
+  admin: '管理者',
+  member: 'メンバー',
+};
+
 export default function TeamDetailScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const { team, members, loading, isOwner } = useTeamDetail(teamId ?? '');
 
   if (!team) {
-    return <EmptyState icon="account-group" title="Team not found" />;
+    return <EmptyState icon="account-group" title="チームが見つかりません" />;
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
         <Avatar.Text size={64} label={team.name.charAt(0)} style={styles.avatar} />
         <Text style={styles.teamName}>{team.name}</Text>
         <Text style={styles.description}>{team.description}</Text>
         <View style={styles.metaRow}>
-          <Chip compact icon="account-group">{members.length} members</Chip>
-          {team.isPrivate && <Chip compact icon="lock">Private</Chip>}
-          {isOwner && <Chip compact icon="crown" style={styles.ownerChip} textStyle={{ color: Colors.white }}>Owner</Chip>}
+          <Chip compact icon="account-group">{members.length}人のメンバー</Chip>
+          {team.isPrivate && <Chip compact icon="lock">非公開</Chip>}
+          {isOwner && <Chip compact icon="crown" style={styles.ownerChip} textStyle={{ color: Colors.white }}>オーナー</Chip>}
         </View>
         <View style={styles.actionRow}>
           <Button
@@ -34,7 +40,7 @@ export default function TeamDetailScreen() {
             icon="chat"
             compact
           >
-            Chat
+            チャット
           </Button>
           <Button
             mode="outlined"
@@ -42,46 +48,48 @@ export default function TeamDetailScreen() {
             icon="chart-bar"
             compact
           >
-            Scores
+            スコア
           </Button>
           {isOwner && (
             <Button mode="outlined" onPress={() => {}} icon="account-plus" compact>
-              Invite
+              招待
             </Button>
           )}
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>Members</Text>
+      <Text style={styles.sectionTitle}>メンバー</Text>
       <FlatList
         data={members}
         keyExtractor={(item) => item.userId}
         horizontal
         showsHorizontalScrollIndicator={false}
+        nestedScrollEnabled
         renderItem={({ item }) => (
           <View style={styles.memberItem}>
             <Avatar.Text size={44} label={(item.user?.displayName ?? 'U').charAt(0)} style={styles.memberAvatar} />
             <Text style={styles.memberName} numberOfLines={1}>
-              {item.user?.displayName ?? 'User'}
+              {item.user?.displayName ?? 'ユーザー'}
             </Text>
-            <Text style={styles.memberRole}>{item.role}</Text>
+            <Text style={styles.memberRole}>{ROLE_LABELS[item.role] ?? item.role}</Text>
           </View>
         )}
         contentContainerStyle={styles.membersList}
       />
 
-      <Text style={styles.sectionTitle}>Team Feed</Text>
+      <Text style={styles.sectionTitle}>チームフィード</Text>
       <EmptyState
         icon="message-text-outline"
-        title="No team posts yet"
-        subtitle="Share updates with your team"
+        title="まだ投稿がありません"
+        subtitle="チームの近況を共有しましょう"
       />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+  contentContainer: { flexGrow: 1 },
   header: {
     backgroundColor: Colors.card,
     padding: Spacing.lg,
