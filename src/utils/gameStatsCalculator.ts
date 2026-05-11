@@ -224,11 +224,22 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
   const homePitcherId = topPitches[0]?.pitcherId;
   const awayPitcherId = bottomPitches[0]?.pitcherId;
 
+  const homeAllPlayers = [
+    ...game.homeTeam.roster.starters,
+    ...game.homeTeam.roster.bench,
+    ...(game.homeTeam.roster.pitcher ? [game.homeTeam.roster.pitcher] : []),
+  ];
+  const awayAllPlayers = [
+    ...game.awayTeam.roster.starters,
+    ...game.awayTeam.roster.bench,
+    ...(game.awayTeam.roster.pitcher ? [game.awayTeam.roster.pitcher] : []),
+  ];
+
   const homePitcherPlayer = homePitcherId
-    ? homePlayers.find((p) => p.id === homePitcherId)
+    ? homeAllPlayers.find((p) => p.id === homePitcherId)
     : null;
   const awayPitcherPlayer = awayPitcherId
-    ? awayPlayers.find((p) => p.id === awayPitcherId)
+    ? awayAllPlayers.find((p) => p.id === awayPitcherId)
     : null;
 
   const homePitcherStats = homePitcherPlayer

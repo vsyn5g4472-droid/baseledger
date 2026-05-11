@@ -192,7 +192,12 @@ function deriveDefenseCatcher(
 function allPlayersMap(game: GameState): Map<string, string> {
   const m = new Map<string, string>();
   for (const team of [game.awayTeam, game.homeTeam]) {
-    for (const p of [...team.roster.starters, ...team.roster.bench]) {
+    const players = [
+      ...team.roster.starters,
+      ...team.roster.bench,
+      ...(team.roster.pitcher ? [team.roster.pitcher] : []),
+    ];
+    for (const p of players) {
       m.set(p.id, p.name);
     }
   }
