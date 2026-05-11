@@ -182,6 +182,7 @@ export const en: TranslationKeys = {
     safeBtn: 'Safe',
     outBtn: 'Out',
     outDetailTitle: 'Out type',
+    forceOut: 'Force out',
     tagUpFail: 'Tag-up fail',
     rundown: 'Rundown',
     caughtStealing: 'Caught stealing',

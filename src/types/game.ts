@@ -112,6 +112,7 @@ export type BaseTarget = 'first' | 'second' | 'third' | 'home' | 'out';
 
 // アウト詳細理由
 export type OutDetail =
+  | 'force_out'        // フォースアウト
   | 'tag_up_fail'      // タッチアップ失敗
   | 'rundown'          // 挟殺（ランダウンプレイ）
   | 'caught_stealing'  // 盗塁死

@@ -180,6 +180,7 @@ export const ja = {
     safeBtn: 'セーフ',
     outBtn: 'アウト',
     outDetailTitle: 'アウトの種類',
+    forceOut: 'フォースアウト',
     tagUpFail: 'タッチアップ失敗',
     rundown: '挟殺（ランダウン）',
     caughtStealing: '盗塁死',
