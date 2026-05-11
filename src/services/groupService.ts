@@ -12,6 +12,7 @@ import {
   onSnapshot,
   setDoc,
   Timestamp,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
 import { Group, GroupMessage, GroupMessageType, AppError } from '../models/types';
@@ -63,7 +64,15 @@ export async function getOrCreateTeamGroup(
 
     if (!snap.empty) {
       const d = snap.docs[0];
-      return { id: d.id, ...d.data() } as Group;
+      const existing = { id: d.id, ...d.data() } as Group;
+      const missing = memberIds.filter((id) => !(existing.memberIds ?? []).includes(id));
+      if (missing.length > 0) {
+        await updateDoc(doc(db, GROUPS_COLLECTION, d.id), {
+          memberIds: arrayUnion(...missing),
+        });
+        return { ...existing, memberIds: [...(existing.memberIds ?? []), ...missing] };
+      }
+      return existing;
     }
 
     return createGroup(teamId, teamName, '', memberIds);

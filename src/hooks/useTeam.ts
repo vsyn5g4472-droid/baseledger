@@ -204,8 +204,8 @@ export function useTeamChat(teamId: string): {
       try {
         const group = await getOrCreateTeamGroup(
           teamId,
-          '',
-          [],
+          currentUser.displayName ?? '',
+          [currentUser.uid],
         );
         await sendGroupMessage(
           group.id,
