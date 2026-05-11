@@ -255,7 +255,7 @@ export default function PlayerSubstitutionModal({
           {step === 'selectOut' && (
             <ScrollView contentContainerStyle={styles.list}>
               {/* DH制: 打順外の投手を先頭に表示 */}
-              {game.isDH && team.roster.pitcher && (
+              {game.isDH?.[side] && team.roster.pitcher && (
                 <>
                   <Text style={styles.sectionLabel}>投手（打順外）</Text>
                   <TouchableOpacity

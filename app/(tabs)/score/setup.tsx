@@ -61,7 +61,8 @@ export default function SetupScreen() {
   }>();
   const initGame = useGameStore((s) => s.initGame);
 
-  const [isDH, setIsDH] = useState(false);
+  const [isAwayDH, setIsAwayDH] = useState(false);
+  const [isHomeDH, setIsHomeDH] = useState(false);
   const [activeTeam, setActiveTeam] = useState<'away' | 'home'>('away');
   const [awayStarters, setAwayStarters] = useState<PlayerInput[]>(emptyStarters(false));
   const [homeStarters, setHomeStarters] = useState<PlayerInput[]>(emptyStarters(false));
@@ -74,11 +75,15 @@ export default function SetupScreen() {
   const pitcher = activeTeam === 'away' ? awayPitcher : homePitcher;
   const setPitcher = activeTeam === 'away' ? setAwayPitcher : setHomePitcher;
 
-  // DH切り替え: LayoutAnimation でスムーズに表示/非表示
-  const handleDHToggle = useCallback(() => {
+  // アクティブチームのDHのみ切り替え: LayoutAnimation でスムーズに表示/非表示
+  const handleActiveTeamDHToggle = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const next = !isDH;
-    setIsDH(next);
+    const currentDH = activeTeam === 'away' ? isAwayDH : isHomeDH;
+    const next = !currentDH;
+    const setActiveDH = activeTeam === 'away' ? setIsAwayDH : setIsHomeDH;
+    const setActiveStarters = activeTeam === 'away' ? setAwayStarters : setHomeStarters;
+    const setActivePitcher = activeTeam === 'away' ? setAwayPitcher : setHomePitcher;
+    setActiveDH(next);
     // スタメンのデフォルト守備位置を切り替える (未入力の選手のみリセット)
     const resetIfEmpty = (players: PlayerInput[], newDefault: boolean): PlayerInput[] =>
       players.map((p, i) => {
@@ -88,13 +93,11 @@ export default function SetupScreen() {
         if (p.name.trim()) return p; // 入力済みは維持
         return { ...p, position: defaultPositions[i] ?? p.position };
       });
-    setAwayStarters((prev) => resetIfEmpty(prev, next));
-    setHomeStarters((prev) => resetIfEmpty(prev, next));
-    if (!next) {
-      setAwayPitcher(emptyPitcher());
-      setHomePitcher(emptyPitcher());
-    }
-  }, [isDH]);
+    setActiveStarters((prev) => resetIfEmpty(prev, next));
+    if (!next) setActivePitcher(emptyPitcher());
+  }, [activeTeam, isAwayDH, isHomeDH]);
+
+  const activeTeamIsDH = activeTeam === 'away' ? isAwayDH : isHomeDH;
 
   const updatePlayer = useCallback(
     (index: number, field: keyof PlayerInput, value: string) => {
@@ -134,7 +137,7 @@ export default function SetupScreen() {
 
   const validate = (): string[] => {
     const errs: string[] = [];
-    const checkTeam = (players: PlayerInput[], pitcherInput: PlayerInput, label: string) => {
+    const checkTeam = (players: PlayerInput[], pitcherInput: PlayerInput, label: string, teamIsDH: boolean) => {
       if (players.some((p) => !p.name.trim())) {
         errs.push(`${label}: ${t.setup.validation.startersRequired}`);
       }
@@ -146,7 +149,7 @@ export default function SetupScreen() {
       if (dupes.size > 0) {
         errs.push(`${label}: ${t.setup.validation.duplicatePosition}`);
       }
-      if (isDH) {
+      if (teamIsDH) {
         if (!pitcherInput.name.trim()) {
           errs.push(`${label}: ${t.setup.validation.pitcherRequired}`);
         }
@@ -155,8 +158,8 @@ export default function SetupScreen() {
         }
       }
     };
-    checkTeam(awayStarters, awayPitcher, params.awayName || t.setup.awayTeam);
-    checkTeam(homeStarters, homePitcher, params.homeName || t.setup.homeTeam);
+    checkTeam(awayStarters, awayPitcher, params.awayName || t.setup.awayTeam, isAwayDH);
+    checkTeam(homeStarters, homePitcher, params.homeName || t.setup.homeTeam, isHomeDH);
     return errs;
   };
 
@@ -201,15 +204,15 @@ export default function SetupScreen() {
       },
       awayTeam: {
         name: params.awayName || 'チームA',
-        starters: isDH ? makeDHPlaceholders() : makePlaceholders(),
+        starters: isAwayDH ? makeDHPlaceholders() : makePlaceholders(),
         bench: [],
-        ...(isDH ? { pitcher: placeholderPitcher } : {}),
+        ...(isAwayDH ? { pitcher: placeholderPitcher } : {}),
       },
       homeTeam: {
         name: params.homeName || 'チームB',
-        starters: isDH ? makeDHPlaceholders() : makePlaceholders(),
+        starters: isHomeDH ? makeDHPlaceholders() : makePlaceholders(),
         bench: [],
-        ...(isDH ? { pitcher: placeholderPitcher } : {}),
+        ...(isHomeDH ? { pitcher: placeholderPitcher } : {}),
       },
       ballpark: {
         name: params.ballparkName || '',
@@ -220,7 +223,8 @@ export default function SetupScreen() {
       isQuickStart: true,
       velocityEnabled: params.velocityEnabled === 'true',
       pitchDistanceM: parseFloat(params.pitchDistanceM || '18.44'),
-      isDH,
+      awayIsDH: isAwayDH,
+      homeIsDH: isHomeDH,
     };
 
     await initGame(input);
@@ -244,13 +248,13 @@ export default function SetupScreen() {
         name: params.awayName || '',
         starters: awayStarters,
         bench: [],
-        ...(isDH ? { pitcher: awayPitcher } : {}),
+        ...(isAwayDH ? { pitcher: awayPitcher } : {}),
       },
       homeTeam: {
         name: params.homeName || '',
         starters: homeStarters,
         bench: [],
-        ...(isDH ? { pitcher: homePitcher } : {}),
+        ...(isHomeDH ? { pitcher: homePitcher } : {}),
       },
       ballpark: {
         name: params.ballparkName || '',
@@ -260,7 +264,8 @@ export default function SetupScreen() {
       },
       velocityEnabled: params.velocityEnabled === 'true',
       pitchDistanceM: parseFloat(params.pitchDistanceM || '18.44'),
-      isDH,
+      awayIsDH: isAwayDH,
+      homeIsDH: isHomeDH,
     };
 
     await initGame(input);
@@ -294,14 +299,14 @@ export default function SetupScreen() {
             <Text style={styles.dhLabel}>{t.setup.dhToggle}</Text>
           </View>
           <View style={styles.dhRight}>
-            <Text style={[styles.dhStateText, !isDH && styles.dhStateActive]}>{t.setup.dhOff}</Text>
+            <Text style={[styles.dhStateText, !activeTeamIsDH && styles.dhStateActive]}>{t.setup.dhOff}</Text>
             <Switch
-              value={isDH}
-              onValueChange={handleDHToggle}
-              thumbColor={isDH ? Colors.primary : Colors.textSecondary}
+              value={activeTeamIsDH}
+              onValueChange={handleActiveTeamDHToggle}
+              thumbColor={activeTeamIsDH ? Colors.primary : Colors.textSecondary}
               trackColor={{ false: Colors.border, true: Colors.primaryLight }}
             />
-            <Text style={[styles.dhStateText, isDH && styles.dhStateActive]}>{t.setup.dhOn}</Text>
+            <Text style={[styles.dhStateText, activeTeamIsDH && styles.dhStateActive]}>{t.setup.dhOn}</Text>
           </View>
         </View>
 
@@ -339,13 +344,13 @@ export default function SetupScreen() {
             player={player}
             onUpdate={updatePlayer}
             isDuplicate={duplicatePositions.has(idx)}
-            availablePositions={isDH ? BATTING_ORDER_POSITIONS : POSITIONS}
+            availablePositions={activeTeamIsDH ? BATTING_ORDER_POSITIONS : POSITIONS}
             t={t}
           />
         ))}
 
         {/* DH制ON: 投手登録セクション */}
-        {isDH && (
+        {activeTeamIsDH && (
           <View>
             <View style={[styles.pitcherHeader, { borderTopColor: teamColor }]}>
               <MaterialCommunityIcons name="baseball-bat" size={18} color={teamColor} />

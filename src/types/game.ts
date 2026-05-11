@@ -232,6 +232,26 @@ export interface PitchLog {
 }
 
 // ============================================================
+// サインミス（選手個別の戦術理解度指標）
+//   sign_play（チーム戦術タグ）とは別物。
+//   個人がサインを見落とした事象を選手単位で記録する。
+// ============================================================
+export type SignMissContext = 'batting' | 'baserunning' | 'fielding' | 'pitching';
+
+export interface SignMissEvent {
+  id: string;
+  inning: InningState;
+  /** 関与中の打席があれば紐付ける（任意） */
+  atBatId?: string;
+  side: 'away' | 'home';
+  playerId: string;
+  playerName: string;
+  context: SignMissContext;
+  note?: string;
+  timestamp: number;
+}
+
+// ============================================================
 // 盗塁企図ログ
 // ============================================================
 
@@ -417,6 +437,9 @@ export interface GameState {
   // 選手交代ログ
   substitutionLogs: SubstitutionLog[];
 
+  // サインミス（選手個別）
+  signMissEvents: SignMissEvent[];
+
   // カスタム球種 (ユーザー追加分)
   customPitchTypes: string[];
 
@@ -428,8 +451,8 @@ export interface GameState {
   pitchDistanceM?: number;        // 投球距離 (m): 18.44=一般・中学, 16.00=学童
   velocityEnabled?: boolean;      // 球速計測モード ON/OFF
 
-  // DH制
-  isDH?: boolean;                 // 指名打者制 ON/OFF
+  // DH制 (チームごとに独立)
+  isDH?: { away: boolean; home: boolean };
 }
 
 // ============================================================
@@ -480,5 +503,6 @@ export interface GameSetupInput {
   isQuickStart?: boolean;
   pitchDistanceM?: number;
   velocityEnabled?: boolean;
-  isDH?: boolean;   // DH制（指名打者）の有無
+  awayIsDH?: boolean;  // 先攻チームのDH制ON/OFF
+  homeIsDH?: boolean;  // 後攻チームのDH制ON/OFF
 }

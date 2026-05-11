@@ -294,7 +294,10 @@ function createInitialGameState(input: GameSetupInput): GameState {
     ...(input.isQuickStart ? { isQuickStart: true, hasUnmappedPlayers: true } : {}),
     pitchDistanceM: input.pitchDistanceM ?? 18.44,
     velocityEnabled: input.velocityEnabled ?? false,
-    isDH: input.isDH ?? false,
+    isDH: {
+      away: input.awayIsDH ?? false,
+      home: input.homeIsDH ?? false,
+    },
   };
 }
 
@@ -794,6 +797,11 @@ export const useGameStore = create<GameStore>()(
       if (gameState) {
         // 旧データ互換: 新規追加フィールドのデフォルト値を保証
         if (!gameState.signMissEvents) gameState.signMissEvents = [];
+        // 後方互換: isDH: boolean (旧形式) → { away, home } (新形式) に変換
+        if (typeof gameState.isDH === 'boolean') {
+          const legacy = gameState.isDH as unknown as boolean;
+          (gameState as any).isDH = { away: legacy, home: legacy };
+        }
         set({ game: gameState });
       }
     },
@@ -1393,7 +1401,7 @@ export const useGameStore = create<GameStore>()(
 
         const outIdx = team.roster.starters.findIndex((p) => p.id === playerOutId);
         // DH制: 打順外の roster.pitcher が交代対象かチェック
-        const isDHPitcher = outIdx === -1 && !!g.isDH && team.roster.pitcher?.id === playerOutId;
+        const isDHPitcher = outIdx === -1 && !!g.isDH?.[side] && team.roster.pitcher?.id === playerOutId;
 
         if (outIdx === -1 && !isDHPitcher) return;
 
@@ -1467,7 +1475,7 @@ export const useGameStore = create<GameStore>()(
         const team = side === 'away' ? g.awayTeam : g.homeTeam;
         const outIdx = team.roster.starters.findIndex((p) => p.id === playerOutId);
         // DH制: 打順外の roster.pitcher が交代対象かチェック
-        const isDHPitcher = outIdx === -1 && !!g.isDH && team.roster.pitcher?.id === playerOutId;
+        const isDHPitcher = outIdx === -1 && !!g.isDH?.[side] && team.roster.pitcher?.id === playerOutId;
 
         if (outIdx === -1 && !isDHPitcher) return;
 
