@@ -10,6 +10,7 @@ import {
   Platform,
   UIManager,
   Switch,
+  Image,
 } from 'react-native';
 
 // Android で LayoutAnimation を有効化
@@ -1760,67 +1761,19 @@ function TappableDiamond({
 }
 
 /**
- * BatterSilhouetteSVG — インラインSVGによる打者シルエット
- *
- * 外部画像ファイルを使わないためバグが発生しない。
- * 右打者 (side='R') はデフォルト形状、左打者 (side='L') はscaleX:-1で反転。
+ * BatterSilhouetteSVG — 打者シルエット画像
  * サイズ: BATTER_W × CANVAS_H = 68 × 284
  */
 function BatterSilhouetteSVG({ side }: { side: 'L' | 'R' }) {
-  const FILL = '#1A1A1A';
+  const source = side === 'R'
+    ? require('../../../assets/batter_right.png')
+    : require('../../../assets/batter_left.png');
   return (
-    <Svg
-      width={BATTER_W}
-      height={CANVAS_H}
-      viewBox="0 0 68 284"
-      style={side === 'L' ? { transform: [{ scaleX: -1 }] } : undefined}
-    >
-      {/* ── 頭 ── */}
-      <Circle cx={30} cy={72} r={15} fill={FILL} />
-
-      {/* ── ヘルメット(ドーム部) ── */}
-      <Path d="M15 72 Q15 53 30 53 Q45 53 45 68 L45 78 Z" fill={FILL} />
-      {/* ヘルメット庇(投手側=左へ) */}
-      <Path d="M13 77 Q9 77 10 73 L20 71 L20 78 Z" fill={FILL} />
-
-      {/* ── 首 ── */}
-      <Rect x={25} y={87} width={10} height={12} rx={3} fill={FILL} />
-
-      {/* ── 上半身(胴体) ── */}
-      <Path
-        d="M14 99 Q10 108 12 148 L16 158 L44 156 L46 146 Q48 110 44 99 Q37 96 28 98 Q21 96 14 99 Z"
-        fill={FILL}
-      />
-
-      {/* ── 後ろ腕 (バックハンド/バット側) ── */}
-      <Path d="M44 106 L54 91 L60 82 L64 86 L55 97 L46 115 Z" fill={FILL} />
-
-      {/* ── 前腕 ── */}
-      <Path d="M38 106 L48 94 L54 86 L58 90 L49 101 L40 114 Z" fill={FILL} />
-
-      {/* ── 両手グリップ ── */}
-      <Ellipse cx={55} cy={89} rx={7} ry={9} fill={FILL} />
-
-      {/* ── バット(グリップ→バレル) ── */}
-      <Path d="M52 95 L57 30 L61 31 L58 97 Z" fill={FILL} />
-      {/* バット先端ノブ */}
-      <Ellipse cx={59} cy={30} rx={5} ry={4} fill={FILL} />
-
-      {/* ── 腰・ヒップ ── */}
-      <Path d="M12 156 L8 174 L48 172 L48 156 Z" fill={FILL} />
-
-      {/* ── 後ろ足(利き足側) ── */}
-      <Path d="M32 172 Q38 202 36 232 L24 232 Q20 204 24 172 Z" fill={FILL} />
-
-      {/* ── 前足(踏み込み足) ── */}
-      <Path d="M24 172 Q12 198 10 228 L22 228 Q26 202 30 172 Z" fill={FILL} />
-
-      {/* ── 後ろ足フット ── */}
-      <Path d="M22 230 Q20 240 34 240 Q42 238 40 230 Z" fill={FILL} />
-
-      {/* ── 前足フット ── */}
-      <Path d="M8 226 Q4 238 18 240 Q28 238 24 228 Z" fill={FILL} />
-    </Svg>
+    <Image
+      source={source}
+      style={{ width: BATTER_W, height: CANVAS_H }}
+      resizeMode="contain"
+    />
   );
 }
 
