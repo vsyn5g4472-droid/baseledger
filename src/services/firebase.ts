@@ -75,6 +75,7 @@ export const COLLECTIONS = {
   NOTIFICATIONS: 'notifications',
   GROUPS: 'groups',
   GROUP_MESSAGES: 'messages',
+  AI_REPORTS: 'aiReports',
 } as const;
 
 export { app, auth, db, storage, functions };

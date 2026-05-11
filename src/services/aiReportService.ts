@@ -14,10 +14,11 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { httpsCallable, type FunctionsError } from 'firebase/functions';
+import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import type { GameState } from '../types/game';
 import type { AggregatedPitchingStats, AggregatedBattingStats } from '../utils/multiGameStats';
 import type { BatteryProfile, BatterProfile } from '../utils/analysisEngine';
-import { functions } from './firebase';
+import { auth, db, functions, COLLECTIONS } from './firebase';
 import { UserPlan, USER_PLAN_META, checkFeatureAccess } from './planService';
 import {
   mapAIReportError,
@@ -62,6 +63,49 @@ interface CachedReport {
 function sanitizeKey(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9\-_:]/g, '_').slice(0, 128);
 }
+
+// ── Firestore L2 キャッシュ ───────────────────────────────────────────────
+
+function firestoreDocId(userId: string, cacheKey: string): string {
+  return `${userId}_${sanitizeKey(cacheKey)}`.slice(0, 200);
+}
+
+async function readFirestoreCache(userId: string, cacheKey: string): Promise<AIReport | null> {
+  try {
+    const ref = doc(db, COLLECTIONS.AI_REPORTS, firestoreDocId(userId, cacheKey));
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data() as { report: AIReport; cachedAt: number };
+    const age = Date.now() - data.cachedAt;
+    if (age > CACHE_TTL_MS) return null;
+    return data.report;
+  } catch {
+    return null;
+  }
+}
+
+async function writeFirestoreCache(
+  userId: string,
+  cacheKey: string,
+  report: AIReport,
+  plan: UserPlan,
+): Promise<void> {
+  try {
+    const ref = doc(db, COLLECTIONS.AI_REPORTS, firestoreDocId(userId, cacheKey));
+    await setDoc(ref, {
+      userId,
+      cacheKey,
+      report,
+      plan,
+      cachedAt: Date.now(),
+      updatedAt: Timestamp.now(),
+    });
+  } catch (err) {
+    if (__DEV__) console.warn('[aiReportService] Firestore cache write failed:', err);
+  }
+}
+
+// ── AsyncStorage L1 キャッシュ ────────────────────────────────────────────
 
 async function readCache(cacheKey: string): Promise<AIReport | null> {
   try {
@@ -369,8 +413,20 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
   if (early) return early;
 
   const cacheKey = `${game.id}:${role}:${input.playerId ?? 'team'}`;
+
+  // L1: AsyncStorage
   const cached = await readCache(cacheKey);
   if (cached) return { ...cached, fromCache: true };
+
+  // L2: Firestore
+  const userId = auth.currentUser?.uid;
+  if (userId) {
+    const fsCached = await readFirestoreCache(userId, cacheKey);
+    if (fsCached) {
+      await writeCache(cacheKey, fsCached, userPlan);
+      return { ...fsCached, fromCache: true };
+    }
+  }
 
   const score = { away: game.scoreboard.awayTotal, home: game.scoreboard.homeTotal };
   const teamNames = { away: game.awayTeam.name, home: game.homeTeam.name };
@@ -391,7 +447,8 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
         shapeTeam(batters, pitcher ?? null, score, teamNames),
       );
     }
-    await writeCache(cacheKey, report, userPlan);
+    await writeCache(cacheKey, report, userPlan);                              // L1
+    if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
     return report;
   } catch (err) {
     return toErrorReport(err);
@@ -409,12 +466,25 @@ export async function generateBatteryAIReport(
   if (early) return early;
 
   const cacheKey = `battery:${profile.pitcherName}:${profile.catcherName}:${profile.totalGames}:${profile.totalPitches}`;
+
+  // L1: AsyncStorage
   const cached = await readCache(cacheKey);
   if (cached) return { ...cached, fromCache: true };
 
+  // L2: Firestore
+  const userId = auth.currentUser?.uid;
+  if (userId) {
+    const fsCached = await readFirestoreCache(userId, cacheKey);
+    if (fsCached) {
+      await writeCache(cacheKey, fsCached, userPlan);
+      return { ...fsCached, fromCache: true };
+    }
+  }
+
   try {
     const report = await callAIReportFunction('battery-profile', shapeBatteryProfile(profile));
-    await writeCache(cacheKey, report, userPlan);
+    await writeCache(cacheKey, report, userPlan);                              // L1
+    if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
     return report;
   } catch (err) {
     return toErrorReport(err);
@@ -432,12 +502,25 @@ export async function generateBatterAIReport(
   if (early) return early;
 
   const cacheKey = `batter:${profile.batterName}:${profile.totalGames}:${profile.totalAtBats}`;
+
+  // L1: AsyncStorage
   const cached = await readCache(cacheKey);
   if (cached) return { ...cached, fromCache: true };
 
+  // L2: Firestore
+  const userId = auth.currentUser?.uid;
+  if (userId) {
+    const fsCached = await readFirestoreCache(userId, cacheKey);
+    if (fsCached) {
+      await writeCache(cacheKey, fsCached, userPlan);
+      return { ...fsCached, fromCache: true };
+    }
+  }
+
   try {
     const report = await callAIReportFunction('batter-profile', shapeBatterProfile(profile));
-    await writeCache(cacheKey, report, userPlan);
+    await writeCache(cacheKey, report, userPlan);                              // L1
+    if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
     return report;
   } catch (err) {
     return toErrorReport(err);
