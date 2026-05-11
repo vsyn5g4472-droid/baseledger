@@ -113,7 +113,7 @@ export const en: TranslationKeys = {
   battedBallTypes: {
     grounder: 'Grounder',
     liner: 'Liner',
-    fly: 'Fly',
+    fly: 'Fly/Liner',
     popup: 'Popup',
   },
   live: {
@@ -124,6 +124,7 @@ export const en: TranslationKeys = {
     zoneTitle: 'Tap the zone',
     resultTitle: 'Select result',
     fieldTitle: 'Drag to aim at landing spot',
+    fieldTitleGrounder: 'Drag to aim at fielding spot',
     estimatedDistance: 'Est. distance',
     selectResult: 'Select at-bat result',
     lastPitch: 'Last',

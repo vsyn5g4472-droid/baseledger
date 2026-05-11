@@ -111,7 +111,7 @@ export const ja = {
   battedBallTypes: {
     grounder: 'ゴロ',
     liner: 'ライナー',
-    fly: 'フライ',
+    fly: 'フライ・ライナー',
     popup: 'ポップ',
   },
   live: {
@@ -122,6 +122,7 @@ export const ja = {
     zoneTitle: 'コースをタップ',
     resultTitle: '結果を選択',
     fieldTitle: '照準をドラッグして落下地点に合わせる',
+    fieldTitleGrounder: '照準をドラッグして捕球地点に合わせる',
     estimatedDistance: '推定飛距離',
     selectResult: '打席結果を選択',
     lastPitch: '前球',

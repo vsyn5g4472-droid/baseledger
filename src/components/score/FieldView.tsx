@@ -63,8 +63,8 @@ const BASES = {
 };
 const PITCHER = { x: CENTER_X, y: CENTER_Y - MOUND_DIST * PX_PER_M };
 
-const BATTED_TYPE_KEYS: BattedBallType[] = ['grounder', 'liner', 'fly', 'popup'];
-const DIST_TYPES: BattedBallType[] = ['fly', 'popup', 'liner'];
+const BATTED_TYPE_KEYS: BattedBallType[] = ['grounder', 'fly'];
+const DIST_TYPES: BattedBallType[] = ['fly'];
 
 const HIT_RESULTS: { result: AtBatResult; color: string }[] = [
   { result: 'single', color: '#1565C0' },
@@ -480,7 +480,9 @@ export default function FieldView({
     <ScrollView style={styles.wrapper} contentContainerStyle={styles.wrapperContent} showsVerticalScrollIndicator={false}>
       {/* タイトル + ズーム */}
       <View style={styles.topRow}>
-        <Text style={styles.title}>{t.live.fieldTitle}</Text>
+        <Text style={styles.title}>
+          {battedType === 'grounder' ? t.live.fieldTitleGrounder : t.live.fieldTitle}
+        </Text>
         <Text style={styles.zoomBadge}>
           {Number.isInteger(zoomDisplay) ? zoomDisplay : zoomDisplay.toFixed(1)}x
         </Text>
