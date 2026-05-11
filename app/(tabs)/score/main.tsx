@@ -63,7 +63,7 @@ const BALL_PAD_H = 52;
 const BALL_PAD_V = 44;
 const CANVAS_W   = SZ_W + 2 * BALL_PAD_H;      // = 216px
 const CANVAS_H   = SZ_H + 2 * BALL_PAD_V;      // = 284px
-const BATTER_W   = 68;
+const BATTER_W   = 100;
 const CURSOR_OFFSET = 50;
 const CURSOR_R   = 10;
 
