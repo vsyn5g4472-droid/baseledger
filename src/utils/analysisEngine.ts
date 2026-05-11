@@ -18,7 +18,9 @@ const SWING_RESULTS: PitchResult[] = [
 ];
 const HIT_RESULTS: AtBatResult[] = ['single', 'double', 'triple', 'home_run'];
 const NON_AB_RESULTS: AtBatResult[] = [
-  'walk', 'hit_by_pitch', 'sacrifice_bunt', 'sacrifice_fly',
+  'walk', 'hit_by_pitch',
+  'sacrifice_bunt', // TODO: バント打者が出塁した場合も sacrifice_bunt のままのため打数除外が不正確になりうる
+  'sacrifice_fly',
 ];
 
 /** 球速帯の定義 */

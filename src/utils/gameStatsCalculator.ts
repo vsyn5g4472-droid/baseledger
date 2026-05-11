@@ -11,7 +11,7 @@ import {
 const NON_AT_BAT_RESULTS: AtBatResult[] = [
   'walk',
   'hit_by_pitch',
-  'sacrifice_bunt',
+  'sacrifice_bunt', // TODO: バント打者が出塁した場合も sacrifice_bunt のままのため打数除外が不正確になりうる
   'sacrifice_fly',
 ];
 const HIT_RESULTS: AtBatResult[] = ['single', 'double', 'triple', 'home_run'];

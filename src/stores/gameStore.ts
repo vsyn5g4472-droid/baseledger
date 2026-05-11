@@ -626,7 +626,7 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
   }
 
   // 打者の進塁
-  if (result === 'sacrifice_bunt' || result === 'sacrifice_fly') {
+  if (result === 'sacrifice_fly') {
     advancements.push({
       runnerId: batter.id,
       playerName: batter.name,
@@ -636,6 +636,18 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
       action: 'batted_ball',
       isForced: false,
       minBase: 'out',
+    });
+  } else if (result === 'sacrifice_bunt') {
+    // TODO: バント打者が出塁した場合(エラー等)はsacrifice_buntタグの再判定が必要(スコープ外)
+    advancements.push({
+      runnerId: batter.id,
+      playerName: batter.name,
+      fromBase: 'batter',
+      targetBase: 'out',
+      outcome: 'out_tag',
+      action: 'batted_ball',
+      isForced: false,
+      minBase: 'out',   // デフォルトはアウトだが RunnerAdvancementView 側でロックしない
     });
   } else if (result === 'fielders_choice') {
     advancements.push({

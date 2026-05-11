@@ -371,11 +371,11 @@ export default function RunnerAdvancementView({
         {editable.map((adv) => {
           const isExpanded = expandedRunner === adv.runnerId;
           // 犠打・犠飛は打者が必ずアウト（固定）。通常の打球アウトはフォース/タッチを変更可能
-          const isSacrificeOut = adv.fromBase === 'batter' &&
-            (result === 'sacrifice_bunt' || result === 'sacrifice_fly');
+          const isSacrificeOut = adv.fromBase === 'batter' && result === 'sacrifice_fly';
           const isBatterRegularOut = adv.fromBase === 'batter' &&
             (adv.outcome === 'out_force' || adv.outcome === 'out_tag') &&
             !isSacrificeOut &&
+            result !== 'sacrifice_bunt' &&
             result !== 'flyout';
           const isBatterOut = isSacrificeOut;
           const canTagUp = isFlyBall && adv.fromBase !== 'batter' && !isBatterOut;
