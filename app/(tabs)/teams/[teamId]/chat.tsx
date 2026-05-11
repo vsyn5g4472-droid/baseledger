@@ -4,11 +4,13 @@ import { TextInput, IconButton, Text } from 'react-native-paper';
 import { useLocalSearchParams } from 'expo-router';
 import ChatBubble from '../../../../src/components/ChatBubble';
 import { useTeamChat } from '../../../../src/hooks/useTeam';
+import { useAuth } from '../../../../src/contexts/AuthContext';
 import { Colors, Spacing } from '../../../../src/constants/theme';
 
 export default function TeamChatScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const { messages, sendMessage } = useTeamChat(teamId ?? '');
+  const { currentUser } = useAuth();
   const [text, setText] = useState('');
 
   const handleSend = async () => {
@@ -30,8 +32,8 @@ export default function TeamChatScreen() {
         renderItem={({ item }) => (
           <ChatBubble
             message={item.content}
-            isSent={item.senderId === 'mock-user-1'}
-            senderName={item.senderId === 'mock-user-1' ? 'You' : 'Teammate'}
+            isSent={item.senderId === currentUser?.uid}
+            senderName={item.senderName}
             timestamp={item.createdAt?.toDate?.()?.toLocaleTimeString?.() ?? ''}
           />
         )}
