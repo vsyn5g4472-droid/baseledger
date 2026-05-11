@@ -258,7 +258,7 @@ export const ja = {
     chat: 'チャット',
     profile: 'プロフィール',
     analytics: '分析',
-    ballpark: 'BallPark',
+    ballpark: 'BaseLedger',
     lineupSetup: 'スタメン登録',
     liveScore: 'ライブスコア',
     scoreHistory: '試合履歴',

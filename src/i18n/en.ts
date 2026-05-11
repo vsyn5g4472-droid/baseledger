@@ -260,7 +260,7 @@ export const en: TranslationKeys = {
     chat: 'Chat',
     profile: 'Profile',
     analytics: 'Analytics',
-    ballpark: 'BallPark',
+    ballpark: 'BaseLedger',
     lineupSetup: 'Lineup Setup',
     liveScore: 'Live Score',
     scoreHistory: 'Score History',
