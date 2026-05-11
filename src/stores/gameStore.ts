@@ -32,6 +32,8 @@ import type {
   BuntType,
   BuntOutcome,
   SignPlayTag,
+  SignMissEvent,
+  SignMissContext,
 } from '../types/game';
 import { RESULTS_NEEDING_ADVANCEMENT } from '../types/game';
 
@@ -156,6 +158,19 @@ interface GameActions {
   /** 仮選手を実選手名・背番号・ポジションに紐付ける */
   updatePlayerMapping: (mappings: { playerId: string; newName: string; newNumber: string; newPosition?: string }[]) => Promise<void>;
 
+  // --- サインミス（選手個別） ---
+  /**
+   * 指定選手のサインミスを記録する。
+   * 戦術 sign_play とは別の指標で、個人の戦術理解度の集計に用いる。
+   */
+  recordSignMiss: (input: {
+    playerId: string;
+    playerName: string;
+    side: 'away' | 'home';
+    context: SignMissContext;
+    note?: string;
+  }) => void;
+
   // --- 選手交代 ---
   /** 出場中の選手を控え選手に交代させる */
   substitutePlayer: (side: 'away' | 'home', playerOutId: string, playerInId: string) => void;
@@ -168,6 +183,10 @@ interface GameActions {
     playerOutId: string,
     newPlayerData: { name: string; number: number | null; bats: 'L' | 'R' | 'S'; throws: 'L' | 'R'; position?: string },
   ) => void;
+
+  // --- 球速記録 ---
+  /** 試合中に球速記録のON/OFFを切り替え、永続化する */
+  setVelocityEnabled: (enabled: boolean) => Promise<void>;
 }
 
 type GameStore = { game: GameState | null } & GameActions;
@@ -270,6 +289,7 @@ function createInitialGameState(input: GameSetupInput): GameState {
     totalPitchCount: { away: 0, home: 0 },
     pendingAdvancement: null,
     substitutionLogs: [],
+    signMissEvents: [],
     customPitchTypes: [],
     ...(input.isQuickStart ? { isQuickStart: true, hasUnmappedPlayers: true } : {}),
     pitchDistanceM: input.pitchDistanceM ?? 18.44,
@@ -771,7 +791,11 @@ export const useGameStore = create<GameStore>()(
 
     loadGame: async (id) => {
       const gameState = await db.games.get(id);
-      if (gameState) set({ game: gameState });
+      if (gameState) {
+        // 旧データ互換: 新規追加フィールドのデフォルト値を保証
+        if (!gameState.signMissEvents) gameState.signMissEvents = [];
+        set({ game: gameState });
+      }
     },
 
     setPhase: (phase) => {
@@ -786,6 +810,15 @@ export const useGameStore = create<GameStore>()(
     persist: async () => {
       const game = get().game;
       if (game) await db.games.put(game);
+    },
+
+    setVelocityEnabled: async (enabled) => {
+      set((state) => {
+        if (!state.game) return;
+        state.game.velocityEnabled = enabled;
+        state.game.updatedAt = Date.now();
+      });
+      await get().persist();
     },
 
     // --- 投球記録 ---
@@ -1323,6 +1356,27 @@ export const useGameStore = create<GameStore>()(
         g.updatedAt = Date.now();
       });
       await get().persist();
+    },
+
+    recordSignMiss: ({ playerId, playerName, side, context, note }) => {
+      set((state) => {
+        const g = state.game;
+        if (!g) return;
+        if (!g.signMissEvents) g.signMissEvents = [];
+        const evt: SignMissEvent = {
+          id: uid('signmiss'),
+          inning: { ...g.inning },
+          atBatId: g.currentAtBat?.id,
+          side,
+          playerId,
+          playerName,
+          context,
+          ...(note ? { note } : {}),
+          timestamp: Date.now(),
+        };
+        g.signMissEvents.push(evt);
+        g.updatedAt = Date.now();
+      });
     },
 
     substitutePlayer: (side, playerOutId, playerInId) => {

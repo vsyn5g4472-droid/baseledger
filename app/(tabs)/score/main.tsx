@@ -9,6 +9,7 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  Switch,
 } from 'react-native';
 
 // Android で LayoutAnimation を有効化
@@ -212,6 +213,7 @@ export default function LiveScoreScreen() {
   // ── 球速計測 ─────────────────────────────────────────────────────
   const pitchDistanceM = game?.pitchDistanceM ?? 18.44;
   const velocityEnabled = game?.velocityEnabled ?? false;
+  const setVelocityEnabled = useGameStore((s) => s.setVelocityEnabled);
   const [isHoldingVelocity, setIsHoldingVelocity] = useState(false);
   const [measuredVelocity, setMeasuredVelocity] = useState<number | null>(null);
   const velocityStartRef = useRef<number | null>(null);
@@ -1292,14 +1294,14 @@ export default function LiveScoreScreen() {
             );
           })}
 
-          {!velocityEnabled && (
-            <View style={styles.velocityDisabledNote}>
-              <MaterialCommunityIcons name="information-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.velocityDisabledNoteText}>
-                球速計測は試合設定でONにすると有効になります
-              </Text>
-            </View>
-          )}
+          <View style={styles.velocityToggleRow}>
+            <MaterialCommunityIcons name="speedometer" size={20} color={Colors.textSecondary} />
+            <Text style={styles.velocityToggleLabel}>球速記録</Text>
+            <Switch
+              value={velocityEnabled}
+              onValueChange={(v) => { setVelocityEnabled(v); setSettingsModalVisible(false); }}
+            />
+          </View>
         </Modal>
       </Portal>
 
@@ -2684,6 +2686,21 @@ const styles = StyleSheet.create({
     fontSize: Typography.tiny,
     color: Colors.textSecondary,
     flex: 1,
+  },
+  velocityToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceGray,
+    marginTop: Spacing.xs,
+  },
+  velocityToggleLabel: {
+    flex: 1,
+    fontSize: Typography.bodySmall,
+    color: Colors.text,
   },
   velocityHoldBtn: {
     flex: 1,
