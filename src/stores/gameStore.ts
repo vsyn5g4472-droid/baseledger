@@ -1077,6 +1077,13 @@ export const useGameStore = create<GameStore>()(
           g.currentAtBat.rbiCount = rbi;
           // 進塁詳細を打席ログに保存（outDetail含む）
           g.currentAtBat.runnerAdvancements = finalAdvancements;
+          // 打者行のアウト種別を outType として保存
+          const batterAdv = finalAdvancements.find(
+            (a) => a.fromBase === 'batter' && (a.outcome === 'out_force' || a.outcome === 'out_tag'),
+          );
+          if (batterAdv) {
+            g.currentAtBat.outType = batterAdv.outcome === 'out_force' ? 'force' : 'tag';
+          }
         }
 
         // ペンディングをクリア

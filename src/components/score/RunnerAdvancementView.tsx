@@ -366,7 +366,13 @@ export default function RunnerAdvancementView({
         {/* ランナーリスト */}
         {editable.map((adv) => {
           const isExpanded = expandedRunner === adv.runnerId;
-          const isBatterOut = adv.minBase === 'out'; // 犠打の打者
+          // 犠打・犠飛は打者が必ずアウト（固定）。通常の打球アウトはフォース/タッチを変更可能
+          const isSacrificeOut = adv.fromBase === 'batter' &&
+            (result === 'sacrifice_bunt' || result === 'sacrifice_fly');
+          const isBatterRegularOut = adv.fromBase === 'batter' &&
+            (adv.outcome === 'out_force' || adv.outcome === 'out_tag') &&
+            !isSacrificeOut;
+          const isBatterOut = isSacrificeOut;
           const canTagUp = isFlyBall && adv.fromBase !== 'batter' && !isBatterOut;
           const isTaggingUp = adv.action === 'tag_up';
           const isOut = adv.outcome === 'out_tag' || adv.outcome === 'out_force';
@@ -386,7 +392,7 @@ export default function RunnerAdvancementView({
                   if (isBatterOut) return;
                   setExpandedRunner(isExpanded ? null : adv.runnerId);
                 }}
-                activeOpacity={isBatterOut ? 1 : 0.6}
+                activeOpacity={(isBatterOut || isBatterRegularOut) ? 1 : 0.6}
               >
                 <View style={styles.runnerInfo}>
                   <Text style={styles.runnerName}>{adv.playerName}</Text>
@@ -413,8 +419,8 @@ export default function RunnerAdvancementView({
               </TouchableOpacity>
 
               {/* ベース選択ボタン行 */}
-              {!isBatterOut && (
-                <View style={styles.baseButtonRow}>
+            {!isBatterOut && !isBatterRegularOut && (
+              <View style={styles.baseButtonRow}>
                   {BASE_BUTTONS.map(({ base, labelKey }) => {
                     const disabled = isBaseButtonDisabled(adv, base);
                     const isActive = adv.targetBase === base;
@@ -446,8 +452,30 @@ export default function RunnerAdvancementView({
                 </View>
               )}
 
+              {/* フォース/タッチ切り替え（通常打球アウトの打者行） */}
+              {isBatterRegularOut && (
+                <View style={styles.outTypeRow}>
+                  <TouchableOpacity
+                    style={[styles.outTypeBtn, adv.outcome === 'out_force' && styles.outTypeBtnActive]}
+                    onPress={() => setReason(adv.runnerId, 'batted_ball', 'out_force')}
+                  >
+                    <Text style={[styles.outTypeBtnText, adv.outcome === 'out_force' && styles.outTypeBtnTextActive]}>
+                      フォースアウト
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.outTypeBtn, adv.outcome === 'out_tag' && styles.outTypeBtnActive]}
+                    onPress={() => setReason(adv.runnerId, 'batted_ball', 'out_tag')}
+                  >
+                    <Text style={[styles.outTypeBtnText, adv.outcome === 'out_tag' && styles.outTypeBtnTextActive]}>
+                      タッチアウト
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               {/* 理由サブメニュー (展開時) */}
-              {isExpanded && !isBatterOut && (
+              {isExpanded && !isBatterOut && !isBatterRegularOut && (
                 <View style={styles.subMenu}>
                   <Text style={styles.subLabel}>{t.advancement.title}:</Text>
                   <View style={styles.subRow}>
@@ -875,5 +903,34 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     marginTop: Spacing.xs,
+  },
+
+  // フォース/タッチアウト切り替え
+  outTypeRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    paddingTop: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+  },
+  outTypeBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+    borderRadius: BorderRadius.sm,
+    backgroundColor: Colors.surfaceGray,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  outTypeBtnActive: {
+    backgroundColor: Colors.primaryLight,
+    borderColor: Colors.primary,
+  },
+  outTypeBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  outTypeBtnTextActive: {
+    color: Colors.primary,
   },
 });

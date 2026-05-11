@@ -332,6 +332,7 @@ export interface AtBatLog {
   battedBall?: BattedBall;
   fielding?: FieldingRecord;   // 関与した守備番号
   rbiCount: number;
+  outType?: 'force' | 'tag';  // 打球アウトの種別（フォースアウト/タッチアウト）
   runnersBeforePlay: Runners;
   runnersAfterPlay: Runners;
   runnerAdvancements?: RunnerAdvancement[];  // 進塁詳細（outDetail含む）永続化用
