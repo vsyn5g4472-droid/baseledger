@@ -97,7 +97,7 @@ export const ja = {
     flyout: 'フライアウト',
     lineout: 'ライナー',
     pop_out: 'ポップフライ',
-    sacrifice_bunt: '犠打',
+    sacrifice_bunt: 'バント',
     sacrifice_fly: '犠飛',
     fielders_choice: '野選',
     double_play: '併殺打',

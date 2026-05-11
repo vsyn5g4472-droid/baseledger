@@ -34,9 +34,7 @@ const ALL_RESULTS: { result: AtBatResult; color: string }[] = [
   { result: 'walk',              color: '#28A745' },
   { result: 'hit_by_pitch',      color: '#5A1A5C' },
   { result: 'sacrifice_bunt',    color: '#B87A00' },
-  { result: 'sacrifice_fly',     color: '#B87A00' },
   { result: 'fielders_choice',   color: '#5A7396' },
-  { result: 'double_play',       color: '#9B1528' },
   { result: 'triple_play',       color: '#9B1528' },
   { result: 'error',             color: '#795548' },
 ];

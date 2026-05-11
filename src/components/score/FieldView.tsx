@@ -77,9 +77,7 @@ const OUT_RESULTS: { result: AtBatResult; color: string }[] = [
   { result: 'flyout', color: '#E53935' },
   { result: 'lineout', color: '#E53935' },
   { result: 'sacrifice_bunt', color: '#EF6C00' },
-  { result: 'sacrifice_fly', color: '#EF6C00' },
   { result: 'fielders_choice', color: '#FF8F00' },
-  { result: 'double_play', color: '#B71C1C' },
   { result: 'error', color: '#795548' },
 ];
 const FOUL_RESULTS: { result: AtBatResult; color: string }[] = [

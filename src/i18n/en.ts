@@ -99,7 +99,7 @@ export const en: TranslationKeys = {
     flyout: 'Flyout',
     lineout: 'Lineout',
     pop_out: 'Pop Out',
-    sacrifice_bunt: 'Sac Bunt',
+    sacrifice_bunt: 'Bunt',
     sacrifice_fly: 'Sac Fly',
     fielders_choice: "FC",
     double_play: 'DP',

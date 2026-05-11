@@ -1089,8 +1089,18 @@ export const useGameStore = create<GameStore>()(
         // ペンディングをクリア
         g.pendingAdvancement = null;
 
-        // 打席完了
-        finalizeAtBatAndStartNext(g, result);
+        // 打席完了（犠飛・併殺打の自動判定）
+        let effectiveResult = result;
+        if (result === 'flyout') {
+          const hasRunnerScored = finalAdvancements.some(
+            (a) => a.fromBase !== 'batter' && a.targetBase === 'home' && a.outcome === 'safe',
+          );
+          if (hasRunnerScored) effectiveResult = 'sacrifice_fly';
+        }
+        if (result === 'groundout' && outsAdded >= 2) {
+          effectiveResult = 'double_play';
+        }
+        finalizeAtBatAndStartNext(g, effectiveResult);
         g.updatedAt = Date.now();
       });
     },
