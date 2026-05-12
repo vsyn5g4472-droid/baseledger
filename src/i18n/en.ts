@@ -2,7 +2,7 @@ import type { TranslationKeys } from './index';
 
 export const en: TranslationKeys = {
   app: {
-    title: 'BallPark',
+    title: 'BaseLedger',
     subtitle: 'Real-time Scorer & Analysis',
   },
   metadata: {

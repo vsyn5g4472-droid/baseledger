@@ -7,12 +7,12 @@ import EmptyState from '../../../src/components/EmptyState';
 import { usePlayerSearch } from '../../../src/hooks/useSearch';
 import { Colors, Spacing, Typography } from '../../../src/constants/theme';
 
-const positions = ['All', 'Pitcher', 'Catcher', 'Infield', 'Outfield'];
+const positions = ['全て', '投手', '捕手', '内野手', '外野手'];
 
 export default function SearchScreen() {
   const { results, loading, search, filters, setFilters, applyFilters, aiRecommendations } = usePlayerSearch();
   const [query, setQuery] = useState('');
-  const [selectedPosition, setSelectedPosition] = useState('All');
+  const [selectedPosition, setSelectedPosition] = useState('全て');
 
   const handleSearch = (text: string) => {
     setQuery(text);
@@ -21,7 +21,7 @@ export default function SearchScreen() {
 
   const handlePositionFilter = (pos: string) => {
     setSelectedPosition(pos);
-    if (pos === 'All') {
+    if (pos === '全て') {
       setFilters({ ...filters, position: undefined });
     } else {
       setFilters({ ...filters, position: pos });
@@ -34,7 +34,7 @@ export default function SearchScreen() {
   return (
     <View style={styles.container}>
       <Searchbar
-        placeholder="Search players, teams..."
+        placeholder="選手・チームを検索..."
         value={query}
         onChangeText={handleSearch}
         style={styles.searchBar}
@@ -56,7 +56,7 @@ export default function SearchScreen() {
       </View>
 
       {query.length === 0 && (
-        <Text style={styles.sectionTitle}>AI Recommended Players</Text>
+        <Text style={styles.sectionTitle}>AIおすすめ選手</Text>
       )}
 
       <FlatList
@@ -79,8 +79,8 @@ export default function SearchScreen() {
         ListEmptyComponent={
           <EmptyState
             icon="account-search"
-            title={loading ? 'Searching...' : 'No players found'}
-            subtitle="Try different keywords or filters"
+            title={loading ? '検索中...' : '選手が見つかりません'}
+            subtitle="キーワードやフィルターを変えてみてください"
           />
         }
       />
