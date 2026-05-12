@@ -18,6 +18,7 @@ import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constant
 import { useI18n } from '../../../src/i18n';
 import { useGameStore } from '../../../src/stores/gameStore';
 import { POSITIONS, type Position, type PlayerInput, type GameSetupInput } from '../../../src/types/game';
+import { PositionDiamondPicker } from '../../../src/components/score/PositionDiamondPicker';
 
 // Android LayoutAnimation を有効化
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -418,7 +419,6 @@ interface PlayerRowProps {
 }
 
 function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t }: PlayerRowProps) {
-  const [posMenuVisible, setPosMenuVisible] = useState(false);
   const [batsMenuVisible, setBatsMenuVisible] = useState(false);
 
   return (
@@ -429,29 +429,14 @@ function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t
       </View>
 
       {/* 守備位置セレクタ */}
-      <Menu
-        visible={posMenuVisible}
-        onDismiss={() => setPosMenuVisible(false)}
-        anchor={
-          <TouchableOpacity
-            style={[styles.posButton, isDuplicate && styles.posButtonError]}
-            onPress={() => setPosMenuVisible(true)}
-          >
-            <Text style={[styles.posText, isDuplicate && { color: Colors.error }]}>{t.positions[player.position]}</Text>
-          </TouchableOpacity>
-        }
-      >
-        {availablePositions.map((pos) => (
-          <Menu.Item
-            key={pos}
-            onPress={() => {
-              onUpdate(index, 'position', pos);
-              setPosMenuVisible(false);
-            }}
-            title={t.positions[pos]}
-          />
-        ))}
-      </Menu>
+      <PositionDiamondPicker
+        value={player.position}
+        availablePositions={availablePositions}
+        onChange={(pos) => onUpdate(index, 'position', pos)}
+        isDuplicate={isDuplicate}
+        label={t.positions[player.position]}
+        positionLabels={t.positions}
+      />
 
       {/* 背番号 */}
       <TextInput
