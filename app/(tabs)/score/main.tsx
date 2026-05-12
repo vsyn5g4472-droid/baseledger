@@ -706,6 +706,13 @@ export default function LiveScoreScreen() {
           <Text style={[styles.teamName, !isTop && styles.teamNameActive]}>{game.homeTeam.name}</Text>
           <Text style={styles.score}>{game.scoreboard.homeTotal}</Text>
         </View>
+        <TouchableOpacity
+          style={styles.editRosterIcon}
+          onPress={() => router.push('/(tabs)/score/mapping' as any)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="account-edit-outline" size={18} color="rgba(255,255,255,0.7)" />
+        </TouchableOpacity>
       </View>
 
       {/* scrollEnabled で投球コース操作中にスクロールを完全封鎖 */}
@@ -1971,6 +1978,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     paddingTop: 56,
+  },
+  editRosterIcon: {
+    position: 'absolute',
+    right: Spacing.md,
+    bottom: Spacing.sm,
+    padding: 4,
   },
   teamScore: { alignItems: 'center', flex: 1 },
   teamName: { color: 'rgba(255,255,255,0.6)', fontSize: Typography.caption, fontWeight: '600' },
