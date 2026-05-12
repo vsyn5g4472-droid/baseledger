@@ -157,7 +157,8 @@ export default function LoginScreen() {
       } else {
         await signInWithUsername(identifier.trim(), password);
       }
-      router.replace('/(tabs)/feed');
+      // index が isNew / currentUser により feed か onboarding へ分岐
+      router.replace('/' as any);
     } catch (e: any) {
       setError(e.message || 'ログインに失敗しました');
     }
@@ -192,7 +193,7 @@ export default function LoginScreen() {
     try {
       setError('');
       await signInWithPasskey();
-      router.replace('/(tabs)/feed');
+      router.replace('/' as any);
     } catch (e: any) {
       setError(e.message || 'パスキー認証に失敗しました');
     }
@@ -208,7 +209,7 @@ export default function LoginScreen() {
         {/* ヒーローセクション */}
         <View style={styles.hero}>
           <MaterialCommunityIcons name="baseball" size={56} color={Colors.white} />
-          <Text style={styles.appName}>BallPark</Text>
+          <Text style={styles.appName}>BaseLedger</Text>
           <Text style={styles.tagline}>野球をもっと、深く楽しむ</Text>
         </View>
 
