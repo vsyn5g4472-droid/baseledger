@@ -465,6 +465,9 @@ export default function LiveScoreScreen() {
     const sp = atBatSign !== 'none' ? atBatSign : undefined;
     resolveAtBat(result, battedBall, 0, { buntType, signPlay: sp });
     setAtBatSign('none');
+    if (hasRunners && !useGameStore.getState().game?.pendingAdvancement) {
+      setShowFieldView(false);
+    }
     persist();
   }, [resolveAtBat, persist, atBatSign]);
 

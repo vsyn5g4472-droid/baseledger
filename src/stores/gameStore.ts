@@ -690,6 +690,43 @@ function findPlayerById(game: GameState, playerId: string): Player | null {
   return null;
 }
 
+/** applyAtBatResultToRunners がこの結果で加えるアウト数（進塁確認省略判定用・同期必須） */
+function outsAddedPreviewForResolve(result: AtBatResult): number {
+  switch (result) {
+    case 'strikeout':
+    case 'strikeout_looking':
+      return 1;
+    case 'groundout':
+    case 'flyout':
+    case 'lineout':
+    case 'pop_out':
+      return 1;
+    case 'double_play':
+      return 2;
+    case 'triple_play':
+      return 3;
+    case 'sacrifice_bunt':
+    case 'sacrifice_fly':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * 進塁確認なしでイニング終了まで一気に確定してよいか。
+ * 三塁走者＋上空飛／犠打系は得点・タッチアップ入力が進塁画面に依存するため省略しない。
+ */
+function shouldResolveInPlayWithoutAdvancement(game: GameState, result: AtBatResult): boolean {
+  const added = outsAddedPreviewForResolve(result);
+  if (added <= 0 || game.count.outs + added < 3) return false;
+  if (game.runners.third) {
+    if (result === 'flyout' || result === 'lineout' || result === 'pop_out') return false;
+    if (result === 'sacrifice_bunt' || result === 'sacrifice_fly') return false;
+  }
+  return true;
+}
+
 // ============================================================
 // 打席結果 → ランナー進塁ロジック (自動解決用、従来通り)
 // ============================================================
@@ -936,14 +973,14 @@ export const useGameStore = create<GameStore>()(
       const g = get().game;
       if (!g) return;
 
-      // ランナーがいれば全インプレイ結果で進塁確認モードへ
+      // ランナーがいれば進塁確認モードへ（3アウト確定で省略する場合を除く）
       const hasRunners = g.runners.first || g.runners.second || g.runners.third;
-      if (hasRunners) {
+      if (hasRunners && !shouldResolveInPlayWithoutAdvancement(g, result)) {
         get().beginAdvancementConfirmation(result, battedBall, undefined, atBatExtra);
         return;
       }
 
-      // ランナーなし → 自動解決
+      // ランナーなし、または3アウトで進塁確認を省略 → 自動解決
       set((state) => {
         const gs = state.game;
         if (!gs || gs.phase !== 'live') return;
