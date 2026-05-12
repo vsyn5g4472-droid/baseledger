@@ -2,7 +2,7 @@
  * 分析トップ画面 — 打者分析 / バッテリー分析の対象を選択する
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -105,6 +105,10 @@ export default function AnalysisIndexScreen() {
   const [selectedBattery, setSelectedBattery]   = useState<BatteryPair | null>(null);
   const [batteryPickerOpen, setBatteryPickerOpen] = useState(false);
 
+  // チーム選択 state
+  const [selectedBatterTeam,  setSelectedBatterTeam]  = useState<string | null>(null);
+  const [selectedBatteryTeam, setSelectedBatteryTeam] = useState<string | null>(null);
+
   const loadData = useCallback(async () => {
     const all = await db.games.getAll();
     setGames(all);
@@ -115,6 +119,69 @@ export default function AnalysisIndexScreen() {
   useEffect(() => {
     loadData().finally(() => setLoading(false));
   }, [loadData]);
+
+  // チーム名 → 打者リスト
+  const teamBattersMap = useMemo(() => {
+    const map = new Map<string, BatterInfo[]>();
+    for (const game of games) {
+      for (const team of [game.awayTeam, game.homeTeam]) {
+        const ids = new Set([
+          ...team.roster.starters.map((p) => p.id),
+          ...team.roster.bench.map((p) => p.id),
+        ]);
+        const list = batters.filter((b) => ids.has(b.batterId));
+        if (list.length === 0) continue;
+        const existing = map.get(team.name) ?? [];
+        const merged = [...existing];
+        for (const b of list) {
+          if (!merged.some((e) => e.batterId === b.batterId)) merged.push(b);
+        }
+        map.set(team.name, merged);
+      }
+    }
+    return map;
+  }, [games, batters]);
+
+  // チーム名 → バッテリーペアリスト
+  const teamBatteryMap = useMemo(() => {
+    const map = new Map<string, BatteryPair[]>();
+    for (const game of games) {
+      for (const team of [game.awayTeam, game.homeTeam]) {
+        const ids = new Set([
+          ...team.roster.starters.map((p) => p.id),
+          ...team.roster.bench.map((p) => p.id),
+          ...(team.roster.pitcher ? [team.roster.pitcher.id] : []),
+        ]);
+        const list = batteries.filter((b) => ids.has(b.pitcherId) || ids.has(b.catcherId));
+        if (list.length === 0) continue;
+        const existing = map.get(team.name) ?? [];
+        const merged = [...existing];
+        for (const b of list) {
+          const key = `${b.pitcherId}-${b.catcherId}`;
+          if (!merged.some((e) => `${e.pitcherId}-${e.catcherId}` === key)) merged.push(b);
+        }
+        map.set(team.name, merged);
+      }
+    }
+    return map;
+  }, [games, batteries]);
+
+  const teamNames = useMemo(
+    () => [...new Set([...teamBattersMap.keys(), ...teamBatteryMap.keys()])].sort(),
+    [teamBattersMap, teamBatteryMap],
+  );
+
+  const filteredBatters   = selectedBatterTeam  ? (teamBattersMap.get(selectedBatterTeam)  ?? []) : [];
+  const filteredBatteries = selectedBatteryTeam ? (teamBatteryMap.get(selectedBatteryTeam) ?? []) : [];
+
+  const handleBatterTeamSelect = (name: string) => {
+    setSelectedBatterTeam(name === selectedBatterTeam ? null : name);
+    setSelectedBatter(null);
+  };
+  const handleBatteryTeamSelect = (name: string) => {
+    setSelectedBatteryTeam(name === selectedBatteryTeam ? null : name);
+    setSelectedBattery(null);
+  };
 
   const canStart =
     tab === 'batter' ? !!selectedBatter : !!selectedBattery;
@@ -214,9 +281,34 @@ export default function AnalysisIndexScreen() {
               過去の全打席ログから、打球傾向・苦手コース・球速対応を分析します。
             </Text>
 
+            {/* Step 1: チーム選択 */}
+            <Text style={styles.stepLabel}>① チームを選ぶ</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teamChipScroll}>
+              <View style={styles.teamChipRow}>
+                {teamNames.map((name) => (
+                  <TouchableOpacity
+                    key={name}
+                    style={[styles.teamChip, selectedBatterTeam === name && styles.teamChipActive]}
+                    onPress={() => handleBatterTeamSelect(name)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.teamChipText, selectedBatterTeam === name && styles.teamChipTextActive]}>
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Step 2: 選手選択 */}
+            <Text style={[styles.stepLabel, !selectedBatterTeam && styles.stepLabelDim]}>② 選手を選ぶ</Text>
             <TouchableOpacity
-              style={[styles.selector, !selectedBatter && styles.selectorEmpty]}
-              onPress={() => setBatterPickerOpen(true)}
+              style={[
+                styles.selector,
+                !selectedBatter && styles.selectorEmpty,
+                !selectedBatterTeam && styles.selectorDisabled,
+              ]}
+              onPress={() => { if (selectedBatterTeam) setBatterPickerOpen(true); }}
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons
@@ -225,18 +317,11 @@ export default function AnalysisIndexScreen() {
                 color={selectedBatter ? Colors.primary : Colors.textSecondary}
               />
               <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.selectorText,
-                    !selectedBatter && styles.selectorPlaceholder,
-                  ]}
-                >
-                  {selectedBatter?.batterName ?? '選手を選ぶ…'}
+                <Text style={[styles.selectorText, !selectedBatter && styles.selectorPlaceholder]}>
+                  {selectedBatter?.batterName ?? (selectedBatterTeam ? '選手を選ぶ…' : 'まずチームを選択')}
                 </Text>
                 {selectedBatter && (
-                  <Text style={styles.selectorSub}>
-                    {selectedBatter.gameCount}試合のデータあり
-                  </Text>
+                  <Text style={styles.selectorSub}>{selectedBatter.gameCount}試合のデータあり</Text>
                 )}
               </View>
               <MaterialCommunityIcons name="chevron-down" size={20} color={Colors.textSecondary} />
@@ -267,9 +352,34 @@ export default function AnalysisIndexScreen() {
               投手×捕手ペアの決め球・カウント別配球傾向を解析します。
             </Text>
 
+            {/* Step 1: チーム選択 */}
+            <Text style={styles.stepLabel}>① チームを選ぶ</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teamChipScroll}>
+              <View style={styles.teamChipRow}>
+                {teamNames.map((name) => (
+                  <TouchableOpacity
+                    key={name}
+                    style={[styles.teamChip, selectedBatteryTeam === name && styles.teamChipActive]}
+                    onPress={() => handleBatteryTeamSelect(name)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.teamChipText, selectedBatteryTeam === name && styles.teamChipTextActive]}>
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Step 2: バッテリー選択 */}
+            <Text style={[styles.stepLabel, !selectedBatteryTeam && styles.stepLabelDim]}>② バッテリーを選ぶ</Text>
             <TouchableOpacity
-              style={[styles.selector, !selectedBattery && styles.selectorEmpty]}
-              onPress={() => setBatteryPickerOpen(true)}
+              style={[
+                styles.selector,
+                !selectedBattery && styles.selectorEmpty,
+                !selectedBatteryTeam && styles.selectorDisabled,
+              ]}
+              onPress={() => { if (selectedBatteryTeam) setBatteryPickerOpen(true); }}
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons
@@ -278,20 +388,13 @@ export default function AnalysisIndexScreen() {
                 color={selectedBattery ? Colors.primary : Colors.textSecondary}
               />
               <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.selectorText,
-                    !selectedBattery && styles.selectorPlaceholder,
-                  ]}
-                >
+                <Text style={[styles.selectorText, !selectedBattery && styles.selectorPlaceholder]}>
                   {selectedBattery
                     ? `${selectedBattery.pitcherName} × ${selectedBattery.catcherName}`
-                    : 'バッテリーを選ぶ…'}
+                    : (selectedBatteryTeam ? 'バッテリーを選ぶ…' : 'まずチームを選択')}
                 </Text>
                 {selectedBattery && (
-                  <Text style={styles.selectorSub}>
-                    {selectedBattery.gameCount}試合のデータあり
-                  </Text>
+                  <Text style={styles.selectorSub}>{selectedBattery.gameCount}試合のデータあり</Text>
                 )}
               </View>
               <MaterialCommunityIcons name="chevron-down" size={20} color={Colors.textSecondary} />
@@ -341,7 +444,7 @@ export default function AnalysisIndexScreen() {
       {/* ── ピッカー モーダル ── */}
       <PickerModal<BatterInfo>
         visible={batterPickerOpen}
-        items={batters}
+        items={filteredBatters}
         onSelect={setSelectedBatter}
         onClose={() => setBatterPickerOpen(false)}
         labelFn={(b) => b.batterName}
@@ -350,7 +453,7 @@ export default function AnalysisIndexScreen() {
 
       <PickerModal<BatteryPair>
         visible={batteryPickerOpen}
-        items={batteries}
+        items={filteredBatteries}
         onSelect={setSelectedBattery}
         onClose={() => setBatteryPickerOpen(false)}
         labelFn={(b) => `${b.pitcherName} × ${b.catcherName}`}
@@ -460,6 +563,35 @@ const styles = StyleSheet.create({
     color:    Colors.textSecondary,
     textAlign: 'center',
   },
+
+  // 2段階選択UI
+  stepLabel: {
+    fontSize:      Typography.tiny,
+    fontWeight:    '700',
+    color:         Colors.textSecondary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  stepLabelDim: { opacity: 0.35 },
+  teamChipScroll: { marginHorizontal: -Spacing.md },
+  teamChipRow: {
+    flexDirection: 'row',
+    gap:           Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingBottom: 4,
+  },
+  teamChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical:   6,
+    borderRadius:      BorderRadius.full,
+    backgroundColor:   Colors.surfaceGray,
+    borderWidth:       1.5,
+    borderColor:       Colors.border,
+  },
+  teamChipActive:     { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  teamChipText:       { fontSize: Typography.caption, fontWeight: '600', color: Colors.text },
+  teamChipTextActive: { color: Colors.white },
+  selectorDisabled:   { opacity: 0.4 },
 });
 
 const modalStyles = StyleSheet.create({
