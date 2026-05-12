@@ -1,7 +1,10 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../../src/constants/theme';
+import { useAuthGuard } from '../../../src/hooks/useAuthGuard';
 
 export default function ChatLayout() {
+  useAuthGuard();
+
   return (
     <Stack
       screenOptions={{

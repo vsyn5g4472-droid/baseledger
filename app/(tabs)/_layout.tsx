@@ -55,12 +55,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="teams"
-        options={{
-          title: t.nav.teams,
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="account-group" size={size} color={color} />
-          ),
-        }}
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="chat"
