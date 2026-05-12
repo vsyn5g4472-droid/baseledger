@@ -8,6 +8,7 @@ import {
   Platform,
   Alert,
   Modal,
+  Switch,
 } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 import { router } from 'expo-router';
@@ -29,6 +30,7 @@ interface PlayerRow {
   name: string;
   number: string;
   position: Position;
+  isPitcher: boolean;
 }
 
 // ── ポジション選択モーダル ─────────────────────────────────────────────────────
@@ -131,16 +133,28 @@ const pickerStyles = StyleSheet.create({
 export default function PlayerMappingScreen() {
   const game = useGameStore((s) => s.game);
   const updatePlayerMapping = useGameStore((s) => s.updatePlayerMapping);
+  const setGameDH = useGameStore((s) => s.setGameDH);
+
+  const [awayDH, setAwayDH] = useState(() => game?.isDH?.away ?? false);
+  const [homeDH, setHomeDH] = useState(() => game?.isDH?.home ?? false);
 
   const initialRows = useMemo<PlayerRow[]>(() => {
     if (!game) return [];
     const rows: PlayerRow[] = [];
     game.awayTeam.roster.starters.forEach((p, i) => {
-      rows.push({ player: p, side: 'away', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position });
+      rows.push({ player: p, side: 'away', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false });
     });
+    if (game.isDH?.away && game.awayTeam.roster.pitcher) {
+      const p = game.awayTeam.roster.pitcher;
+      rows.push({ player: p, side: 'away', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true });
+    }
     game.homeTeam.roster.starters.forEach((p, i) => {
-      rows.push({ player: p, side: 'home', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position });
+      rows.push({ player: p, side: 'home', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false });
     });
+    if (game.isDH?.home && game.homeTeam.roster.pitcher) {
+      const p = game.homeTeam.roster.pitcher;
+      rows.push({ player: p, side: 'home', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true });
+    }
     return rows;
   }, [game]);
 
@@ -155,6 +169,29 @@ export default function PlayerMappingScreen() {
     );
   }
 
+  const handleDHToggle = (side: 'away' | 'home') => {
+    const currentDH = side === 'away' ? awayDH : homeDH;
+    const newDH = !currentDH;
+    if (side === 'away') setAwayDH(newDH); else setHomeDH(newDH);
+    if (newDH) {
+      setRows((prev) => {
+        if (prev.some((r) => r.side === side && r.isPitcher)) return prev;
+        const existing = side === 'away' ? game?.awayTeam.roster.pitcher : game?.homeTeam.roster.pitcher;
+        const tempPlayer: Player = existing ?? {
+          id: `pitcher-temp-${side}`, name: '', number: null,
+          position: 'P', bats: 'R', throws: 'R', isPlaceholder: true,
+        };
+        return [...prev, {
+          player: tempPlayer, side, order: 0,
+          name: tempPlayer.name, number: String(tempPlayer.number ?? ''),
+          position: 'P' as Position, isPitcher: true,
+        }];
+      });
+    } else {
+      setRows((prev) => prev.filter((r) => !(r.side === side && r.isPitcher)));
+    }
+  };
+
   const updateRow = (playerId: string, field: 'name' | 'number' | 'position', value: string) => {
     setRows((prev) =>
       prev.map((r) => (r.player.id === playerId ? { ...r, [field]: value } : r))
@@ -162,13 +199,19 @@ export default function PlayerMappingScreen() {
   };
 
   const handleSave = async () => {
+    // DH状態を確定（投手プレースホルダーの作成・削除）
+    setGameDH('away', awayDH);
+    setGameDH('home', homeDH);
+
     const mappings = rows
       .filter((r) => r.name.trim())
       .map((r) => ({
         playerId: r.player.id,
         newName: r.name,
         newNumber: r.number,
-        newPosition: r.position,
+        newPosition: r.isPitcher ? undefined : r.position,
+        isPitcher: r.isPitcher,
+        side: r.side,
       }));
     await updatePlayerMapping(mappings);
     Alert.alert('保存完了', '選手情報を更新しました', [{ text: 'OK', onPress: () => router.back() }]);
@@ -179,34 +222,52 @@ export default function PlayerMappingScreen() {
   const awayRows = rows.filter((r) => r.side === 'away');
   const homeRows = rows.filter((r) => r.side === 'home');
 
-  const renderSection = (title: string, sideRows: PlayerRow[], color: string) => (
+  const renderSection = (title: string, sideRows: PlayerRow[], color: string, side: 'away' | 'home') => (
     <View style={styles.section}>
       <View style={[styles.sectionHeader, { backgroundColor: color }]}>
         <Text style={styles.sectionTitle}>{title}</Text>
+        <View style={styles.dhToggleRow}>
+          <Text style={styles.dhToggleLabel}>DH</Text>
+          <Switch
+            value={side === 'away' ? awayDH : homeDH}
+            onValueChange={() => handleDHToggle(side)}
+            trackColor={{ false: 'rgba(255,255,255,0.3)', true: 'rgba(255,255,255,0.8)' }}
+            thumbColor={Colors.white}
+            ios_backgroundColor="rgba(255,255,255,0.3)"
+          />
+        </View>
       </View>
       {sideRows.map((row) => (
-        <View key={row.player.id} style={styles.playerRow}>
-          {/* 打順バッジ */}
-          <View style={styles.orderBadge}>
-            <Text style={styles.orderText}>{row.order}</Text>
+        <View key={row.player.id} style={[styles.playerRow, row.isPitcher && styles.pitcherRow]}>
+          {/* 打順バッジ / 投手アイコン */}
+          <View style={[styles.orderBadge, row.isPitcher && styles.pitcherBadge]}>
+            {row.isPitcher
+              ? <MaterialCommunityIcons name="baseball" size={13} color={Colors.white} />
+              : <Text style={styles.orderText}>{row.order}</Text>}
           </View>
 
-          {/* ポジション選択ボタン — タップでモーダルを開く */}
-          <TouchableOpacity
-            style={[
-              styles.positionBtn,
-              row.player.isPlaceholder && styles.positionBtnUnmapped,
-            ]}
-            onPress={() => setPickerTarget(row.player.id)}
-            activeOpacity={0.7}
-          >
-            <Text style={[
-              styles.positionBtnText,
-              row.player.isPlaceholder && styles.positionBtnTextUnmapped,
-            ]}>
-              {row.position}
-            </Text>
-          </TouchableOpacity>
+          {/* ポジション選択ボタン — 投手は固定表示 */}
+          {row.isPitcher ? (
+            <View style={[styles.positionBtn, styles.positionBtnFixed]}>
+              <Text style={styles.positionBtnText}>P</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[
+                styles.positionBtn,
+                row.player.isPlaceholder && styles.positionBtnUnmapped,
+              ]}
+              onPress={() => setPickerTarget(row.player.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={[
+                styles.positionBtnText,
+                row.player.isPlaceholder && styles.positionBtnTextUnmapped,
+              ]}>
+                {row.position}
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* 氏名 */}
           <TextInput
@@ -260,8 +321,8 @@ export default function PlayerMappingScreen() {
           keyExtractor={() => 'main'}
           renderItem={() => (
             <View style={styles.listContent}>
-              {renderSection(game.awayTeam.name + '（先攻）', awayRows, Colors.primary)}
-              {renderSection(game.homeTeam.name + '（後攻）', homeRows, Colors.secondary)}
+              {renderSection(game.awayTeam.name + '（先攻）', awayRows, Colors.primary, 'away')}
+              {renderSection(game.homeTeam.name + '（後攻）', homeRows, Colors.secondary, 'home')}
             </View>
           )}
           keyboardShouldPersistTaps="handled"
@@ -322,6 +383,9 @@ const styles = StyleSheet.create({
     ...CardShadow,
   },
   sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
   },
@@ -329,6 +393,26 @@ const styles = StyleSheet.create({
     fontSize: Typography.bodySmall,
     fontWeight: '700',
     color: Colors.white,
+  },
+  dhToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dhToggleLabel: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.white,
+    opacity: 0.9,
+  },
+  pitcherRow: {
+    backgroundColor: '#FFF8F8',
+  },
+  pitcherBadge: {
+    backgroundColor: Colors.secondary,
+  },
+  positionBtnFixed: {
+    opacity: 0.7,
   },
 
   playerRow: {

@@ -156,7 +156,9 @@ interface GameActions {
   /** 仮選手でゲームを即時開始する */
   quickStartGame: (options?: { awayName?: string; homeName?: string; velocityEnabled?: boolean; pitchDistanceM?: number; fenceLeft?: number; fenceCenter?: number; fenceRight?: number }) => Promise<void>;
   /** 仮選手を実選手名・背番号・ポジションに紐付ける */
-  updatePlayerMapping: (mappings: { playerId: string; newName: string; newNumber: string; newPosition?: string }[]) => Promise<void>;
+  updatePlayerMapping: (mappings: { playerId: string; newName: string; newNumber: string; newPosition?: string; isPitcher?: boolean; side?: 'away' | 'home' }[]) => Promise<void>;
+  /** 試合中にDH設定を変更する。ON時は投手プレースホルダーを作成し、OFF時は削除する */
+  setGameDH: (side: 'away' | 'home', enabled: boolean) => void;
 
   // --- サインミス（選手個別） ---
   /**
@@ -1377,7 +1379,17 @@ export const useGameStore = create<GameStore>()(
       set((state) => {
         const g = state.game;
         if (!g) return;
-        for (const { playerId, newName, newNumber, newPosition } of mappings) {
+        for (const { playerId, newName, newNumber, newPosition, isPitcher, side } of mappings) {
+          // 投手行（DH制）は side で直接 roster.pitcher を更新する
+          if (isPitcher && side) {
+            const team = side === 'away' ? g.awayTeam : g.homeTeam;
+            if (team.roster.pitcher) {
+              if (newName.trim()) team.roster.pitcher.name = newName.trim();
+              if (newNumber.trim()) team.roster.pitcher.number = parseInt(newNumber, 10);
+              team.roster.pitcher.isPlaceholder = !newName.trim();
+            }
+            continue;
+          }
           for (const team of [g.awayTeam, g.homeTeam]) {
             const player = team.roster.starters.find((p) => p.id === playerId);
             if (player) {
@@ -1393,6 +1405,30 @@ export const useGameStore = create<GameStore>()(
         g.updatedAt = Date.now();
       });
       await get().persist();
+    },
+
+    setGameDH: (side, enabled) => {
+      set((state) => {
+        const g = state.game;
+        if (!g) return;
+        if (!g.isDH) g.isDH = { away: false, home: false };
+        g.isDH[side] = enabled;
+        const team = side === 'away' ? g.awayTeam : g.homeTeam;
+        if (!enabled) {
+          team.roster.pitcher = undefined;
+        } else if (!team.roster.pitcher) {
+          team.roster.pitcher = {
+            id: uid('p'),
+            name: '',
+            number: null,
+            position: 'P',
+            bats: 'R',
+            throws: 'R',
+            isPlaceholder: true,
+          };
+        }
+        g.updatedAt = Date.now();
+      });
     },
 
     recordSignMiss: ({ playerId, playerName, side, context, note }) => {
