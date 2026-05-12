@@ -7,7 +7,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Modal,
   Switch,
 } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
@@ -17,11 +16,8 @@ import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../
 import { useGameStore } from '../../../src/stores/gameStore';
 import { POSITIONS } from '../../../src/types/game';
 import type { Player, Position } from '../../../src/types/game';
-
-const POSITION_LABELS: Record<string, string> = {
-  P: '投', C: '捕', '1B': '一', '2B': '二', '3B': '三',
-  SS: '遊', LF: '左', CF: '中', RF: '右', DH: 'DH',
-};
+import { useI18n } from '../../../src/i18n';
+import { PositionDiamondPicker } from '../../../src/components/score/PositionDiamondPicker';
 
 interface PlayerRow {
   player: Player;
@@ -33,107 +29,12 @@ interface PlayerRow {
   isPitcher: boolean;
 }
 
-// ── ポジション選択モーダル ─────────────────────────────────────────────────────
-interface PositionPickerProps {
-  visible: boolean;
-  current: Position;
-  onSelect: (pos: Position) => void;
-  onClose: () => void;
-}
-
-function PositionPicker({ visible, current, onSelect, onClose }: PositionPickerProps) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={pickerStyles.overlay} onPress={onClose} activeOpacity={1}>
-        <View style={pickerStyles.sheet}>
-          <Text style={pickerStyles.title}>ポジションを選択</Text>
-          <View style={pickerStyles.grid}>
-            {POSITIONS.map((pos) => (
-              <TouchableOpacity
-                key={pos}
-                style={[pickerStyles.cell, current === pos && pickerStyles.cellActive]}
-                onPress={() => { onSelect(pos); onClose(); }}
-                activeOpacity={0.7}
-              >
-                <Text style={[pickerStyles.posCode, current === pos && pickerStyles.posCodeActive]}>
-                  {pos}
-                </Text>
-                <Text style={[pickerStyles.posLabel, current === pos && pickerStyles.posLabelActive]}>
-                  {POSITION_LABELS[pos]}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-}
-
-const pickerStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.lg,
-  },
-  sheet: {
-    backgroundColor: Colors.white,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    width: '100%',
-  },
-  title: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-    justifyContent: 'center',
-  },
-  cell: {
-    width: 56,
-    height: 56,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceGray,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-  },
-  cellActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  posCode: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  posCodeActive: {
-    color: Colors.white,
-  },
-  posLabel: {
-    fontSize: 9,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  posLabelActive: {
-    color: 'rgba(255,255,255,0.8)',
-  },
-});
-
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 export default function PlayerMappingScreen() {
   const game = useGameStore((s) => s.game);
   const updatePlayerMapping = useGameStore((s) => s.updatePlayerMapping);
   const setGameDH = useGameStore((s) => s.setGameDH);
+  const { t } = useI18n();
 
   const [awayDH, setAwayDH] = useState(() => game?.isDH?.away ?? false);
   const [homeDH, setHomeDH] = useState(() => game?.isDH?.home ?? false);
@@ -159,7 +60,6 @@ export default function PlayerMappingScreen() {
   }, [game]);
 
   const [rows, setRows] = useState<PlayerRow[]>(initialRows);
-  const [pickerTarget, setPickerTarget] = useState<string | null>(null); // playerId
 
   if (!game) {
     return (
@@ -217,8 +117,6 @@ export default function PlayerMappingScreen() {
     Alert.alert('保存完了', '選手情報を更新しました', [{ text: 'OK', onPress: () => router.back() }]);
   };
 
-  const pickerRow = pickerTarget ? rows.find((r) => r.player.id === pickerTarget) : null;
-
   const awayRows = rows.filter((r) => r.side === 'away');
   const homeRows = rows.filter((r) => r.side === 'home');
 
@@ -246,27 +144,19 @@ export default function PlayerMappingScreen() {
               : <Text style={styles.orderText}>{row.order}</Text>}
           </View>
 
-          {/* ポジション選択ボタン — 投手は固定表示 */}
+          {/* ポジション選択ボタン — 投手は固定表示、それ以外はダイヤモンドピッカー */}
           {row.isPitcher ? (
             <View style={[styles.positionBtn, styles.positionBtnFixed]}>
               <Text style={styles.positionBtnText}>P</Text>
             </View>
           ) : (
-            <TouchableOpacity
-              style={[
-                styles.positionBtn,
-                row.player.isPlaceholder && styles.positionBtnUnmapped,
-              ]}
-              onPress={() => setPickerTarget(row.player.id)}
-              activeOpacity={0.7}
-            >
-              <Text style={[
-                styles.positionBtnText,
-                row.player.isPlaceholder && styles.positionBtnTextUnmapped,
-              ]}>
-                {row.position}
-              </Text>
-            </TouchableOpacity>
+            <PositionDiamondPicker
+              value={row.position}
+              availablePositions={POSITIONS}
+              onChange={(pos) => updateRow(row.player.id, 'position', pos)}
+              label={row.position}
+              positionLabels={t.positions}
+            />
           )}
 
           {/* 氏名 */}
@@ -337,15 +227,6 @@ export default function PlayerMappingScreen() {
         </View>
       </View>
 
-      {/* ポジション選択モーダル */}
-      {pickerRow && (
-        <PositionPicker
-          visible={pickerTarget !== null}
-          current={pickerRow.position}
-          onSelect={(pos) => updateRow(pickerRow.player.id, 'position', pos)}
-          onClose={() => setPickerTarget(null)}
-        />
-      )}
     </KeyboardAvoidingView>
   );
 }
@@ -411,8 +292,21 @@ const styles = StyleSheet.create({
   pitcherBadge: {
     backgroundColor: Colors.secondary,
   },
+  positionBtn: {
+    width: 44,
+    height: 36,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: Colors.surfaceGray,
+    borderRadius: BorderRadius.sm,
+  },
   positionBtnFixed: {
     opacity: 0.7,
+  },
+  positionBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700' as const,
+    color: Colors.textSecondary,
   },
 
   playerRow: {
@@ -436,28 +330,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.tiny,
     fontWeight: '700',
     color: Colors.textSecondary,
-  },
-
-  // ポジションボタン
-  positionBtn: {
-    minWidth: 38,
-    height: 36,
-    borderRadius: BorderRadius.sm,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  positionBtnUnmapped: {
-    backgroundColor: Colors.secondary,
-  },
-  positionBtnText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.white,
-  },
-  positionBtnTextUnmapped: {
-    color: Colors.white,
   },
 
   nameInput: {
