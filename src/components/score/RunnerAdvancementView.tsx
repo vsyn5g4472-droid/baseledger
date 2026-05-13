@@ -39,6 +39,7 @@ const BASE_ORDER: Record<string, number> = { first: 1, second: 2, third: 3, home
 // アウト詳細選択肢
 const OUT_DETAILS: { key: OutDetail; labelKey: string }[] = [
   { key: 'force_out',       labelKey: 'forceOut' },
+  { key: 'tag_out',         labelKey: 'outDetailTagOut' },
   { key: 'caught_stealing', labelKey: 'caughtStealing' },
   { key: 'pickoff',         labelKey: 'pickoff' },
   { key: 'tag_up_fail',     labelKey: 'tagUpFail' },

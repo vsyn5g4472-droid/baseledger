@@ -184,6 +184,7 @@ export const en: TranslationKeys = {
     outBtn: 'Out',
     outDetailTitle: 'Out type',
     forceOut: 'Force out',
+    outDetailTagOut: 'Tag out',
     tagUpFail: 'Tag-up fail',
     rundown: 'Rundown',
     caughtStealing: 'Caught stealing',

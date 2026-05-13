@@ -182,6 +182,7 @@ export const ja = {
     outBtn: 'アウト',
     outDetailTitle: 'アウトの種類',
     forceOut: 'フォースアウト',
+    outDetailTagOut: 'タッチアウト',
     tagUpFail: 'タッチアップ失敗',
     rundown: '挟殺（ランダウン）',
     caughtStealing: '盗塁死',
