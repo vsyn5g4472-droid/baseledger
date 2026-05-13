@@ -37,6 +37,14 @@ const BASE_POS: Record<string, { x: number; y: number }> = {
 
 const BASE_ORDER: Record<string, number> = { first: 1, second: 2, third: 3, home: 4 };
 
+// 塁ごとのランナー識別色
+const RUNNER_COLORS: Record<string, string> = {
+  batter: '#4CAF50',   // グリーン (打者)
+  first:  '#FFC107',   // アンバー (1塁走者)
+  second: '#00ACC1',   // シアン (2塁走者)
+  third:  '#E91E63',   // ピンク (3塁走者)
+};
+
 // アウト詳細選択肢
 const OUT_DETAILS: { key: OutDetail; labelKey: string }[] = [
   { key: 'force_out',       labelKey: 'forceOut' },
@@ -461,8 +469,8 @@ export default function RunnerAdvancementView({
                     cx={circlePos.x}
                     cy={circlePos.y}
                     r={isDraggingThis ? 15 : 12}
-                    fill={isOut ? Colors.secondary : Colors.primary}
-                    stroke={isDraggingThis ? '#FFFFFF' : isOut ? '#9B1528' : NEON}
+                    fill={isOut ? Colors.secondary : (RUNNER_COLORS[adv.fromBase] ?? Colors.primary)}
+                    stroke={isDraggingThis ? '#FFFFFF' : isOut ? (RUNNER_COLORS[adv.fromBase] ?? NEON) : NEON}
                     strokeWidth={isDraggingThis ? 3 : 2.5}
                     opacity={dimmed ? 0.35 : 1}
                   />
