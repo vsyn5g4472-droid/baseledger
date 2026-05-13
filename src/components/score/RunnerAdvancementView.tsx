@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, ScrollView, Animated } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ScrollView, Animated, PanResponder } from 'react-native';
 import { Text, Portal, Modal } from 'react-native-paper';
 import Svg, { Rect, Line, Circle, Text as SvgText } from 'react-native-svg';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
@@ -18,7 +18,8 @@ import type {
 // 定数
 // ============================================================
 
-const DIAMOND_SIZE = 240;
+const DIAMOND_SIZE = 280;
+const SNAP_THRESHOLD = 30;
 const DC = DIAMOND_SIZE / 2;
 const DR = 80;
 const NEON = '#FFD700';
@@ -47,13 +48,52 @@ const OUT_DETAILS: { key: OutDetail; labelKey: string }[] = [
   { key: 'other',           labelKey: 'outDetailOther' },
 ];
 
-// ベース選択ボタン定義
-const BASE_BUTTONS: { base: BaseTarget; labelKey: 'first' | 'second' | 'third' | 'home' }[] = [
-  { base: 'first',  labelKey: 'first' },
-  { base: 'second', labelKey: 'second' },
-  { base: 'third',  labelKey: 'third' },
-  { base: 'home',   labelKey: 'home' },
-];
+// ============================================================
+// ドラッグ操作ヘルパー（モジュールレベル）
+// ============================================================
+
+/** ドラッグ操作を受け付ける走者かを判定 */
+function isDraggable(adv: RunnerAdvancement, result: AtBatResult): boolean {
+  if (adv.fromBase !== 'batter') return true;
+  if (result === 'sacrifice_fly' || result === 'flyout') return false;
+  if (adv.outcome === 'out_force' || adv.outcome === 'out_tag') return false;
+  return true;
+}
+
+/** タッチ座標 (x,y) から 25px 以内の走者を返す */
+function findRunnerNear(
+  advancements: RunnerAdvancement[],
+  result: AtBatResult,
+  x: number,
+  y: number,
+): RunnerAdvancement | null {
+  for (const adv of advancements) {
+    if (!isDraggable(adv, result)) continue;
+    const p = BASE_POS[adv.fromBase];
+    if (p && Math.hypot(x - p.x, y - p.y) <= 25) return adv;
+  }
+  return null;
+}
+
+/** 座標 (x,y) から threshold 以内の最寄り塁を返す */
+function nearestBase(x: number, y: number, threshold: number): BaseTarget | null {
+  let best: BaseTarget | null = null;
+  let min = threshold;
+  for (const [b, p] of Object.entries(BASE_POS)) {
+    if (b === 'batter') continue;
+    const d = Math.hypot(x - p.x, y - p.y);
+    if (d < min) { min = d; best = b as BaseTarget; }
+  }
+  return best;
+}
+
+/** 進塁先として選択不可かを判定 */
+function isBaseDisabled(adv: RunnerAdvancement, base: BaseTarget): boolean {
+  const baseNum = BASE_ORDER[base] ?? 0;
+  const fromNum = BASE_ORDER[adv.fromBase] ?? 0;
+  const minNum  = adv.minBase !== 'out' ? (BASE_ORDER[adv.minBase] ?? 0) : 0;
+  return baseNum < Math.max(minNum, fromNum + 1);
+}
 
 // 進塁理由 (サブメニュー用)
 const ADVANCEMENT_REASONS: {
@@ -97,6 +137,76 @@ export default function RunnerAdvancementView({
   const { t } = useI18n();
   const [editable, setEditable] = useState<RunnerAdvancement[]>(advancements);
   const [expandedRunner, setExpandedRunner] = useState<string | null>(null);
+
+  // ドラッグ用 ref（PanResponder クロージャ内で最新値を読む）
+  const draggingRunnerIdRef = useRef<string | null>(null);
+  const activeBaseRef       = useRef<BaseTarget | null>(null);
+  const editableRef         = useRef(editable);
+  const resultRef           = useRef(result);
+  useEffect(() => { editableRef.current = editable; }, [editable]);
+
+  // ドラッグ表示用 state
+  const [draggingRunnerId, setDraggingRunnerId] = useState<string | null>(null);
+  const [dragPos,          setDragPos]          = useState<{ x: number; y: number } | null>(null);
+  const [activeBase,       setActiveBase]       = useState<BaseTarget | null>(null);
+
+  // ダイヤモンドコンテナの画面座標
+  const diamondRef     = useRef<View>(null);
+  const diamondPagePos = useRef({ x: 0, y: 0 });
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+
+    onPanResponderGrant: (evt) => {
+      const { pageX, pageY } = evt.nativeEvent;
+      diamondRef.current?.measure((_fx, _fy, _w, _h, px, py) => {
+        diamondPagePos.current = { x: px, y: py };
+        const rx = pageX - px;
+        const ry = pageY - py;
+        const runner = findRunnerNear(editableRef.current, resultRef.current, rx, ry);
+        if (!runner) return;
+        draggingRunnerIdRef.current = runner.runnerId;
+        setDraggingRunnerId(runner.runnerId);
+        setDragPos(BASE_POS[runner.fromBase]);
+      });
+    },
+
+    onPanResponderMove: (evt) => {
+      if (!draggingRunnerIdRef.current) return;
+      const { pageX, pageY } = evt.nativeEvent;
+      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+      const rx = clamp(pageX - diamondPagePos.current.x, 0, DIAMOND_SIZE);
+      const ry = clamp(pageY - diamondPagePos.current.y, 0, DIAMOND_SIZE);
+      const snapped = nearestBase(rx, ry, SNAP_THRESHOLD);
+      activeBaseRef.current = snapped;
+      setActiveBase(snapped);
+      setDragPos(snapped ? BASE_POS[snapped] : { x: rx, y: ry });
+    },
+
+    onPanResponderRelease: () => {
+      const runnerId = draggingRunnerIdRef.current;
+      const base     = activeBaseRef.current;
+      if (runnerId && base) {
+        const runner = editableRef.current.find((r) => r.runnerId === runnerId);
+        if (runner && !isBaseDisabled(runner, base)) {
+          setSafeOutDialog({ runnerId, base });
+        }
+      }
+      draggingRunnerIdRef.current = null;
+      activeBaseRef.current       = null;
+      setDraggingRunnerId(null);
+      setDragPos(null);
+      setActiveBase(null);
+    },
+
+    onPanResponderTerminate: () => {
+      draggingRunnerIdRef.current = null;
+      activeBaseRef.current       = null;
+      setDraggingRunnerId(null);
+      setDragPos(null);
+      setActiveBase(null);
+    },
+  })).current;
 
   // ダイアログ状態
   const [safeOutDialog, setSafeOutDialog] = useState<{ runnerId: string; base: BaseTarget } | null>(null);
@@ -161,20 +271,6 @@ export default function RunnerAdvancementView({
         return { ...adv, outcome, action };
       }),
     );
-  }, []);
-
-  // ベースボタン: 無効化判定
-  const isBaseButtonDisabled = (adv: RunnerAdvancement, base: BaseTarget): boolean => {
-    const baseNum = BASE_ORDER[base] ?? 0;
-    const fromNum = BASE_ORDER[adv.fromBase] ?? 0;
-    const minNum = adv.minBase !== 'out' ? (BASE_ORDER[adv.minBase] ?? 0) : 0;
-    const minRequired = Math.max(minNum, fromNum + 1);
-    return baseNum < minRequired;
-  };
-
-  // ベースボタンタップ → ダイアログ表示
-  const handleBaseButtonTap = useCallback((runnerId: string, base: BaseTarget) => {
-    setSafeOutDialog({ runnerId, base });
   }, []);
 
   // セーフ選択
@@ -284,8 +380,12 @@ export default function RunnerAdvancementView({
         </View>
         <Text style={styles.subtitle}>{t.advancement.title}</Text>
 
-        {/* SVG ダイヤモンド */}
-        <View style={styles.diamondWrap}>
+        {/* SVG ダイヤモンド（インタラクティブ） */}
+        <View
+          ref={diamondRef}
+          style={styles.diamondWrap}
+          {...panResponder.panHandlers}
+        >
           <Svg width={DIAMOND_SIZE} height={DIAMOND_SIZE} viewBox={`0 0 ${DIAMOND_SIZE} ${DIAMOND_SIZE}`}>
             {/* ダイヤモンド線 */}
             <Line x1={BASE_POS.home.x} y1={BASE_POS.home.y} x2={BASE_POS.first.x} y2={BASE_POS.first.y} stroke={Colors.border} strokeWidth={1.5} />
@@ -299,18 +399,25 @@ export default function RunnerAdvancementView({
               const isTarget = editable.some(
                 (a) => a.targetBase === b && a.outcome !== 'out_tag' && a.outcome !== 'out_force',
               );
+              const isSnapped = activeBase === b;
               return (
                 <React.Fragment key={b}>
-                  {isTarget && <Circle cx={pos.x} cy={pos.y} r={18} fill={NEON_GLOW} />}
+                  {(isTarget || isSnapped) && (
+                    <Circle
+                      cx={pos.x} cy={pos.y}
+                      r={isSnapped ? 26 : 18}
+                      fill={isSnapped ? 'rgba(255,215,0,0.55)' : NEON_GLOW}
+                    />
+                  )}
                   <Rect
                     x={pos.x - 10}
                     y={pos.y - 10}
                     width={20}
                     height={20}
                     transform={`rotate(45, ${pos.x}, ${pos.y})`}
-                    fill={isTarget ? NEON : Colors.primaryLight}
-                    stroke={isTarget ? NEON : Colors.primary}
-                    strokeWidth={isTarget ? 2 : 1.5}
+                    fill={isSnapped || isTarget ? NEON : Colors.primaryLight}
+                    stroke={isSnapped || isTarget ? NEON : Colors.primary}
+                    strokeWidth={isSnapped ? 3 : isTarget ? 2 : 1.5}
                   />
                 </React.Fragment>
               );
@@ -320,11 +427,16 @@ export default function RunnerAdvancementView({
             {editable.map((adv) => {
               const from = BASE_POS[adv.fromBase];
               const isOut = adv.outcome === 'out_tag' || adv.outcome === 'out_force';
-              const to = isOut ? from : BASE_POS[adv.targetBase] ?? from;
+              const isDraggingThis = draggingRunnerId === adv.runnerId;
+              const circlePos = isDraggingThis && dragPos ? dragPos : from;
+              const to = isOut ? from
+                       : isDraggingThis && dragPos ? dragPos
+                       : BASE_POS[adv.targetBase] ?? from;
+              const dimmed = !!draggingRunnerId && !isDraggingThis;
 
               return (
                 <React.Fragment key={adv.runnerId}>
-                  {!isOut && from !== to && (
+                  {!isOut && (from !== to || isDraggingThis) && (
                     <Line
                       x1={from.x}
                       y1={from.y}
@@ -333,24 +445,26 @@ export default function RunnerAdvancementView({
                       stroke={NEON}
                       strokeWidth={2.5}
                       strokeDasharray="6,3"
-                      opacity={0.8}
+                      opacity={isDraggingThis ? 1 : 0.8}
                     />
                   )}
                   <Circle
-                    cx={from.x}
-                    cy={from.y}
-                    r={12}
+                    cx={circlePos.x}
+                    cy={circlePos.y}
+                    r={isDraggingThis ? 15 : 12}
                     fill={isOut ? Colors.secondary : Colors.primary}
-                    stroke={isOut ? '#9B1528' : NEON}
-                    strokeWidth={2.5}
+                    stroke={isDraggingThis ? '#FFFFFF' : isOut ? '#9B1528' : NEON}
+                    strokeWidth={isDraggingThis ? 3 : 2.5}
+                    opacity={dimmed ? 0.35 : 1}
                   />
                   <SvgText
-                    x={from.x}
-                    y={from.y + 4}
+                    x={circlePos.x}
+                    y={circlePos.y + 4}
                     textAnchor="middle"
                     fontSize={9}
                     fontWeight="bold"
                     fill="#FFF"
+                    opacity={dimmed ? 0.35 : 1}
                   >
                     {adv.playerName.slice(0, 2)}
                   </SvgText>
@@ -360,7 +474,7 @@ export default function RunnerAdvancementView({
           </Svg>
         </View>
 
-        <Text style={styles.hint}>{t.advancement.tapToChange}</Text>
+        <Text style={styles.hint}>{'走者をドラッグして塁を選択'}</Text>
 
         {/* ランナーリスト */}
         {editable.map((adv) => {
@@ -418,35 +532,6 @@ export default function RunnerAdvancementView({
                 )}
               </TouchableOpacity>
 
-              {/* ベース選択ボタン行 */}
-            {!isBatterOut && !isBatterRegularOut && (
-              <View style={styles.baseButtonRow}>
-                  {BASE_BUTTONS.map(({ base, labelKey }) => {
-                    const disabled = isBaseButtonDisabled(adv, base);
-                    const isActive = adv.targetBase === base;
-                    return (
-                      <TouchableOpacity
-                        key={base}
-                        style={[
-                          styles.baseBtn,
-                          isActive && styles.baseBtnActive,
-                          disabled && styles.baseBtnDisabled,
-                        ]}
-                        onPress={() => handleBaseButtonTap(adv.runnerId, base)}
-                        disabled={disabled}
-                      >
-                        <Text style={[
-                          styles.baseBtnText,
-                          isActive && styles.baseBtnTextActive,
-                          disabled && styles.baseBtnTextDisabled,
-                        ]}>
-                          {t.advancement[labelKey]}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
 
               {/* フォース/タッチ切り替え（通常打球アウトの打者行） */}
               {isBatterRegularOut && (
@@ -617,6 +702,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: DIAMOND_SIZE,
     height: DIAMOND_SIZE,
+    // PanResponder のヒットエリアを確保
+    overflow: 'hidden',
   },
   hint: {
     fontSize: Typography.caption,
@@ -665,55 +752,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.tiny,
     fontWeight: '700',
     color: Colors.white,
-  },
-
-  // ベース選択ボタン行
-  baseButtonRow: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.sm,
-    paddingBottom: Spacing.sm,
-    gap: 4,
-  },
-  baseBtn: {
-    flex: 1,
-    minHeight: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: 4,
-    paddingVertical: 6,
-  },
-  baseBtnActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  baseBtnOut: {
-    borderColor: Colors.secondary,
-  },
-  baseBtnOutActive: {
-    backgroundColor: Colors.secondary,
-    borderColor: Colors.secondary,
-  },
-  baseBtnDisabled: {
-    borderColor: Colors.border,
-    opacity: 0.4,
-  },
-  baseBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.primary,
-    textAlign: 'center',
-  },
-  baseBtnTextActive: {
-    color: Colors.white,
-  },
-  baseBtnTextOut: {
-    color: Colors.secondary,
-  },
-  baseBtnTextDisabled: {
-    color: Colors.textSecondary,
   },
 
   // サブメニュー
