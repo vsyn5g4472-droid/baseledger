@@ -10,7 +10,6 @@ import { db, COLLECTIONS } from '../services/firebase';
 import { Team, TeamMember, User, CreateTeamInput, GroupMessage } from '../models/types';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  getUserTeams,
   createTeam as serviceCreateTeam,
   joinTeamByCode,
   getTeam,
@@ -32,37 +31,39 @@ export function useTeams(): {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchTeams = useCallback(async () => {
+  useEffect(() => {
     if (!currentUser) {
       setTeams([]);
       setLoading(false);
       return;
     }
-    try {
-      const result = await getUserTeams(currentUser.uid);
-      setTeams(result);
-    } catch (error) {
-      if (__DEV__) console.error('Failed to fetch teams:', error);
-    } finally {
-      setLoading(false);
-    }
+    const q = query(
+      collection(db, COLLECTIONS.TEAMS),
+      where('memberIds', 'array-contains', currentUser.uid),
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        setTeams(snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Team[]);
+        setLoading(false);
+      },
+      (error) => {
+        if (__DEV__) console.error('[useTeams] snapshot error:', error);
+        setLoading(false);
+      },
+    );
+    return unsubscribe;
   }, [currentUser]);
 
-  useEffect(() => {
-    fetchTeams();
-  }, [fetchTeams]);
-
   const refresh = useCallback(async () => {
-    setLoading(true);
-    await fetchTeams();
-  }, [fetchTeams]);
+    // onSnapshot がリアルタイムで同期するため手動再取得は不要
+  }, []);
 
   const createTeam = useCallback(
     async (input: CreateTeamInput): Promise<string> => {
       if (!currentUser) throw new Error('Not authenticated');
       try {
         const team = await serviceCreateTeam(currentUser.uid, input);
-        setTeams((prev) => [...prev, team]);
         return team.id;
       } catch (error) {
         if (__DEV__) console.error('Failed to create team:', error);
@@ -76,8 +77,7 @@ export function useTeams(): {
     async (code: string) => {
       if (!currentUser) throw new Error('Not authenticated');
       try {
-        const team = await joinTeamByCode(currentUser.uid, code);
-        setTeams((prev) => [...prev, team]);
+        await joinTeamByCode(currentUser.uid, code);
       } catch (error) {
         if (__DEV__) console.error('Failed to join team:', error);
         throw error;
