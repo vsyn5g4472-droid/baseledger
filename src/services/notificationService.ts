@@ -177,11 +177,18 @@ export function onNotificationsUpdate(
     fbLimit(50),
   );
 
-  return onSnapshot(q, (snap) => {
-    const notifications = snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    })) as Notification[];
-    callback(notifications);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const notifications = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as Notification[];
+      callback(notifications);
+    },
+    (error) => {
+      if (__DEV__) console.error('[onNotificationsUpdate] snapshot error:', error);
+      callback([]);
+    },
+  );
 }
