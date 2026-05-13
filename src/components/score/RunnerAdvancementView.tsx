@@ -56,6 +56,7 @@ const OUT_DETAILS: { key: OutDetail; labelKey: string }[] = [
 function isDraggable(adv: RunnerAdvancement, result: AtBatResult): boolean {
   if (adv.fromBase !== 'batter') return true;
   if (result === 'sacrifice_fly' || result === 'flyout') return false;
+  if (result === 'sacrifice_bunt') return true;  // バントの打者は outcome に関わらずドラッグ可
   if (adv.outcome === 'out_force' || adv.outcome === 'out_tag') return false;
   return true;
 }
