@@ -21,7 +21,7 @@ export default function CreateTeamScreen() {
     try {
       await createTeam({ name, description, photoURI: null, isPrivate });
       Alert.alert('Success', 'Team created!', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: () => router.replace('/(tabs)/chat' as any) },
       ]);
     } catch (e) {
       Alert.alert('Error', 'Failed to create team');
