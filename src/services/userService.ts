@@ -47,10 +47,11 @@ export async function getUser(userId: string): Promise<User> {
 export async function updateUser(userId: string, data: UpdateUserInput): Promise<void> {
   try {
     const userRef = doc(db, COLLECTIONS.USERS, userId);
-    await updateDoc(userRef, {
-      ...data,
-      updatedAt: serverTimestamp(),
-    });
+    const update: Record<string, unknown> = { ...data, updatedAt: serverTimestamp() };
+    if (data.displayName !== undefined) {
+      update.displayNameLower = data.displayName.toLowerCase();
+    }
+    await updateDoc(userRef, update);
   } catch (error) {
     throw new AppError('NETWORK', `Failed to update user: ${(error as Error).message}`);
   }
@@ -64,12 +65,13 @@ export async function updateUser(userId: string, data: UpdateUserInput): Promise
 export async function searchUsers(searchQuery: string): Promise<User[]> {
   try {
     const usersRef = collection(db, COLLECTIONS.USERS);
-    const end = searchQuery + '\uf8ff';
+    const lower = searchQuery.toLowerCase();
+    const end = lower + '\uf8ff';
     const q = query(
       usersRef,
-      where('displayName', '>=', searchQuery),
-      where('displayName', '<=', end),
-      orderBy('displayName'),
+      where('displayNameLower', '>=', lower),
+      where('displayNameLower', '<=', end),
+      orderBy('displayNameLower'),
     );
     const snap = await getDocs(q);
     return snap.docs.map((d) => d.data() as User);

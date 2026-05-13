@@ -79,10 +79,11 @@ export async function createFirestoreUser(
   firebaseUser: FirebaseUser,
   extras?: { role?: UserRole; displayName?: string },
 ): Promise<User> {
+  const displayName = extras?.displayName ?? firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'User';
   const userDoc: User = {
     uid: firebaseUser.uid,
     email: firebaseUser.email ?? '',
-    displayName: extras?.displayName ?? firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'User',
+    displayName,
     photoURL: firebaseUser.photoURL,
     username: null,
     role: extras?.role ?? 'player',
@@ -103,7 +104,10 @@ export async function createFirestoreUser(
   };
 
   const _t = Date.now();
-  await withTimeout(setDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid), userDoc));
+  await withTimeout(setDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid), {
+    ...userDoc,
+    displayNameLower: displayName.toLowerCase(),
+  }));
   if (__DEV__) console.log(`[perf][user] setDoc(users): ${Date.now() - _t}ms`);
   return userDoc;
 }
