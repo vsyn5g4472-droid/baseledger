@@ -372,7 +372,7 @@ export default function RunnerAdvancementView({
             !isSacrificeOut &&
             result !== 'sacrifice_bunt' &&
             result !== 'flyout';
-          const isBatterOut = isSacrificeOut;
+          const isBatterOut = isSacrificeOut || (adv.fromBase === 'batter' && result === 'flyout');
           const canTagUp = isFlyBall && adv.fromBase !== 'batter' && !isBatterOut;
           const isTaggingUp = adv.action === 'tag_up';
           const isOut = adv.outcome === 'out_tag' || adv.outcome === 'out_force';
