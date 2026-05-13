@@ -149,6 +149,7 @@ export default function RunnerAdvancementView({
   const [draggingRunnerId, setDraggingRunnerId] = useState<string | null>(null);
   const [dragPos,          setDragPos]          = useState<{ x: number; y: number } | null>(null);
   const [activeBase,       setActiveBase]       = useState<BaseTarget | null>(null);
+  const [scrollEnabled,    setScrollEnabled]    = useState(true);
 
   // ダイヤモンドコンテナの画面座標
   const diamondRef     = useRef<View>(null);
@@ -156,15 +157,20 @@ export default function RunnerAdvancementView({
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder:  () => true,
 
     onPanResponderGrant: (evt) => {
+      setScrollEnabled(false);   // 他の処理より先に同期的に無効化
       const { pageX, pageY } = evt.nativeEvent;
       diamondRef.current?.measure((_fx, _fy, _w, _h, px, py) => {
         diamondPagePos.current = { x: px, y: py };
         const rx = pageX - px;
         const ry = pageY - py;
         const runner = findRunnerNear(editableRef.current, resultRef.current, rx, ry);
-        if (!runner) return;
+        if (!runner) {
+          setScrollEnabled(true);  // ランナー以外をタップした場合は即復元
+          return;
+        }
         draggingRunnerIdRef.current = runner.runnerId;
         setDraggingRunnerId(runner.runnerId);
         setDragPos(BASE_POS[runner.fromBase]);
@@ -197,6 +203,7 @@ export default function RunnerAdvancementView({
       setDraggingRunnerId(null);
       setDragPos(null);
       setActiveBase(null);
+      setScrollEnabled(true);
     },
 
     onPanResponderTerminate: () => {
@@ -205,6 +212,7 @@ export default function RunnerAdvancementView({
       setDraggingRunnerId(null);
       setDragPos(null);
       setActiveBase(null);
+      setScrollEnabled(true);
     },
   })).current;
 
@@ -372,7 +380,7 @@ export default function RunnerAdvancementView({
 
   return (
     <>
-      <ScrollView style={styles.wrapper} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.wrapper} contentContainerStyle={styles.content} scrollEnabled={scrollEnabled}>
         {/* ヘッダー */}
         <View style={styles.header}>
           <Text style={styles.resultText}>{resultLabel}</Text>
