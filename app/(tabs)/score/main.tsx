@@ -576,10 +576,10 @@ export default function LiveScoreScreen() {
     [recordSignMiss, persist],
   );
 
-  // ── タップ盗塁: ランナータップ → 試み確認モーダルを開く ──────────────
+  // ── タップ盗塁: ランナータップ → 盗塁ON/OFFをトグル ──────────────────
   const handleRunnerTap = useCallback((fromBase: 'first' | 'second' | 'third') => {
-    setPendingStealBase(fromBase);
-  }, []);
+    toggleRunnerAction(fromBase);
+  }, [toggleRunnerAction]);
 
   // 「盗塁を試みた」: runnerActions にフラグを立てるだけ。セーフ/アウトは投球後に入力
   const handleStealAttempt = useCallback(() => {
