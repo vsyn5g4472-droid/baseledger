@@ -159,6 +159,13 @@ export interface PendingAdvancement {
   atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag };
 }
 
+// 牽制セーフ時の進塁確認ペンディング状態
+export interface PendingPickoffSafe {
+  fromBase: PickoffBase;
+  runnerId: string;
+  playerName: string;
+}
+
 /** 手動進塁確認が必要な打席結果 */
 export const RESULTS_NEEDING_ADVANCEMENT: AtBatResult[] = [
   'single', 'double', 'triple',

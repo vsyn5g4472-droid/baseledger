@@ -109,6 +109,7 @@ export const en: TranslationKeys = {
     walk: 'Walk',
     hit_by_pitch: 'HBP',
     triple_play: 'Triple Play',
+    pickoff_safe: 'Pickoff (Safe)',
   },
   battedBallTypes: {
     grounder: 'Grounder',

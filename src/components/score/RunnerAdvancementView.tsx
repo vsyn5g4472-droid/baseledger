@@ -126,7 +126,7 @@ const ADVANCEMENT_REASONS: {
 
 interface RunnerAdvancementViewProps {
   advancements: RunnerAdvancement[];
-  result: AtBatResult;
+  result: AtBatResult | string;
   fielding?: FieldingRecord;
   onConfirm: (finalAdvancements: RunnerAdvancement[]) => void;
   onCancel: () => void;
@@ -175,7 +175,7 @@ export default function RunnerAdvancementView({
         diamondPagePos.current = { x: px, y: py };
         const rx = pageX - px;
         const ry = pageY - py;
-        const runner = findRunnerNear(editableRef.current, resultRef.current, rx, ry);
+        const runner = findRunnerNear(editableRef.current, resultRef.current as AtBatResult, rx, ry);
         if (!runner) {
           setScrollEnabled(true);  // ランナー以外をタップした場合は即復元
           return;
@@ -343,7 +343,7 @@ export default function RunnerAdvancementView({
   }, [editable, validationError, onConfirm]);
 
   // 結果ラベル
-  const resultLabel = t.atBatResults[result] ?? result;
+  const resultLabel = (t.atBatResults as Record<string, string>)[result] ?? result;
   const fieldingLabel = fielding ? fielding.fielders.join('-') : '';
 
   // targetBase のラベル

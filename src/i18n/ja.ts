@@ -107,6 +107,7 @@ export const ja = {
     walk: '四球',
     hit_by_pitch: '死球',
     triple_play: '三重殺',
+    pickoff_safe: '牽制セーフ',
   },
   battedBallTypes: {
     grounder: 'ゴロ',

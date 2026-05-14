@@ -111,6 +111,9 @@ export default function LiveScoreScreen() {
   const substitutePlayer = useGameStore((s) => s.substitutePlayer);
   const addBenchAndSubstitute = useGameStore((s) => s.addBenchAndSubstitute);
   const recordPickoff = useGameStore((s) => s.recordPickoff);
+  const pendingPickoffSafe = useGameStore((s) => s.pendingPickoffSafe);
+  const confirmPickoffSafeAdvancement = useGameStore((s) => s.confirmPickoffSafeAdvancement);
+  const cancelPickoffSafe = useGameStore((s) => s.cancelPickoffSafe);
   const recordStolenBase = useGameStore((s) => s.recordStolenBase);
   const recordCaughtStealing = useGameStore((s) => s.recordCaughtStealing);
   const recordSignMiss = useGameStore((s) => s.recordSignMiss);
@@ -551,6 +554,11 @@ export default function LiveScoreScreen() {
     persist();
   }, [pickoffTargetBase, recordPickoff, persist]);
 
+  const handlePickoffSafeConfirm = useCallback((finalAdvancements: RunnerAdvancement[]) => {
+    if (finalAdvancements[0]) confirmPickoffSafeAdvancement(finalAdvancements[0]);
+    persist();
+  }, [confirmPickoffSafeAdvancement, persist]);
+
   // ── サインミス: 選手選択 → 記録 ─────────────────────────────────────
   const handleSignMissSelect = useCallback(
     (player: Player, side: 'away' | 'home', context: 'batting' | 'baserunning' | 'fielding' | 'pitching') => {
@@ -650,6 +658,42 @@ export default function LiveScoreScreen() {
             </View>
           )}
         </View>
+      </View>
+    );
+  }
+
+  if (pendingPickoffSafe) {
+    const pickoffAdvancements: RunnerAdvancement[] = [{
+      runnerId: pendingPickoffSafe.runnerId,
+      playerName: pendingPickoffSafe.playerName,
+      fromBase: pendingPickoffSafe.fromBase,
+      targetBase: pendingPickoffSafe.fromBase,
+      outcome: 'safe',
+      action: 'batted_ball',
+      isForced: false,
+      minBase: pendingPickoffSafe.fromBase,
+    }];
+    return (
+      <View style={styles.container}>
+        <View style={styles.scoreBar}>
+          <View style={styles.teamScore}>
+            <Text style={[styles.teamName, isTop && styles.teamNameActive]}>{game.awayTeam.name}</Text>
+            <Text style={styles.score}>{game.scoreboard.awayTotal}</Text>
+          </View>
+          <View style={styles.inningBadge}>
+            <Text style={styles.inningText}>{inningLabel}</Text>
+          </View>
+          <View style={styles.teamScore}>
+            <Text style={[styles.teamName, !isTop && styles.teamNameActive]}>{game.homeTeam.name}</Text>
+            <Text style={styles.score}>{game.scoreboard.homeTotal}</Text>
+          </View>
+        </View>
+        <RunnerAdvancementView
+          advancements={pickoffAdvancements}
+          result="pickoff_safe"
+          onConfirm={handlePickoffSafeConfirm}
+          onCancel={cancelPickoffSafe}
+        />
       </View>
     );
   }

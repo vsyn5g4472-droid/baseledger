@@ -23,6 +23,7 @@ import type {
   RunnerAdvancement,
   BaseTarget,
   PendingAdvancement,
+  PendingPickoffSafe,
   PickoffBase,
   PickoffResult,
   PickoffEvent,
@@ -145,6 +146,10 @@ interface GameActions {
   // --- 牽制 ---
   /** 牽制を記録する。結果に応じてランナー状態を更新 */
   recordPickoff: (targetBase: PickoffBase, result: PickoffResult) => void;
+  /** 牽制セーフ時の進塁を確定する */
+  confirmPickoffSafeAdvancement: (finalAdvancement: RunnerAdvancement) => void;
+  /** 牽制セーフ進塁確認をキャンセルする */
+  cancelPickoffSafe: () => void;
 
   // --- 盗塁 ---
   /** 盗塁成功を記録する。ランナーを次の塁へ進め StolenBaseLog を生成する */
@@ -191,7 +196,7 @@ interface GameActions {
   setVelocityEnabled: (enabled: boolean) => Promise<void>;
 }
 
-type GameStore = { game: GameState | null } & GameActions;
+type GameStore = { game: GameState | null; pendingPickoffSafe: PendingPickoffSafe | null } & GameActions;
 
 // ============================================================
 // 変換ユーティリティ
@@ -834,6 +839,7 @@ function applyAtBatResultToRunners(game: GameState, result: AtBatResult, rbiCoun
 export const useGameStore = create<GameStore>()(
   immer((set, get) => ({
     game: null,
+    pendingPickoffSafe: null,
 
     // --- ライフサイクル ---
     initGame: async (input) => {
@@ -1179,6 +1185,31 @@ export const useGameStore = create<GameStore>()(
       });
     },
 
+    confirmPickoffSafeAdvancement: (finalAdvancement) => {
+      set((state) => {
+        const g = state.game;
+        if (!g || g.phase !== 'live') return;
+        const { fromBase, targetBase, outcome } = finalAdvancement;
+        const runner = g.runners[fromBase as 'first' | 'second' | 'third'];
+        if (!runner) return;
+        g.runners[fromBase as 'first' | 'second' | 'third'] = null;
+        if (targetBase === 'home' && outcome === 'safe') {
+          addRun(g, 1);
+        } else if (outcome === 'out_tag' || outcome === 'out_force' || targetBase === 'out') {
+          g.count.outs += 1;
+          if (g.count.outs >= 3) changeInning(g);
+        } else {
+          g.runners[targetBase as 'first' | 'second' | 'third'] = runner;
+        }
+        state.pendingPickoffSafe = null;
+        g.updatedAt = Date.now();
+      });
+    },
+
+    cancelPickoffSafe: () => {
+      set((state) => { state.pendingPickoffSafe = null; });
+    },
+
     // --- カスタム球種 ---
     addCustomPitchType: (name) => {
       set((state) => {
@@ -1297,7 +1328,8 @@ export const useGameStore = create<GameStore>()(
             }
             break;
           case 'safe':
-            // セーフ: 変更なし
+            // セーフ: 進塁確認待ちに設定
+            state.pendingPickoffSafe = { fromBase: targetBase, runnerId: runner.id, playerName: runner.name };
             break;
         }
 
