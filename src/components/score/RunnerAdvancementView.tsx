@@ -508,6 +508,11 @@ export default function RunnerAdvancementView({
           const canTagUp = isFlyBall && adv.fromBase !== 'batter' && !isBatterOut;
           const isTaggingUp = adv.action === 'tag_up';
           const isOut = adv.outcome === 'out_tag' || adv.outcome === 'out_force';
+          const beyondMinBase =
+            adv.fromBase === 'batter' &&
+            adv.minBase !== undefined &&
+            adv.minBase !== 'out' &&
+            (BASE_ORDER[adv.targetBase as string] ?? 0) > (BASE_ORDER[adv.minBase as string] ?? 0);
 
           const CardWrapper = canTagUp ? Animated.View : View;
           const cardAnimProps = canTagUp
@@ -574,7 +579,7 @@ export default function RunnerAdvancementView({
               )}
 
               {/* 理由サブメニュー (展開時) */}
-              {isExpanded && !isBatterOut && !isBatterRegularOut && (
+              {(isExpanded || beyondMinBase) && !isBatterOut && !isBatterRegularOut && (
                 <View style={styles.subMenu}>
                   <Text style={styles.subLabel}>{t.advancement.title}:</Text>
                   <View style={styles.subRow}>
