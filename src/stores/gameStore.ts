@@ -615,8 +615,8 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
     const defaultTarget = Math.min(curNum + advanceBases, 4);
     const minNum = isForced[r.base] ? Math.min(curNum + 1, 4) : curNum;
 
-    // 犠飛のデフォルト: タッチアップ
-    const action = (result === 'sacrifice_fly' || result === 'sacrifice_bunt')
+    // 犠飛のデフォルト: タッチアップ（犠打は打球進塁）
+    const action = result === 'sacrifice_fly'
       ? 'tag_up' as const
       : 'batted_ball' as const;
 
