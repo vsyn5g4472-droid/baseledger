@@ -9,6 +9,11 @@ import {
   validateData,
   buildPromptForReportType,
   type ReportType,
+  PREDICTION_SYSTEM_PROMPT,
+  isValidPredictionType,
+  validatePredictionData,
+  buildPromptForPredictionType,
+  type PredictionType,
 } from "./prompts";
 
 // =============================================================================
@@ -35,6 +40,10 @@ const MAX_DATA_SIZE_BYTES = 20 * 1024;
 /** AI レポートを利用できるプラン */
 const ALLOWED_PLANS = new Set(["light", "standard", "pro"]);
 
+/** AI 予測を利用できるプラン（PRO のみ） */
+const PREDICTION_ALLOWED_PLANS = new Set(["pro"]);
+const PREDICTION_DAILY_LIMIT = 30;
+
 /**
  * Phase 1 暫定: ユーザーあたりの 1 日の上限呼び出し回数
  * 将来、`PlanLimits` 構造に移行して plan 別に変える
@@ -50,6 +59,16 @@ interface AIReportCore {
   improvements: Array<{ aspect: string; detail: string }>;
   nextAdvice: string;
   highlights: string;
+  generatedAt: number;
+}
+
+interface AIPredictionCore {
+  pitchType?: string;
+  zone?: string;
+  hitDirection?: string;
+  distance?: string;
+  confidence: string;
+  reasoning: string;
   generatedAt: number;
 }
 
@@ -160,6 +179,73 @@ async function callAnthropic(userPrompt: string, apiKey: string): Promise<AIRepo
   };
 }
 
+async function callAnthropicForPrediction(
+  userPrompt: string,
+  apiKey: string,
+): Promise<AIPredictionCore> {
+  if (
+    process.env.FUNCTIONS_EMULATOR === "true" &&
+    process.env.MOCK_ANTHROPIC === "true"
+  ) {
+    return {
+      pitchType: "[MOCK] ストレート",
+      zone: "[MOCK] ゾーン8",
+      confidence: "medium",
+      reasoning: "[MOCK] テスト用の予測です。",
+      generatedAt: Date.now(),
+    };
+  }
+
+  if (!apiKey) {
+    throw new HttpsError("internal", "予期しないエラーが発生しました。再度お試しください", {
+      reason: "internal_error",
+    });
+  }
+
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 512,
+      system: PREDICTION_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userPrompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => "");
+    console.error("[generateAIPrediction] Anthropic API error", response.status, errBody);
+    throw new HttpsError("internal", "AI サービスが一時的に利用できません。時間をおいて再度お試しください", {
+      reason: "ai_service_unavailable",
+    });
+  }
+
+  const data = await response.json();
+  const rawText: string = data?.content?.[0]?.text ?? "";
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new HttpsError("internal", "AI レスポンスの解析に失敗しました。再度お試しください", {
+      reason: "parse_error",
+    });
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]);
+  return {
+    pitchType:    parsed.pitchType,
+    zone:         parsed.zone,
+    hitDirection: parsed.hitDirection,
+    distance:     parsed.distance,
+    confidence:   parsed.confidence ?? "medium",
+    reasoning:    parsed.reasoning ?? "",
+    generatedAt:  Date.now(),
+  };
+}
+
 // =============================================================================
 // 5. Cloud Function 本体
 // =============================================================================
@@ -267,5 +353,66 @@ export const generateAIReport = onCall(
         remaining: Math.max(0, usage.limit - usage.used),
       },
     };
+  },
+);
+
+export const generateAIPrediction = onCall(
+  { secrets: [anthropicApiKey], maxInstances: 3 },
+  async (request): Promise<AIPredictionCore> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "ログインしてからもう一度お試しください", {
+        reason: "unauthenticated",
+      });
+    }
+    const uid = request.auth.uid;
+
+    const payload = request.data as { predictionType?: unknown; data?: unknown };
+    const { predictionType, data } = payload ?? {};
+
+    if (!isValidPredictionType(predictionType)) {
+      throw new HttpsError("invalid-argument", "predictionType が不正です", {
+        reason: "invalid_prediction_type",
+      });
+    }
+    const validationErr = validatePredictionData(predictionType as PredictionType, data);
+    if (validationErr) {
+      throw new HttpsError("invalid-argument", `入力データが不正です: ${validationErr}`, {
+        reason: "invalid_data",
+      });
+    }
+    if (byteLen(data) > MAX_DATA_SIZE_BYTES) {
+      throw new HttpsError("invalid-argument", "データサイズが上限を超えています", {
+        reason: "payload_too_large",
+      });
+    }
+
+    const plan = await fetchUserPlan(uid);
+    if (!PREDICTION_ALLOWED_PLANS.has(plan)) {
+      throw new HttpsError("permission-denied", "AI 試合予測は PRO プランでご利用いただけます", {
+        reason: "plan_required", currentPlan: plan,
+      });
+    }
+
+    const day = todayJST();
+    const usageRef = db.collection("aiPredictionDaily").doc(usageDocId(uid, day));
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(usageRef);
+      const current = snap.exists ? (snap.data()?.count ?? 0) : 0;
+      if (current >= PREDICTION_DAILY_LIMIT) {
+        throw new HttpsError(
+          "resource-exhausted",
+          `1 日の予測回数（${PREDICTION_DAILY_LIMIT} 回）に達しました。日本時間 0:00 にリセットされます`,
+          { reason: "daily_limit_exceeded" },
+        );
+      }
+      tx.set(
+        usageRef,
+        { uid, day, count: current + 1, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+    });
+
+    const userPrompt = buildPromptForPredictionType(predictionType as PredictionType, data);
+    return await callAnthropicForPrediction(userPrompt, anthropicApiKey.value());
   },
 );

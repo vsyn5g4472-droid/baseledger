@@ -49,7 +49,8 @@ export type Feature =
   | 'kyureki_search'
   | 'scout_ai'
   | 'group_chat_send'
-  | 'ad_free';
+  | 'ad_free'
+  | 'ai_prediction';
 
 interface FeatureMeta {
   label: string;
@@ -70,6 +71,7 @@ const FEATURE_REGISTRY: Record<Feature, FeatureMeta> = {
   scout_ai:         { label: 'AI スカウトレポート',    minPlan: UserPlan.PRO },
   group_chat_send:  { label: 'グループチャット送信',   minPlan: UserPlan.LIGHT },
   ad_free:          { label: '広告非表示',             minPlan: UserPlan.LIGHT },
+  ai_prediction:    { label: 'AI 試合予測',             minPlan: UserPlan.PRO },
 };
 
 // =============================================================================

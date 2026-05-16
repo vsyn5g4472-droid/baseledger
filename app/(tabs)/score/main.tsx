@@ -1653,6 +1653,14 @@ export default function LiveScoreScreen() {
         playerName={pitcher?.name ?? ''}
         visible={showPitcherStats}
         onClose={() => setShowPitcherStats(false)}
+        atBatId={game.currentAtBat?.id}
+        count={game.count}
+        outs={game.count.outs}
+        runners={{
+          first:  !!game.runners.first,
+          second: !!game.runners.second,
+          third:  !!game.runners.third,
+        }}
       />
       <InGameStatsPanel
         mode="batter"
@@ -1660,6 +1668,7 @@ export default function LiveScoreScreen() {
         playerName={batter?.name ?? ''}
         visible={showBatterStats}
         onClose={() => setShowBatterStats(false)}
+        atBatId={game.currentAtBat?.id}
       />
     </View>
   );

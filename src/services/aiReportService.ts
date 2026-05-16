@@ -528,6 +528,114 @@ export async function generateBatterAIReport(
 }
 
 // =============================================================================
+// 8. AI 試合予測
+// =============================================================================
+
+export interface AIPrediction {
+  pitchType?: string;
+  zone?: string;
+  hitDirection?: string;
+  distance?: string;
+  confidence: 'high' | 'medium' | 'low';
+  reasoning: string;
+  isMock?: boolean;
+  errorReason?: string;
+}
+
+interface InGamePitcherPayload {
+  pitcherName: string;
+  catcherName: string;
+  count: { balls: number; strikes: number };
+  outs: number;
+  runners: { first: boolean; second: boolean; third: boolean };
+  totalPitches: number;
+  strikeRate: number;
+  avgVelocity: number | null;
+  top2StrikePitches: Array<{ type: string; pct: number }>;
+  countTendency: { topPitchType: string; topZone: string } | null;
+}
+
+interface InGameBatterPayload {
+  batterName: string;
+  avg: number;
+  strikeoutRate: number;
+  walkRate: number;
+  weakZones: Array<{ zone: string; swingMissRate: number }>;
+  pitchTypeStats: Array<{ type: string; swingMissRate: number }>;
+  avgHitDistance: number | null;
+}
+
+async function callAIPredictionFunction(
+  predictionType: 'in-game-pitcher' | 'in-game-batter',
+  data: unknown,
+): Promise<AIPrediction> {
+  const callable = httpsCallable<
+    { predictionType: string; data: unknown },
+    AIPrediction
+  >(functions, 'generateAIPrediction');
+  const result = await callable({ predictionType, data });
+  return result.data;
+}
+
+export async function generateAIPrediction(
+  mode: 'pitcher' | 'batter',
+  profile: BatteryProfile | BatterProfile,
+  context?: {
+    count?: { balls: number; strikes: number };
+    outs?: number;
+    runners?: { first: boolean; second: boolean; third: boolean };
+  },
+): Promise<AIPrediction> {
+  try {
+    if (mode === 'pitcher') {
+      const p = profile as BatteryProfile;
+      const count = context?.count ?? { balls: 0, strikes: 0 };
+      const matched = p.countTendencies.find(
+        (ct) => ct.balls === count.balls && ct.strikes === count.strikes,
+      );
+      const payload: InGamePitcherPayload = {
+        pitcherName:       p.pitcherName ?? '投手',
+        catcherName:       p.catcherName ?? '捕手',
+        count,
+        outs:              context?.outs ?? 0,
+        runners:           context?.runners ?? { first: false, second: false, third: false },
+        totalPitches:      p.totalPitches,
+        strikeRate:        p.strikeRate,
+        avgVelocity:       p.avgVelocity,
+        top2StrikePitches: p.pitchType2Strike.slice(0, 3).map((pt) => ({ type: pt.type, pct: pt.pct })),
+        countTendency: matched
+          ? {
+              topPitchType: matched.pitchTypes[0]?.type ?? '',
+              topZone:      matched.topZones[0]?.zone ?? '',
+            }
+          : null,
+      };
+      return await callAIPredictionFunction('in-game-pitcher', payload);
+    } else {
+      const b = profile as BatterProfile;
+      const payload: InGameBatterPayload = {
+        batterName:    b.batterName ?? '打者',
+        avg:           b.avg,
+        strikeoutRate: b.strikeoutRate,
+        walkRate:      b.walkRate,
+        weakZones:     b.weakZones.slice(0, 3).map((z) => ({ zone: z.zone, swingMissRate: z.swingMissRate })),
+        pitchTypeStats: b.pitchTypeStats.slice(0, 3).map((pt) => ({ type: pt.type, swingMissRate: pt.swingMissRate })),
+        avgHitDistance: b.avgHitDistance,
+      };
+      return await callAIPredictionFunction('in-game-batter', payload);
+    }
+  } catch (err) {
+    const info = mapAIReportError(err as FunctionsError);
+    return {
+      confidence: 'low',
+      reasoning: info.message,
+      isMock: true,
+      errorReason: info.reason,
+    };
+  }
+}
+
+// =============================================================================
 // 7. UI ユーティリティ
 // =============================================================================
 
