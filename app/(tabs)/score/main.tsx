@@ -54,6 +54,7 @@ import RunnerAdvancementView from '../../../src/components/score/RunnerAdvanceme
 import PlayLogList from '../../../src/components/score/PlayLogList';
 import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
 import PlayerSubstitutionModal from '../../../src/components/score/PlayerSubstitutionModal';
+import InGameStatsPanel from '../../../src/components/score/InGameStatsPanel';
 import type { AtBatLog, Player } from '../../../src/types/game';
 
 // ── 投球コース記録キャンバス定数 (横4:縦7 ストライクゾーン) ──────────
@@ -148,6 +149,8 @@ export default function LiveScoreScreen() {
   const [buntStance, setBuntStance] = useState(false);
   const [atBatSign, setAtBatSign] = useState<SignPlayTag | 'none'>('none');
   const [stealSign, setStealSign] = useState<SignPlayTag | 'none'>('none');
+  const [showPitcherStats, setShowPitcherStats] = useState(false);
+  const [showBatterStats, setShowBatterStats] = useState(false);
   const [playSnack, setPlaySnack] = useState<{
     id: string;
     batter: string;
@@ -374,6 +377,7 @@ export default function LiveScoreScreen() {
   const batter = offTeam.roster.starters[batterIdx];
   const pitcherId = game.currentPitcherId[defSide];
   const pitcher = defTeam.roster.starters.find((p) => p.id === pitcherId) ?? defTeam.roster.starters[0];
+  const catcher = defTeam.roster.starters.find((p) => p.position === 'C');
 
   const inningLabel = `${game.inning.number}${t.common.inning}${isTop ? t.common.top : t.common.bottom}`;
   const lastPitch = game.pitchLogs.length > 0 ? game.pitchLogs[game.pitchLogs.length - 1] : null;
@@ -793,12 +797,22 @@ export default function LiveScoreScreen() {
           <View style={styles.matchupPlayer}>
             <Text style={styles.matchupRole}>{t.live.pitcher}</Text>
             <Text style={styles.matchupName}>{pitcher.number != null ? `#${pitcher.number} ` : ''}{pitcher.name}</Text>
-            <Text style={styles.matchupStat}>{game.totalPitchCount[defSide]}{t.live.pitchCount}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.matchupStat}>{game.totalPitchCount[defSide]}{t.live.pitchCount}</Text>
+              <TouchableOpacity style={styles.detailBtn} onPress={() => setShowPitcherStats(true)}>
+                <Text style={styles.detailBtnText}>詳細</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <MaterialCommunityIcons name="arrow-right" size={20} color={Colors.textSecondary} />
           <View style={[styles.matchupPlayer, { alignItems: 'flex-end' }]}>
             <Text style={styles.matchupRole}>{t.live.batter}</Text>
-            <Text style={styles.matchupName}>{batter.number != null ? `#${batter.number} ` : ''}{batter.name}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity style={styles.detailBtn} onPress={() => setShowBatterStats(true)}>
+                <Text style={styles.detailBtnText}>詳細</Text>
+              </TouchableOpacity>
+              <Text style={styles.matchupName}>{batter.number != null ? `#${batter.number} ` : ''}{batter.name}</Text>
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.matchupStat}>
                 {batterIdx + 1}{t.live.order}
@@ -1631,6 +1645,22 @@ export default function LiveScoreScreen() {
         }}
         onDismiss={() => setPlaySnack(null)}
       />
+
+      <InGameStatsPanel
+        mode="pitcher"
+        pitcherId={pitcher?.id}
+        catcherId={catcher?.id}
+        playerName={pitcher?.name ?? ''}
+        visible={showPitcherStats}
+        onClose={() => setShowPitcherStats(false)}
+      />
+      <InGameStatsPanel
+        mode="batter"
+        batterId={batter?.id}
+        playerName={batter?.name ?? ''}
+        visible={showBatterStats}
+        onClose={() => setShowBatterStats(false)}
+      />
     </View>
   );
 }
@@ -2079,6 +2109,18 @@ const styles = StyleSheet.create({
   matchupRole: { fontSize: Typography.tiny, color: Colors.textSecondary, fontWeight: '600' },
   matchupName: { fontSize: Typography.bodySmall, fontWeight: '700', color: Colors.text },
   matchupStat: { fontSize: Typography.tiny, color: Colors.textSecondary },
+  detailBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  detailBtnText: {
+    fontSize: 10,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
 
   // ── 左右打ち切り替えバッジ ────────────────────────────────
   handBadge: {
