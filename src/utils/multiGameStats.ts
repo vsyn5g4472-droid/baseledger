@@ -50,6 +50,10 @@ export interface AggregatedBattingStats {
   swingMissRate: number;
   /** 平均打球飛距離 (m) — velocity 計測があった打席のみ */
   avgHitDistance: number | null;
+  /** 最大打球飛距離 (m) */
+  maxHitDistance: number | null;
+  /** 盗塁数 */
+  stolenBases: number;
 }
 
 export interface AggregatedPitchingStats {
@@ -69,6 +73,8 @@ export interface AggregatedPitchingStats {
   avgVelocity: number | null;
   /** 最高球速 (km/h) */
   maxVelocity: number | null;
+  /** 与四球数 */
+  walksAllowed: number;
   /** 球種別割合サマリ */
   pitchMix: Array<{ pitchType: string; pct: number; avgVel: number | null }>;
   /** ゾーン分布 (zone → 投球数) */
@@ -165,6 +171,7 @@ export function aggregatePlayerBatting(
   let atBats = 0, hits = 0, singles = 0, doubles = 0, triples = 0, homeRuns = 0;
   let rbi = 0, walks = 0, hbp = 0, sacFlies = 0, strikeouts = 0;
   let swingMisses = 0, totalSwings = 0;
+  let stolenBases = 0;
   const hitDistances: number[] = [];
 
   for (const game of games) {
@@ -207,6 +214,11 @@ export function aggregatePlayerBatting(
         }
       }
     }
+
+    // 盗塁数集計
+    for (const sb of (game.stolenBaseLogs ?? [])) {
+      if (sb.runnerId === playerId && sb.result === 'safe') stolenBases++;
+    }
   }
 
   const obp = calcOBP(hits, walks, hbp, atBats, sacFlies);
@@ -227,6 +239,11 @@ export function aggregatePlayerBatting(
       hitDistances.length > 0
         ? Math.round(hitDistances.reduce((a, b) => a + b, 0) / hitDistances.length)
         : null,
+    maxHitDistance:
+      hitDistances.length > 0
+        ? Math.max(...hitDistances)
+        : null,
+    stolenBases,
   };
 }
 
@@ -243,6 +260,7 @@ export function aggregatePlayerPitching(
   let strikeCount = 0;
   let battersFaced = 0;
   let strikeouts = 0;
+  let walksAllowed = 0;
   const velocities: number[] = [];
   const typeMap = new Map<string, { count: number; vels: number[] }>();
   const zoneCount: Record<string, number> = {};
@@ -275,6 +293,7 @@ export function aggregatePlayerPitching(
     strikeouts += myAtBats.filter(
       (l) => l.result === 'strikeout' || l.result === 'strikeout_looking',
     ).length;
+    walksAllowed += myAtBats.filter((l) => l.result === 'walk').length;
   }
 
   const pitchMix = Array.from(typeMap.entries())
@@ -301,6 +320,7 @@ export function aggregatePlayerPitching(
         ? Math.round(velocities.reduce((a, b) => a + b, 0) / velocities.length)
         : null,
     maxVelocity: velocities.length > 0 ? Math.max(...velocities) : null,
+    walksAllowed,
     pitchMix,
     zoneDistribution: zoneCount,
   };
@@ -442,6 +462,42 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
         .map((s) => ({ ...s, value: s.avgHitDistance! })),
       (v) => `${Math.round(v)}m`,
     ),
+    makeCategory(
+      'maxHitDist',
+      '飛距離最大 TOP3',
+      'arrow-expand-right',
+      battingAll
+        .filter((s) => s.maxHitDistance !== null && s.maxHitDistance > 0)
+        .map((s) => ({ ...s, value: s.maxHitDistance! })),
+      (v) => `${Math.round(v)}m`,
+    ),
+    makeCategory(
+      'sb',
+      '盗塁数 TOP3',
+      'run-fast',
+      battingAll
+        .filter((s) => s.stolenBases > 0)
+        .map((s) => ({ ...s, value: s.stolenBases })),
+      (v) => `${v}SB`,
+    ),
+    makeCategory(
+      'obp',
+      '出塁率 TOP3',
+      'account-check-outline',
+      battingAll
+        .filter((s) => (s.atBats + s.walks + s.hbp) > 0)
+        .map((s) => ({ ...s, value: s.obp })),
+      (v) => v.toFixed(3).replace(/^0/, '') || '.000',
+    ),
+    makeCategory(
+      'bbhbp',
+      '四死球数 TOP3',
+      'walk',
+      battingAll
+        .filter((s) => (s.walks + s.hbp) > 0)
+        .map((s) => ({ ...s, value: s.walks + s.hbp })),
+      (v) => `${v}`,
+    ),
     // ── 投手カテゴリー ──
     makeCategory(
       'maxVelocity',
@@ -481,6 +537,16 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
       'bullseye-arrow',
       pitchingAll.map((s) => ({ ...s, value: s.strikeRate })),
       (v) => `${Math.round(v * 100)}%`,
+    ),
+    makeCategory(
+      'walksAllowed',
+      '与四球 TOP3',
+      'arrow-bottom-right-bold-outline',
+      pitchingAll
+        .filter((s) => s.battersFaced > 0)
+        // 低い方が良い → 符号反転
+        .map((s) => ({ ...s, value: -s.walksAllowed })),
+      (v) => `${-v}BB`,
     ),
   ].filter((c) => c.entries.length > 0);
 
