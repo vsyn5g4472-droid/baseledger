@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Modal,
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
@@ -232,60 +231,58 @@ export default function InGameStatsPanel({
     );
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.overlay}>
-        <View style={s.panel}>
-          <View style={s.header}>
-            <Text style={s.title}>{playerName} の過去成績</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={s.closeBtn}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          <SegmentedButtons
-            value={tab}
-            onValueChange={(v) => setTab(v as 'stats' | 'ai')}
-            buttons={[
-              { value: 'stats', label: '成績' },
-              { value: 'ai',    label: 'AI 予測' },
-            ]}
-            style={s.tabBar}
-          />
-
-          <ScrollView contentContainerStyle={s.body}>
-            {tab === 'stats' ? (
-              loading ? (
-                <ActivityIndicator color={Colors.primary} style={{ marginTop: 40 }} />
-              ) : (
-                <>
-                  {mode === 'pitcher' && (
-                    pitcherProfile
-                      ? renderPitcher(pitcherProfile)
-                      : <Text style={s.empty}>過去データなし</Text>
-                  )}
-                  {mode === 'batter' && (
-                    batterProfile
-                      ? renderBatter(batterProfile)
-                      : <Text style={s.empty}>過去データなし</Text>
-                  )}
-                  {notes.length > 0 && (
-                    <>
-                      <Text style={s.sectionLabel}>メモ</Text>
-                      {notes.map((n, i) => (
-                        <Text key={i} style={s.noteText}>• {n}</Text>
-                      ))}
-                    </>
-                  )}
-                </>
-              )
-            ) : (
-              renderAIPrediction()
-            )}
-          </ScrollView>
-        </View>
+    <View style={s.container}>
+      <View style={s.header}>
+        <Text style={s.title}>{playerName} の過去成績</Text>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={s.closeBtn}>✕</Text>
+        </TouchableOpacity>
       </View>
-    </Modal>
+
+      <SegmentedButtons
+        value={tab}
+        onValueChange={(v) => setTab(v as 'stats' | 'ai')}
+        buttons={[
+          { value: 'stats', label: '成績' },
+          { value: 'ai',    label: 'AI 予測' },
+        ]}
+        style={s.tabBar}
+      />
+
+      <ScrollView contentContainerStyle={s.body}>
+        {tab === 'stats' ? (
+          loading ? (
+            <ActivityIndicator color={Colors.primary} style={{ marginTop: 40 }} />
+          ) : (
+            <>
+              {mode === 'pitcher' && (
+                pitcherProfile
+                  ? renderPitcher(pitcherProfile)
+                  : <Text style={s.empty}>過去データなし</Text>
+              )}
+              {mode === 'batter' && (
+                batterProfile
+                  ? renderBatter(batterProfile)
+                  : <Text style={s.empty}>過去データなし</Text>
+              )}
+              {notes.length > 0 && (
+                <>
+                  <Text style={s.sectionLabel}>メモ</Text>
+                  {notes.map((n, i) => (
+                    <Text key={i} style={s.noteText}>• {n}</Text>
+                  ))}
+                </>
+              )}
+            </>
+          )
+        ) : (
+          renderAIPrediction()
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -318,22 +315,17 @@ function ConfidenceBadge({ value }: { value: string }) {
 }
 
 const s = StyleSheet.create({
-  overlay: {
+  container: {
     flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  panel: {
     backgroundColor: Colors.card,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '80%',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingTop: 52,
+    paddingBottom: Spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },

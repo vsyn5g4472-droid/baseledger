@@ -1646,30 +1646,38 @@ export default function LiveScoreScreen() {
         onDismiss={() => setPlaySnack(null)}
       />
 
-      <InGameStatsPanel
-        mode="pitcher"
-        pitcherId={pitcher?.id}
-        catcherId={catcher?.id}
-        playerName={pitcher?.name ?? ''}
-        visible={showPitcherStats}
-        onClose={() => setShowPitcherStats(false)}
-        atBatId={game.currentAtBat?.id}
-        count={game.count}
-        outs={game.count.outs}
-        runners={{
-          first:  !!game.runners.first,
-          second: !!game.runners.second,
-          third:  !!game.runners.third,
-        }}
-      />
-      <InGameStatsPanel
-        mode="batter"
-        batterId={batter?.id}
-        playerName={batter?.name ?? ''}
-        visible={showBatterStats}
-        onClose={() => setShowBatterStats(false)}
-        atBatId={game.currentAtBat?.id}
-      />
+      {showPitcherStats && (
+        <View style={[StyleSheet.absoluteFill, styles.statsOverlay]}>
+          <InGameStatsPanel
+            mode="pitcher"
+            pitcherId={pitcher?.id}
+            catcherId={catcher?.id}
+            playerName={pitcher?.name ?? ''}
+            visible={showPitcherStats}
+            onClose={() => setShowPitcherStats(false)}
+            atBatId={game.currentAtBat?.id}
+            count={game.count}
+            outs={game.count.outs}
+            runners={{
+              first:  !!game.runners.first,
+              second: !!game.runners.second,
+              third:  !!game.runners.third,
+            }}
+          />
+        </View>
+      )}
+      {showBatterStats && (
+        <View style={[StyleSheet.absoluteFill, styles.statsOverlay]}>
+          <InGameStatsPanel
+            mode="batter"
+            batterId={batter?.id}
+            playerName={batter?.name ?? ''}
+            visible={showBatterStats}
+            onClose={() => setShowBatterStats(false)}
+            atBatId={game.currentAtBat?.id}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -2362,6 +2370,10 @@ const styles = StyleSheet.create({
 
   advancementOverlay: {
     backgroundColor: 'rgba(13, 13, 26, 0.85)',
+  },
+
+  statsOverlay: {
+    backgroundColor: Colors.card,
   },
 
   subRow: {
