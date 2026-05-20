@@ -22,27 +22,27 @@ export default function EditProfileScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Edit Profile</Text>
+      <Text style={styles.title}>プロフィール編集</Text>
 
-      <TextInput label="Display Name" value={displayName} onChangeText={setDisplayName} mode="outlined" style={styles.input} />
-      <TextInput label="Bio" value={bio} onChangeText={setBio} mode="outlined" style={styles.input} multiline numberOfLines={3} />
-      <TextInput label="Position" value={position} onChangeText={setPosition} mode="outlined" style={styles.input} placeholder="e.g. Pitcher, Shortstop" />
-      <TextInput label="Team" value={team} onChangeText={setTeam} mode="outlined" style={styles.input} placeholder="e.g. Tokyo Giants" />
+      <TextInput label="表示名" value={displayName} onChangeText={setDisplayName} mode="outlined" style={styles.input} />
+      <TextInput label="自己紹介" value={bio} onChangeText={setBio} mode="outlined" style={styles.input} multiline numberOfLines={3} />
+      <TextInput label="ポジション" value={position} onChangeText={setPosition} mode="outlined" style={styles.input} placeholder="例: 投手、遊撃手" />
+      <TextInput label="チーム" value={team} onChangeText={setTeam} mode="outlined" style={styles.input} placeholder="例: 東京ジャイアンツ" />
 
-      <Text style={styles.label}>Role</Text>
+      <Text style={styles.label}>役割</Text>
       <SegmentedButtons
         value={role}
         onValueChange={(v) => setRole(v as UserRole)}
         buttons={[
-          { value: 'player', label: 'Player' },
-          { value: 'scout', label: 'Scout' },
-          { value: 'coach', label: 'Coach' },
+          { value: 'player', label: '選手' },
+          { value: 'scout', label: 'スカウト' },
+          { value: 'coach', label: 'コーチ' },
         ]}
         style={styles.roleSelector}
       />
 
       <Button mode="contained" onPress={handleSave} style={styles.saveButton} buttonColor={Colors.primary}>
-        Save Changes
+        変更を保存
       </Button>
     </ScrollView>
   );

@@ -69,8 +69,8 @@ export default function FeedScreen() {
         ListEmptyComponent={
           <EmptyState
             icon="baseball"
-            title="No posts yet"
-            subtitle="Follow players to see their updates"
+            title="投稿がありません"
+            subtitle="選手をフォローして更新情報を確認しましょう"
           />
         }
         ListFooterComponent={
