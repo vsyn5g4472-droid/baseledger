@@ -2,13 +2,32 @@ import React, { useState } from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as ExpoCrypto from 'expo-crypto';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useI18n } from '../../src/i18n';
 import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/theme';
 import type { UserRole } from '../../src/models/types';
 
+function generateNonce(length = 32): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+async function sha256(str: string): Promise<string> {
+  return ExpoCrypto.digestStringAsync(
+    ExpoCrypto.CryptoDigestAlgorithm.SHA256,
+    str,
+    { encoding: ExpoCrypto.CryptoEncoding.HEX },
+  );
+}
+
 export default function RegisterScreen() {
-  const { signUp, loading } = useAuth();
+  const { signUp, signInWithApple, loading } = useAuth();
   const { t } = useI18n();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -40,6 +59,29 @@ export default function RegisterScreen() {
     }
   };
 
+  const handleAppleSignIn = async () => {
+    try {
+      setError('');
+      const rawNonce = generateNonce();
+      const hashedNonce = await sha256(rawNonce);
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+      if (credential.identityToken) {
+        await signInWithApple(credential.identityToken, rawNonce);
+        router.replace('/');
+      }
+    } catch (e: any) {
+      if (e.code !== 'ERR_REQUEST_CANCELED') {
+        setError(e.message || 'Apple ログインに失敗しました');
+      }
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -48,6 +90,24 @@ export default function RegisterScreen() {
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>{t.auth.createAccount}</Text>
         <Text style={styles.subtitle}>{t.auth.joinCommunity}</Text>
+
+        {/* Apple で登録 — iOS のみ */}
+        {Platform.OS === 'ios' && (
+          <>
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+              cornerRadius={BorderRadius.lg}
+              style={styles.appleBtn}
+              onPress={handleAppleSignIn}
+            />
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>または</Text>
+              <View style={styles.dividerLine} />
+            </View>
+          </>
+        )}
 
         <Text style={styles.label}>{t.auth.iAm}</Text>
         <SegmentedButtons
@@ -140,4 +200,24 @@ const styles = StyleSheet.create({
   loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: Spacing.md },
   loginText: { fontSize: Typography.body, color: Colors.textSecondary },
   loginLink: { color: Colors.primary, fontWeight: '600' },
+  appleBtn: {
+    height: 50,
+    width: '100%',
+    marginBottom: Spacing.md,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.border,
+  },
+  dividerText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+  },
 });
