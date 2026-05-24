@@ -152,6 +152,15 @@ export async function joinTeamByCode(userId: string, inviteCode: string): Promis
       memberData,
     );
 
+    // Also add user to the team's group chat memberIds if the group exists
+    const groupsRef = collection(db, COLLECTIONS.GROUPS);
+    const groupSnap = await getDocs(query(groupsRef, where('teamId', '==', team.id)));
+    if (!groupSnap.empty) {
+      await updateDoc(doc(db, COLLECTIONS.GROUPS, groupSnap.docs[0].id), {
+        memberIds: arrayUnion(userId),
+      });
+    }
+
     return { ...team, memberIds: [...team.memberIds, userId] };
   } catch (error) {
     if (error instanceof AppError) throw error;
