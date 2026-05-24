@@ -14,7 +14,7 @@ export default function TeamsLayout() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" />
+      <Stack.Screen name="index" options={{ headerBackTitle: 'チーム一覧' }} />
       <Stack.Screen name="create" options={{ headerShown: true, title: 'チーム作成', ...whiteHeader }} />
       <Stack.Screen name="[teamId]/index" options={{ headerShown: true, title: 'チーム', ...whiteHeader }} />
       <Stack.Screen name="[teamId]/chat" options={{ headerShown: true, title: 'チームチャット', ...whiteHeader }} />

@@ -14,17 +14,17 @@ export default function CreateTeamScreen() {
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      Alert.alert('Error', 'Team name is required');
+      Alert.alert('エラー', 'チーム名を入力してください');
       return;
     }
     setLoading(true);
     try {
       await createTeam({ name, description, photoURI: null, isPrivate });
-      Alert.alert('Success', 'Team created!', [
+      Alert.alert('成功', 'チームを作成しました', [
         { text: 'OK', onPress: () => router.replace('/(tabs)/chat' as any) },
       ]);
     } catch (e) {
-      Alert.alert('Error', 'Failed to create team');
+      Alert.alert('エラー', 'チームの作成に失敗しました');
     } finally {
       setLoading(false);
     }
@@ -32,32 +32,32 @@ export default function CreateTeamScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Create Team</Text>
+      <Text style={styles.title}>チーム作成</Text>
 
       <TextInput
-        label="Team Name"
+        label="チーム名"
         value={name}
         onChangeText={setName}
         mode="outlined"
         style={styles.input}
-        placeholder="e.g. Tokyo Blue Stars"
+        placeholder="例: 東京ブルースターズ"
       />
 
       <TextInput
-        label="Description"
+        label="説明"
         value={description}
         onChangeText={setDescription}
         mode="outlined"
         style={styles.input}
         multiline
         numberOfLines={3}
-        placeholder="Describe your team..."
+        placeholder="チームの説明を入力..."
       />
 
       <View style={styles.switchRow}>
         <View>
-          <Text style={styles.switchLabel}>Private Team</Text>
-          <Text style={styles.switchDescription}>Only invited members can join</Text>
+          <Text style={styles.switchLabel}>プライベートチーム</Text>
+          <Text style={styles.switchDescription}>招待されたメンバーのみ参加可能</Text>
         </View>
         <Switch value={isPrivate} onValueChange={setIsPrivate} color={Colors.primary} />
       </View>
@@ -71,7 +71,7 @@ export default function CreateTeamScreen() {
         buttonColor={Colors.primary}
         labelStyle={{ fontSize: Typography.body, fontWeight: '600' }}
       >
-        Create Team
+        チームを作成
       </Button>
     </ScrollView>
   );

@@ -25,7 +25,7 @@ export default function MessagesScreen() {
               style={styles.avatar}
             />
             <View style={styles.info}>
-              <Text style={styles.name}>{item.otherUser?.displayName ?? 'User'}</Text>
+              <Text style={styles.name}>{item.otherUser?.displayName ?? 'ユーザー'}</Text>
               <Text style={styles.lastMessage} numberOfLines={1}>
                 {item.lastMessage}
               </Text>
@@ -40,8 +40,8 @@ export default function MessagesScreen() {
         ListEmptyComponent={
           <EmptyState
             icon="message-text-outline"
-            title="No messages"
-            subtitle="Start a conversation by following someone"
+            title="メッセージなし"
+            subtitle="誰かをフォローして会話を始めましょう"
           />
         }
       />

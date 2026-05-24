@@ -83,8 +83,8 @@ export default function RootLayout() {
                     headerShadowVisible: false,
                   }}
                 />
-                <Stack.Screen name="messages/index" options={{ headerShown: true, title: 'Messages' }} />
-                <Stack.Screen name="messages/[conversationId]" options={{ headerShown: true, title: 'Chat' }} />
+                <Stack.Screen name="messages/index" options={{ headerShown: true, title: 'メッセージ' }} />
+                <Stack.Screen name="messages/[conversationId]" options={{ headerShown: true, title: 'チャット' }} />
                 <Stack.Screen name="ranking/details" options={{ headerShown: false }} />
               </Stack>
               <AuthModal />
