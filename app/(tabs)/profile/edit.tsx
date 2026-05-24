@@ -3,21 +3,33 @@ import { StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
 import { useAuth } from '../../../src/contexts/AuthContext';
+import { updateUser } from '../../../src/services/userService';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import type { UserRole } from '../../../src/models/types';
 
 export default function EditProfileScreen() {
-  const { currentUser } = useAuth();
+  const { currentUser, refreshUser } = useAuth();
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? '');
   const [bio, setBio] = useState(currentUser?.bio ?? '');
   const [position, setPosition] = useState(currentUser?.position ?? '');
   const [team, setTeam] = useState(currentUser?.team ?? '');
   const [role, setRole] = useState<UserRole>(currentUser?.role ?? 'player');
+  const [loading, setLoading] = useState(false);
 
-  const handleSave = () => {
-    Alert.alert('Saved', 'Profile updated successfully', [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+  const handleSave = async () => {
+    if (!currentUser) return;
+    setLoading(true);
+    try {
+      await updateUser(currentUser.uid, { displayName, bio, position, team, role });
+      await refreshUser();
+      Alert.alert('保存完了', 'プロフィールを更新しました', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } catch {
+      Alert.alert('エラー', 'プロフィールの更新に失敗しました');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -41,7 +53,7 @@ export default function EditProfileScreen() {
         style={styles.roleSelector}
       />
 
-      <Button mode="contained" onPress={handleSave} style={styles.saveButton} buttonColor={Colors.primary}>
+      <Button mode="contained" onPress={handleSave} loading={loading} disabled={loading} style={styles.saveButton} buttonColor={Colors.primary}>
         変更を保存
       </Button>
     </ScrollView>
