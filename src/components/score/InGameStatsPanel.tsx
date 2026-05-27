@@ -50,6 +50,7 @@ export default function InGameStatsPanel({
 
   const gate = usePlanGate('ai_prediction');
   const [tab, setTab] = useState<'stats' | 'ai'>('stats');
+  const [batterHand, setBatterHand] = useState<'R' | 'L'>('R');
   const [prediction, setPrediction] = useState<AIPrediction | null>(null);
   const [predLoading, setPredLoading] = useState(false);
   const countRef = useRef(count);
@@ -101,8 +102,21 @@ export default function InGameStatsPanel({
       </View>
 
       <Text style={s.sectionLabel}>2ストライク時コース</Text>
+      <SegmentedButtons
+        value={batterHand}
+        onValueChange={(v) => setBatterHand(v as 'R' | 'L')}
+        buttons={[
+          { value: 'R', label: '対右打ち' },
+          { value: 'L', label: '対左打ち' },
+        ]}
+        style={s.handToggle}
+      />
       <View style={s.heatmapWrap}>
-        <ZoneHeatmap heatData={p.zone2Strike} colorTheme="blue" compact />
+        <ZoneHeatmap
+          heatData={batterHand === 'R' ? p.zone2StrikeR : p.zone2StrikeL}
+          colorTheme="blue"
+          compact
+        />
       </View>
 
       {p.pitchType2Strike.length > 0 && (
@@ -356,6 +370,9 @@ const s = StyleSheet.create({
   },
   heatmapWrap: {
     alignItems: 'center',
+  },
+  handToggle: {
+    marginBottom: Spacing.xs,
   },
   statRow: {
     flexDirection: 'row',

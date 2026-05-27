@@ -89,6 +89,10 @@ export interface BatteryProfile {
   maxVelocity:  number | null;
   /** 2ストライク時のゾーン投球分布 */
   zone2Strike:       Record<string, number>;
+  /** 2ストライク時のゾーン投球分布（対右打者） */
+  zone2StrikeR:      Record<string, number>;
+  /** 2ストライク時のゾーン投球分布（対左打者） */
+  zone2StrikeL:      Record<string, number>;
   /** 2ストライク時の球種割合 */
   pitchType2Strike:  PitchTypeStat[];
   /** 決め球 (三振を奪った最終球) */
@@ -201,6 +205,22 @@ function allPlayersMap(game: GameState): Map<string, string> {
     ];
     for (const p of players) {
       m.set(p.id, p.name);
+    }
+  }
+  return m;
+}
+
+/** 試合内の全選手 Map<id, bats> */
+function allPlayersBatsMap(game: GameState): Map<string, 'L' | 'R' | 'S'> {
+  const m = new Map<string, 'L' | 'R' | 'S'>();
+  for (const team of [game.awayTeam, game.homeTeam]) {
+    const players = [
+      ...team.roster.starters,
+      ...team.roster.bench,
+      ...(team.roster.pitcher ? [team.roster.pitcher] : []),
+    ];
+    for (const p of players) {
+      m.set(p.id, p.bats);
     }
   }
   return m;
@@ -401,14 +421,28 @@ export function buildBatteryProfile(
   const strikeCount = allPitches.filter((p) => STRIKE_RESULTS.includes(p.result)).length;
 
   // ── 2ストライク時の分析 ───────────────────────────────────────────────────
+  const batsMap = new Map<string, 'L' | 'R' | 'S'>();
+  for (const g of relevantGames) {
+    allPlayersBatsMap(g).forEach((bats, id) => batsMap.set(id, bats));
+  }
+
   const pitches2S = allPitches.filter(
     (p) => p.countBefore.strikes === 2,
   );
   const zone2Strike: Record<string, number> = {};
+  const zone2StrikeR: Record<string, number> = {};
+  const zone2StrikeL: Record<string, number> = {};
   const typeMap2S = new Map<string, { count: number; vels: number[] }>();
 
   for (const p of pitches2S) {
     zone2Strike[p.zone] = (zone2Strike[p.zone] ?? 0) + 1;
+    const bats = batsMap.get(p.batterId);
+    if (bats === 'R' || bats === 'S') {
+      zone2StrikeR[p.zone] = (zone2StrikeR[p.zone] ?? 0) + 1;
+    }
+    if (bats === 'L' || bats === 'S') {
+      zone2StrikeL[p.zone] = (zone2StrikeL[p.zone] ?? 0) + 1;
+    }
     if (!typeMap2S.has(p.pitchType)) typeMap2S.set(p.pitchType, { count: 0, vels: [] });
     const e = typeMap2S.get(p.pitchType)!;
     e.count++;
@@ -507,6 +541,8 @@ export function buildBatteryProfile(
         : null,
     maxVelocity: velocities.length > 0 ? Math.max(...velocities) : null,
     zone2Strike,
+    zone2StrikeR,
+    zone2StrikeL,
     pitchType2Strike: toPitchTypeStats(typeMap2S, pitches2S.length),
     finishingPitches,
     countTendencies,
