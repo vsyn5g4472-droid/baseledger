@@ -152,9 +152,10 @@ export default function BatteryReportScreen() {
     } finally {
       setAiLoading(false);
     }
-  }, [userPlan]);
+  }, [userPlan, pitcherId, catcherId]);
 
   useEffect(() => {
+    setAiReport(null);
     (async () => {
       const games = await db.games.getAll();
       const p = buildBatteryProfile(games, pitcherId, catcherId);

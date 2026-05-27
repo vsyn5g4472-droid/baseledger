@@ -465,7 +465,7 @@ export async function generateBatteryAIReport(
   const early = earlyPlanGate(userPlan);
   if (early) return early;
 
-  const cacheKey = `battery:${profile.pitcherName}:${profile.catcherName}:${profile.totalGames}:${profile.totalPitches}`;
+  const cacheKey = `battery:${profile.pitcherId}:${profile.catcherId}:${profile.pitcherName}:${profile.catcherName}:${profile.totalGames}:${profile.totalPitches}`;
 
   // L1: AsyncStorage
   const cached = await readCache(cacheKey);
