@@ -209,9 +209,10 @@ export default function BatterReportScreen() {
     } finally {
       setAiLoading(false);
     }
-  }, [userPlan]);
+  }, [userPlan, batterId]);
 
   useEffect(() => {
+    setAiReport(null);
     (async () => {
       const games = await db.games.getAll();
       const p = buildBatterProfile(games, batterId);
