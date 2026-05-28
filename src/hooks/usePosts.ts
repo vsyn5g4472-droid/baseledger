@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Post, CreatePostInput } from '../models/types';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -23,19 +23,22 @@ export function useFeedPosts(): {
 } {
   const { currentUser } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const lastDocRef = useRef<unknown>(null);
-  const initialLoadDone = useRef(false);
 
   const fetchPosts = useCallback(
     async (isRefresh: boolean) => {
       try {
         const cursor = isRefresh ? undefined : (lastDocRef.current ?? undefined);
-        const result = currentUser
+        let result = currentUser
           ? await getFeedPosts(currentUser.uid, cursor, PAGE_SIZE)
           : await getPublicPosts(cursor, PAGE_SIZE);
+        // ログイン済みだがフォロー0件でフィードが空の場合、パブリック投稿にフォールバック
+        if (currentUser && result.items.length === 0) {
+          result = await getPublicPosts(cursor, PAGE_SIZE);
+        }
 
         if (isRefresh) {
           setPosts(result.items);
@@ -51,12 +54,18 @@ export function useFeedPosts(): {
     [currentUser],
   );
 
+  // 初回ロードおよびログイン状態変化時に再取得
+  // useEffectにより loading=true が確立した後に fetchPosts が実行されるため
+  // onEndReached との競合が発生しない
+  useEffect(() => {
+    setLoading(true);
+    lastDocRef.current = null;
+    fetchPosts(true).finally(() => setLoading(false));
+  }, [fetchPosts]);
+
   const loadMore = useCallback(async () => {
     if (loading || !hasMore) return;
     setLoading(true);
-    if (!initialLoadDone.current) {
-      initialLoadDone.current = true;
-    }
     await fetchPosts(false);
     setLoading(false);
   }, [loading, hasMore, fetchPosts]);
@@ -67,11 +76,6 @@ export function useFeedPosts(): {
     await fetchPosts(true);
     setRefreshing(false);
   }, [fetchPosts]);
-
-  if (!initialLoadDone.current) {
-    initialLoadDone.current = true;
-    fetchPosts(true);
-  }
 
   return { posts, loading, refreshing, loadMore, refresh, hasMore };
 }
