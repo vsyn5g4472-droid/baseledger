@@ -169,6 +169,46 @@ export async function joinTeamByCode(userId: string, inviteCode: string): Promis
 }
 
 /**
+ * Join a team directly by teamId (used when accepting a teamInvite notification).
+ */
+export async function joinTeamById(userId: string, teamId: string): Promise<Team> {
+  try {
+    const team = await getTeam(teamId);
+
+    if (team.memberIds.includes(userId)) {
+      throw new AppError('VALIDATION', 'Already a member of this team');
+    }
+
+    await updateDoc(doc(db, COLLECTIONS.TEAMS, team.id), {
+      memberIds: arrayUnion(userId),
+    });
+
+    const memberData: TeamMember = {
+      userId,
+      role: 'member',
+      joinedAt: Timestamp.now(),
+    };
+    await setDoc(
+      doc(db, COLLECTIONS.TEAMS, team.id, COLLECTIONS.TEAM_MEMBERS, userId),
+      memberData,
+    );
+
+    const groupsRef = collection(db, COLLECTIONS.GROUPS);
+    const groupSnap = await getDocs(query(groupsRef, where('teamId', '==', team.id)));
+    if (!groupSnap.empty) {
+      await updateDoc(doc(db, COLLECTIONS.GROUPS, groupSnap.docs[0].id), {
+        memberIds: arrayUnion(userId),
+      });
+    }
+
+    return { ...team, memberIds: [...team.memberIds, userId] };
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('NETWORK', `Failed to join team: ${(error as Error).message}`);
+  }
+}
+
+/**
  * Send a team invite notification to a user.
  * @param teamId - Team to invite to
  * @param userId - User to invite

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Text, Avatar, Button, Card, Chip, Divider } from 'react-native-paper';
+import { Text, Avatar, Button, Badge, Card, Chip, Divider } from 'react-native-paper';
+import { useNotificationContext } from '../../../src/contexts/NotificationContext';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../src/contexts/AuthContext';
@@ -12,6 +13,7 @@ import { useI18n } from '../../../src/i18n';
 export default function ProfileScreen() {
   const { currentUser, signOut, userPlan } = useAuth();
   const { t } = useI18n();
+  const { unreadCount } = useNotificationContext();
 
   // Guest landing — show sign-up CTA
   if (!currentUser) {
@@ -113,6 +115,22 @@ export default function ProfileScreen() {
           {t.profile.messages}
         </Button>
       </View>
+
+      {/* 通知ボタン */}
+      <TouchableOpacity
+        style={styles.notifRow}
+        onPress={() => router.push('/(tabs)/profile/notifications' as any)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.notifIconWrap}>
+          <MaterialCommunityIcons name="bell-outline" size={20} color={Colors.primary} />
+          {unreadCount > 0 && (
+            <Badge style={styles.notifBadge} size={16}>{unreadCount}</Badge>
+          )}
+        </View>
+        <Text style={styles.notifLabel}>通知</Text>
+        <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textDisabled} />
+      </TouchableOpacity>
 
       <Divider style={styles.divider} />
 
@@ -277,4 +295,31 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: Typography.tiny, color: Colors.textSecondary, marginTop: 2 },
   feedButton: { marginHorizontal: Spacing.md, marginBottom: Spacing.sm },
   settingsButton: { marginHorizontal: Spacing.md, marginBottom: Spacing.sm },
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  notifIconWrap: {
+    position: 'relative',
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    backgroundColor: Colors.error,
+  },
+  notifLabel: {
+    flex: 1,
+    fontSize: Typography.body,
+    color: Colors.text,
+    fontWeight: '500',
+  },
 });

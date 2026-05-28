@@ -2,9 +2,11 @@ import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../src/constants/theme';
 import { useI18n } from '../../src/i18n';
+import { useNotificationContext } from '../../src/contexts/NotificationContext';
 
 export default function TabsLayout() {
   const { t } = useI18n();
+  const { unreadCount } = useNotificationContext();
 
   return (
     <Tabs
@@ -82,6 +84,7 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: t.nav.profile,
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="account" size={size} color={color} />
           ),

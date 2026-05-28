@@ -41,6 +41,18 @@ export default function ProfileLayout() {
           headerShadowVisible: false,
         }}
       />
+      <Stack.Screen
+        name="notifications"
+        options={{
+          headerShown: true,
+          title: '通知',
+          headerBackTitle: '戻る',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTintColor: Colors.primary,
+          headerTitleStyle: { fontWeight: '700', color: Colors.text },
+          headerShadowVisible: false,
+        }}
+      />
     </Stack>
   );
 }
