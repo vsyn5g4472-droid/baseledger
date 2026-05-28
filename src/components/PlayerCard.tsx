@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Card, Text, Avatar, Button, Chip } from 'react-native-paper';
 import { Colors, Spacing, BorderRadius, Typography } from '../constants/theme';
+import { useFollow } from '../hooks/useFollow';
 
 interface PlayerCardProps {
+  userId: string;
   name: string;
   photoURL: string | null;
   position: string | null;
@@ -13,10 +15,10 @@ interface PlayerCardProps {
   era: number;
   fieldingPct: number;
   onPress?: () => void;
-  onFollow?: () => void;
 }
 
 export default function PlayerCard({
+  userId,
   name,
   photoURL,
   position,
@@ -26,14 +28,8 @@ export default function PlayerCard({
   era,
   fieldingPct,
   onPress,
-  onFollow,
 }: PlayerCardProps) {
-  const [following, setFollowing] = useState(false);
-
-  const handleFollow = () => {
-    setFollowing(!following);
-    onFollow?.();
-  };
+  const { isFollowing, toggleFollow, loading: followLoading } = useFollow(userId);
 
   return (
     <Card style={styles.card} onPress={onPress}>
@@ -68,14 +64,16 @@ export default function PlayerCard({
           </View>
         </View>
         <Button
-          mode={following ? 'outlined' : 'contained'}
+          mode={isFollowing ? 'outlined' : 'contained'}
           compact
-          onPress={handleFollow}
+          onPress={toggleFollow}
+          disabled={followLoading}
+          loading={followLoading}
           style={styles.followButton}
           labelStyle={styles.followButtonLabel}
-          buttonColor={following ? undefined : Colors.primary}
+          buttonColor={isFollowing ? undefined : Colors.primary}
         >
-          {following ? 'Following' : 'Follow'}
+          {isFollowing ? 'Following' : 'Follow'}
         </Button>
       </View>
     </Card>

@@ -64,6 +64,7 @@ export default function SearchScreen() {
         keyExtractor={(item) => item.uid}
         renderItem={({ item }) => (
           <PlayerCard
+            userId={item.uid}
             name={item.displayName}
             photoURL={item.photoURL}
             position={item.position}
