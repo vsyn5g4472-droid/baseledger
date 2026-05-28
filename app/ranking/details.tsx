@@ -349,12 +349,6 @@ export default function RankingDetailsScreen() {
       />
 
       <View style={styles.container}>
-        {/* 残り更新回数 — 画面右上隅 */}
-        <View style={styles.remainingBar}>
-          <MaterialCommunityIcons name="refresh" size={12} color={Colors.textSecondary} />
-          <Text style={styles.remainingText}>本日の残り更新回数：{remainingCalls} 回</Text>
-        </View>
-
         {/* Tab bar */}
         <View style={styles.tabBar}>
           {CATEGORIES.map((cat, idx) => {

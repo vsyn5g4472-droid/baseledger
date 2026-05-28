@@ -104,11 +104,7 @@ export default function FeaturedPlayers({ onPlayerPress, onViewMore }: Props) {
       {/* セクションヘッダー */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>注目選手</Text>
-        {onViewMore ? (
-          <TouchableOpacity onPress={onViewMore} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={styles.viewMoreText}>全員を見る</Text>
-          </TouchableOpacity>
-        ) : null}
+        <Text style={styles.comingSoonText}>近日公開</Text>
       </View>
 
       {loading ? (
@@ -166,10 +162,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  viewMoreText: {
-    fontSize: Typography.caption,
-    color: Colors.action,
-    fontWeight: '600',
+  comingSoonText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   loadingRow: {
     height: 100,
