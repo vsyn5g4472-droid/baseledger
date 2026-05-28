@@ -154,7 +154,7 @@ export default function ChatIndexScreen() {
 
   const handleJoin = async () => {
     if (inviteCode.trim()) {
-      await joinByCode(inviteCode.trim());
+      await joinByCode(inviteCode.trim().toUpperCase());
       setJoinModal(false);
       setInviteCode('');
     }
