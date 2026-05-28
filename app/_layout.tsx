@@ -83,9 +83,56 @@ export default function RootLayout() {
                     headerShadowVisible: false,
                   }}
                 />
-                <Stack.Screen name="messages/index" options={{ headerShown: true, title: 'メッセージ' }} />
+                <Stack.Screen name="messages/index" options={{ headerShown: true, title: 'メッセージ', headerBackTitle: '戻る' }} />
                 <Stack.Screen name="messages/[conversationId]" options={{ headerShown: true, title: 'チャット' }} />
-                <Stack.Screen name="ranking/details" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="ranking/details"
+                  options={{
+                    headerShown: true,
+                    title: '注目選手ランキング',
+                    headerBackTitle: '戻る',
+                    headerStyle: { backgroundColor: Colors.white },
+                    headerTintColor: Colors.primary,
+                    headerTitleStyle: { fontWeight: '700', color: Colors.text },
+                    headerShadowVisible: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="analysis/index"
+                  options={{
+                    headerShown: true,
+                    title: '選手分析',
+                    headerBackTitle: '戻る',
+                    headerStyle: { backgroundColor: Colors.white },
+                    headerTintColor: Colors.primary,
+                    headerTitleStyle: { fontWeight: '700', color: Colors.text },
+                    headerShadowVisible: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="analysis/batter-report"
+                  options={{
+                    headerShown: true,
+                    title: '打者分析',
+                    headerBackTitle: '戻る',
+                    headerStyle: { backgroundColor: Colors.white },
+                    headerTintColor: Colors.primary,
+                    headerTitleStyle: { fontWeight: '700', color: Colors.text },
+                    headerShadowVisible: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="analysis/battery-report"
+                  options={{
+                    headerShown: true,
+                    title: 'バッテリー分析',
+                    headerBackTitle: '戻る',
+                    headerStyle: { backgroundColor: Colors.white },
+                    headerTintColor: Colors.primary,
+                    headerTitleStyle: { fontWeight: '700', color: Colors.text },
+                    headerShadowVisible: false,
+                  }}
+                />
               </Stack>
               <AuthModal />
             </NotificationProvider>
