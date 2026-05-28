@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "BallPark",
-    "slug": "ballpark",
+    "name": "BaseLedger",
+    "slug": "baseledger",
     "version": "1.0.0",
-    "scheme": "ballpark",
+    "scheme": "baseledger",
     "platforms": [
       "ios",
       "android",
