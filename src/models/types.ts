@@ -41,7 +41,7 @@ export interface UserStats {
   fielding: FieldingStats;
 }
 
-/** スコアキーピングの表示項目ON/OFF（17項目、velocity は試合ごと velocityEnabled） */
+/** スコアキーピングの表示項目ON/OFF（18項目、velocity は試合ごと velocityEnabled） */
 export type RecordingItemId =
   | 'foul_tip'
   | 'sacrifice_fly'
@@ -55,6 +55,8 @@ export type RecordingItemId =
   | 'bunt_stance'
   | 'bunt_detail'
   | 'sign_play'
+  /** 個人のサイン見落とし（戦術 sign_play とは別、選手個別の戦術理解度指標） */
+  | 'sign_miss'
   | 'pitch_zone_detail'
   | 'batted_ball_location'
   | 'batted_ball_distance'
@@ -125,6 +127,8 @@ export interface Post {
   visibility: PostVisibility;
   teamId: string | null;
   createdAt: Timestamp;
+  /** ローカル付与: ログインユーザーがいいね済みかどうか（Firestoreには保存しない） */
+  isLiked?: boolean;
 }
 
 export interface Comment {

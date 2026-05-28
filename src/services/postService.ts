@@ -451,3 +451,20 @@ export async function deletePost(postId: string, authorId: string): Promise<void
     throw new AppError('NETWORK', `Failed to delete post: ${(error as Error).message}`);
   }
 }
+
+/**
+ * 指定ユーザーが対象の投稿をいいね済みか一括取得する。
+ * likeId = `${postId}_${userId}` の getDoc を並列実行（複合インデックス不要）。
+ * @param userId - ログイン中のユーザーID
+ * @param postIds - 確認対象の投稿IDリスト
+ */
+export async function getLikedPostIds(userId: string, postIds: string[]): Promise<Set<string>> {
+  if (postIds.length === 0) return new Set();
+  const checks = await Promise.all(
+    postIds.map(async (postId) => {
+      const snap = await getDoc(doc(db, COLLECTIONS.LIKES, `${postId}_${userId}`));
+      return snap.exists() ? postId : null;
+    }),
+  );
+  return new Set(checks.filter((id): id is string => id !== null));
+}

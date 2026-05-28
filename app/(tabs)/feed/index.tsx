@@ -9,7 +9,7 @@ import EmptyState from '../../../src/components/EmptyState';
 import FeaturedPlayers from '../../../src/components/feed/FeaturedPlayers';
 import type { FeaturedPlayer } from '../../../src/services/rankingService';
 import AdBanner from '../../../src/components/ads/AdBanner';
-import { useFeedPosts } from '../../../src/hooks/usePosts';
+import { useFeedPosts, usePostActions } from '../../../src/hooks/usePosts';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useRequireAuth } from '../../../src/hooks/useRequireAuth';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
@@ -18,6 +18,7 @@ export default function FeedScreen() {
   const { posts, loading, refreshing, refresh, loadMore, hasMore } = useFeedPosts();
   const { currentUser } = useAuth();
   const requireAuth = useRequireAuth();
+  const { likePost, unlikePost } = usePostActions();
 
   if (loading && posts.length === 0) {
     return <LoadingScreen message="Loading feed..." />;
@@ -59,13 +60,18 @@ export default function FeedScreen() {
             mediaURLs={item.mediaURLs}
             externalVideoUrl={item.externalVideoUrl}
             likesCount={item.likesCount}
+            initialLiked={item.isLiked}
             commentsCount={item.commentsCount}
             timeAgo={formatTimeAgo(item.createdAt)}
             onPress={() => router.push(`/(tabs)/feed/${item.id}`)}
             onAuthorPress={() => router.push(`/user/${item.authorId}` as any)}
-            // Auth-aware like: guests are redirected to login without local state toggle
             requiresAuth={!currentUser}
-            onLike={() => requireAuth()}
+            onLike={(isNowLiked) =>
+              requireAuth(() => {
+                if (isNowLiked) likePost(item.id);
+                else unlikePost(item.id);
+              })
+            }
             onComment={() => requireAuth(() => router.push(`/(tabs)/feed/${item.id}`))}
           />
         )}

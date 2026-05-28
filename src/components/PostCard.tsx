@@ -12,11 +12,12 @@ interface PostCardProps {
   mediaURLs?: string[];
   externalVideoUrl?: string | null;
   likesCount: number;
+  initialLiked?: boolean;
   commentsCount: number;
   timeAgo: string;
   onPress?: () => void;
   onAuthorPress?: () => void;
-  onLike?: () => void;
+  onLike?: (isNowLiked: boolean) => void;
   onComment?: () => void;
   requiresAuth?: boolean;
 }
@@ -38,6 +39,7 @@ export default function PostCard({
   mediaURLs = [],
   externalVideoUrl,
   likesCount,
+  initialLiked,
   commentsCount,
   timeAgo,
   onPress,
@@ -46,14 +48,15 @@ export default function PostCard({
   onComment,
   requiresAuth = false,
 }: PostCardProps) {
-  const [liked, setLiked] = useState(false);
+  const [liked, setLiked] = useState(initialLiked ?? false);
   const [likes, setLikes] = useState(likesCount);
 
   const handleLike = () => {
-    if (requiresAuth) { onLike?.(); return; }
-    setLiked(!liked);
-    setLikes(liked ? likes - 1 : likes + 1);
-    onLike?.();
+    if (requiresAuth) { onLike?.(liked); return; }
+    const newLiked = !liked;
+    setLiked(newLiked);
+    setLikes(newLiked ? likes + 1 : likes - 1);
+    onLike?.(newLiked);
   };
 
   const accentColor = typeAccentColor[type] ?? Colors.border;

@@ -9,6 +9,7 @@ import {
   deletePost as serviceDeletePost,
   likePost as serviceLikePost,
   unlikePost as serviceUnlikePost,
+  getLikedPostIds,
 } from '../services/postService';
 
 const PAGE_SIZE = 20;
@@ -40,10 +41,17 @@ export function useFeedPosts(): {
           result = await getPublicPosts(cursor, PAGE_SIZE);
         }
 
+        // ログイン済みの場合、各投稿のいいね済み状態を一括取得して付与
+        let items = result.items;
+        if (currentUser) {
+          const likedIds = await getLikedPostIds(currentUser.uid, items.map((p) => p.id));
+          items = items.map((p) => ({ ...p, isLiked: likedIds.has(p.id) }));
+        }
+
         if (isRefresh) {
-          setPosts(result.items);
+          setPosts(items);
         } else {
-          setPosts((prev) => [...prev, ...result.items]);
+          setPosts((prev) => [...prev, ...items]);
         }
         lastDocRef.current = result.lastDoc;
         setHasMore(result.hasMore);
