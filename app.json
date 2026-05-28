@@ -22,7 +22,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "jp.baseledger.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserTrackingUsageDescription": "より関連性の高い広告を表示するために使用します。"
       }
     },
     "android": {
@@ -68,6 +69,13 @@
           "ios": {
             "useFrameworks": "static"
           }
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-xxxxxxxxxxxxxxxx~xxxxxxxxxx",
+          "iosAppId": "$(EXPO_PUBLIC_ADMOB_IOS_APP_ID)"
         }
       ]
     ],

@@ -8,6 +8,7 @@ import LoadingScreen from '../../../src/components/LoadingScreen';
 import EmptyState from '../../../src/components/EmptyState';
 import FeaturedPlayers from '../../../src/components/feed/FeaturedPlayers';
 import type { FeaturedPlayer } from '../../../src/services/rankingService';
+import AdBanner from '../../../src/components/ads/AdBanner';
 import { useFeedPosts } from '../../../src/hooks/usePosts';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useRequireAuth } from '../../../src/hooks/useRequireAuth';
@@ -39,12 +40,15 @@ export default function FeedScreen() {
         data={posts}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
-          <FeaturedPlayers
-            onPlayerPress={(_player: FeaturedPlayer) => {
-              // 将来: router.push(`/player/${_player.id}`)
-            }}
-            onViewMore={() => router.push('/ranking/details' as any)}
-          />
+          <>
+            <FeaturedPlayers
+              onPlayerPress={(_player: FeaturedPlayer) => {
+                // 将来: router.push(`/player/${_player.id}`)
+              }}
+              onViewMore={() => router.push('/ranking/details' as any)}
+            />
+            <AdBanner />
+          </>
         }
         renderItem={({ item }) => (
           <PostCard
