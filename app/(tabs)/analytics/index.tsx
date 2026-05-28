@@ -45,26 +45,13 @@ function GameCard({ game }: { game: GameState }) {
     >
       {/* ③ 状態バッジ + 日付 — 主役の前に文脈を与える補足行 */}
       <View style={styles.cardMeta}>
-        <View
-          style={[
-            styles.statusBadge,
-            {
-              backgroundColor: isCompleted ? Colors.statusDoneBg : Colors.statusLiveBg,
-            },
-          ]}
-        >
-          {!isCompleted ? (
-            <View style={styles.liveDot} />
-          ) : null}
-          <Text
-            style={[
-              styles.statusText,
-              { color: isCompleted ? Colors.statusDone : Colors.statusLive },
-            ]}
-          >
-            {isCompleted ? t.analytics.completed : t.analytics.inProgress}
-          </Text>
-        </View>
+        {isCompleted && (
+          <View style={[styles.statusBadge, { backgroundColor: Colors.statusDoneBg ?? '#E3F2FD' }]}>
+            <Text style={[styles.statusText, { color: Colors.statusDone ?? Colors.primary }]}>
+              {t.analytics.completed}
+            </Text>
+          </View>
+        )}
         <Text style={styles.dateText}>{formatDate(game.createdAt)}</Text>
       </View>
 
