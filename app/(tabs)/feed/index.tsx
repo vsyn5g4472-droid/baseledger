@@ -28,11 +28,11 @@ export default function FeedScreen() {
     const now = Date.now();
     const ts = date?.toMillis?.() ?? Date.now();
     const diffMin = Math.floor((now - ts) / 60000);
-    if (diffMin < 1) return 'just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffMin < 1) return 'たった今';
+    if (diffMin < 60) return `${diffMin}分前`;
     const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    return `${Math.floor(diffHr / 24)}d ago`;
+    if (diffHr < 24) return `${diffHr}時間前`;
+    return `${Math.floor(diffHr / 24)}日前`;
   };
 
   return (
