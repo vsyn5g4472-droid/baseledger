@@ -37,7 +37,7 @@ interface AuthContextType {
   isNewUser: boolean;
   clearNewUser: () => void;
   /** Firestore ユーザーを再取得（設定保存後など） */
-  refreshUser: () => Promise<void>;
+  refreshUser: (updates?: Partial<User>) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithUsername: (username: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string, role: UserRole) => Promise<void>;
@@ -66,14 +66,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     configureRevenueCat();
   }, []);
 
-  const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async (updates?: Partial<User>) => {
     const u = auth.currentUser;
     if (!u) return;
     try {
       const user = await getFirestoreUser(u.uid);
       if (user) setCurrentUser(user);
     } catch {
-      // keep previous currentUser
+      // Firestore 再取得失敗時、渡された updates でオプティミスティックに反映
+      if (updates) setCurrentUser((prev) => prev ? { ...prev, ...updates } : prev);
     }
   }, []);
 

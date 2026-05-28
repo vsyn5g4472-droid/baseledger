@@ -21,7 +21,7 @@ export default function EditProfileScreen() {
     setLoading(true);
     try {
       await updateUser(currentUser.uid, { displayName, bio, position, team, role });
-      await refreshUser();
+      await refreshUser({ displayName, bio, position, team, role });
       Alert.alert('保存完了', 'プロフィールを更新しました', [
         { text: 'OK', onPress: () => router.back() },
       ]);
