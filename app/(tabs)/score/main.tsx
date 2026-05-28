@@ -11,6 +11,7 @@ import {
   UIManager,
   Switch,
   Image,
+  PanResponder,
 } from 'react-native';
 
 // Android で LayoutAnimation を有効化
@@ -134,8 +135,8 @@ export default function LiveScoreScreen() {
   const [showAddPitch, setShowAddPitch] = useState(false);
   const [newPitchName, setNewPitchName] = useState('');
   const [resultModalVisible, setResultModalVisible] = useState(false);
-  const [modalVelocity, setModalVelocity] = useState<number | null>(null);
-  const [modalVelocityEnabled, setModalVelocityEnabled] = useState(false);
+  const [modalVelocity, setModalVelocity] = useState<number>(130);
+  const [modalVelocityEnabled, setModalVelocityEnabled] = useState(true);
   const [pendingZone, setPendingZone] = useState<StrikeZone | null>(null);
   const [tapCoord, setTapCoord] = useState<{ px: number; py: number } | null>(null);
   const [pendingCoords, setPendingCoords] = useState<{ x: number; y: number } | null>(null);
@@ -435,8 +436,8 @@ export default function LiveScoreScreen() {
       velocity = measuredVelocity ?? undefined;
       setMeasuredVelocity(null);
     }
-    setModalVelocity(null);
-    setModalVelocityEnabled(false);
+    setModalVelocity(130);
+    setModalVelocityEnabled(true);
 
     let pitchExtra: { buntAttempt?: boolean; buntOutcome?: BuntOutcome } | undefined;
     if (buntStance && isItemOn('bunt_stance')) {
@@ -1517,8 +1518,8 @@ export default function LiveScoreScreen() {
             setPendingCoords(null);
             setTapCoord(null);
             setRunnerActions({});
-            setModalVelocity(null);
-            setModalVelocityEnabled(false);
+            setModalVelocity(130);
+            setModalVelocityEnabled(true);
           }}
           contentContainerStyle={styles.modal}
         >
@@ -1641,10 +1642,9 @@ export default function LiveScoreScreen() {
             {/* ── 球速スライダーセクション ── */}
             <ModalVelocitySlider
               enabled={modalVelocityEnabled}
-              value={modalVelocity ?? 130}
+              value={modalVelocity}
               onToggle={(v) => {
                 setModalVelocityEnabled(v);
-                if (v && modalVelocity === null) setModalVelocity(130);
               }}
               onChange={setModalVelocity}
             />
@@ -2081,7 +2081,25 @@ function ModalVelocitySlider({
   onChange: (v: number) => void;
 }) {
   const fillRatio = (value - MODAL_VEL_MIN) / (MODAL_VEL_MAX - MODAL_VEL_MIN);
-  const dragRef = useRef<{ startPageX: number; startValue: number } | null>(null);
+  const startRef = useRef<{ pageX: number; value: number } | null>(null);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
+      onPanResponderGrant: (e) => {
+        startRef.current = { pageX: e.nativeEvent.pageX, value };
+      },
+      onPanResponderMove: (e) => {
+        if (!startRef.current) return;
+        const deltaX = e.nativeEvent.pageX - startRef.current.pageX;
+        const deltaV = (deltaX / MODAL_TRACK_W) * (MODAL_VEL_MAX - MODAL_VEL_MIN);
+        onChange(Math.round(Math.max(MODAL_VEL_MIN, Math.min(MODAL_VEL_MAX,
+          startRef.current.value + deltaV))));
+      },
+      onPanResponderRelease: () => { startRef.current = null; },
+      onPanResponderTerminate: () => { startRef.current = null; },
+    })
+  ).current;
 
   return (
     <View style={modalVelStyles.section}>
@@ -2114,27 +2132,7 @@ function ModalVelocitySlider({
         <View style={modalVelStyles.sliderWrap}>
           <View
             style={modalVelStyles.track}
-            onStartShouldSetResponder={() => true}
-            onMoveShouldSetResponder={() => true}
-            onResponderTerminationRequest={() => false}
-            onResponderGrant={(e) => {
-              dragRef.current = {
-                startPageX: e.nativeEvent.pageX,
-                startValue: value,
-              };
-            }}
-            onResponderMove={(e) => {
-              if (!dragRef.current) return;
-              const deltaX = e.nativeEvent.pageX - dragRef.current.startPageX;
-              const deltaV = (deltaX / MODAL_TRACK_W) * (MODAL_VEL_MAX - MODAL_VEL_MIN);
-              const next = Math.round(
-                Math.max(MODAL_VEL_MIN, Math.min(MODAL_VEL_MAX,
-                  dragRef.current.startValue + deltaV))
-              );
-              onChange(next);
-            }}
-            onResponderRelease={() => { dragRef.current = null; }}
-            onResponderTerminate={() => { dragRef.current = null; }}
+            {...panResponder.panHandlers}
           >
             <View style={modalVelStyles.trackBg} />
             <View style={[modalVelStyles.trackFill, { width: `${fillRatio * 100}%` as any }]} />
