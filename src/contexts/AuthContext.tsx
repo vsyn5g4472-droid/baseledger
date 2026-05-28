@@ -23,6 +23,12 @@ import {
 import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import type { User, UserRole } from '../models/types';
 import { UserPlan } from '../services/planService';
+import {
+  configureRevenueCat,
+  loginRevenueCatUser,
+  logoutRevenueCatUser,
+  syncPlanToFirestore,
+} from '../services/revenueCatService';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -55,6 +61,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearNewUser = useCallback(() => setIsNewUser(false), []);
 
+  // RevenueCat SDK を一度だけ初期化
+  useEffect(() => {
+    configureRevenueCat();
+  }, []);
+
   const refreshUser = useCallback(async () => {
     const u = auth.currentUser;
     if (!u) return;
@@ -83,7 +94,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const _t0 = Date.now();
       const { user, isNew } = await syncFirestoreUser(firebaseUser, extras);
       if (__DEV__) console.log(`[perf][auth] onAuthStateChanged.sync: ${Date.now() - _t0}ms`);
-      setCurrentUser(user);
+
+      // RevenueCat にログインしてサブスクリプション状態を取得
+      const rcPlan = await loginRevenueCatUser(firebaseUser.uid);
+      const resolvedPlan = rcPlan !== UserPlan.FREE ? rcPlan : user.plan;
+      const mergedUser = resolvedPlan !== user.plan
+        ? { ...user, plan: resolvedPlan }
+        : user;
+      // Firestore にも同期（変化があった場合のみ）
+      if (resolvedPlan !== user.plan) {
+        await syncPlanToFirestore(firebaseUser.uid, resolvedPlan);
+      }
+      setCurrentUser(mergedUser);
       if (isNew) setIsNewUser(true);
       setLoading(false);
     });
@@ -152,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await clearBiometricCredentials().catch(() => {});
     await fbSignOut(auth);
+    await logoutRevenueCatUser();
     setCurrentUser(null);
     setIsNewUser(false);
   }, []);

@@ -61,6 +61,14 @@
       ],
       [
         "expo-apple-authentication"
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
       ]
     ],
     "experiments": {
@@ -70,7 +78,8 @@
       "router": {},
       "eas": {
         "projectId": "231a57a2-356a-4309-8a4d-634156eac428"
-      }
+      },
+      "revenueCatIosApiKey": "$(EXPO_PUBLIC_REVENUECAT_IOS_API_KEY)"
     }
   }
 }
