@@ -13,6 +13,7 @@ import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 import type { GameCategory } from '../../../src/types/game';
 import { DRAFT_GAME_KEY } from '../../../src/db';
+import TeamQuickSelect from '../../../src/components/score/TeamQuickSelect';
 
 const CATEGORIES: GameCategory[] = ['practice', 'official', 'tournament', 'other'];
 
@@ -192,37 +193,40 @@ export default function ScoreIndexScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t.setup.title}</Text>
 
-        <View style={styles.teamRow}>
-          <View style={styles.teamCol}>
-            <View style={[styles.teamBadge, { backgroundColor: Colors.primary }]}>
-              <Text style={styles.teamBadgeText}>{t.setup.awayTeam}</Text>
-            </View>
-            <TextInput
-              mode="outlined"
-              placeholder={t.setup.teamName}
-              value={awayName}
-              onChangeText={setAwayName}
-              style={styles.input}
-              dense
-            />
-          </View>
-          <View style={styles.vsContainer}>
-            <Text style={styles.vs}>VS</Text>
-          </View>
-          <View style={styles.teamCol}>
-            <View style={[styles.teamBadge, { backgroundColor: Colors.secondary }]}>
-              <Text style={styles.teamBadgeText}>{t.setup.homeTeam}</Text>
-            </View>
-            <TextInput
-              mode="outlined"
-              placeholder={t.setup.teamName}
-              value={homeName}
-              onChangeText={setHomeName}
-              style={styles.input}
-              dense
-            />
-          </View>
+        {/* 先攻チーム */}
+        <View style={[styles.teamBadge, { backgroundColor: Colors.primary }]}>
+          <Text style={styles.teamBadgeText}>{t.setup.awayTeam}</Text>
         </View>
+        <TeamQuickSelect side="away" onSelect={setAwayName} />
+        <TextInput
+          mode="outlined"
+          placeholder={t.setup.teamName}
+          value={awayName}
+          onChangeText={setAwayName}
+          style={styles.input}
+          dense
+        />
+
+        {/* VS 区切り */}
+        <View style={styles.vsRow}>
+          <View style={styles.vsDivider} />
+          <Text style={styles.vs}>VS</Text>
+          <View style={styles.vsDivider} />
+        </View>
+
+        {/* 後攻チーム */}
+        <View style={[styles.teamBadge, { backgroundColor: Colors.secondary }]}>
+          <Text style={styles.teamBadgeText}>{t.setup.homeTeam}</Text>
+        </View>
+        <TeamQuickSelect side="home" onSelect={setHomeName} />
+        <TextInput
+          mode="outlined"
+          placeholder={t.setup.teamName}
+          value={homeName}
+          onChangeText={setHomeName}
+          style={styles.input}
+          dense
+        />
       </View>
 
       {/* ===== 球場情報 ===== */}
@@ -404,9 +408,13 @@ const styles = StyleSheet.create({
   categoryTextActive: { color: Colors.white },
 
   // チーム
-  teamRow: { flexDirection: 'row', alignItems: 'center' },
-  teamCol: { flex: 1 },
-  vsContainer: { paddingHorizontal: Spacing.sm, paddingTop: Spacing.lg },
+  vsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginVertical: Spacing.md,
+  },
+  vsDivider: { flex: 1, height: 1, backgroundColor: Colors.border },
   vs: { fontSize: Typography.body, fontWeight: '900', color: Colors.textSecondary },
   teamBadge: {
     alignSelf: 'flex-start',
