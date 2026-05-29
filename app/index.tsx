@@ -6,7 +6,7 @@ export default function Index() {
   const { loading, isNewUser, currentUser } = useAuth();
 
   if (loading) {
-    return <LoadingScreen message="Loading..." />;
+    return <LoadingScreen />;
   }
 
   // New users (just signed up) → onboarding to set username

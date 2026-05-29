@@ -21,7 +21,7 @@ export default function FeedScreen() {
   const { likePost, unlikePost } = usePostActions();
 
   if (loading && posts.length === 0) {
-    return <LoadingScreen message="Loading feed..." />;
+    return <LoadingScreen />;
   }
 
   const formatTimeAgo = (date: any) => {
