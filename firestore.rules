@@ -48,9 +48,13 @@ service cloud.firestore {
         && request.resource.data.plan == 'free';
 
       allow update: if isOwner(userId)
-        && !request.resource.data.diff(resource.data)
-            .affectedKeys()
-            .hasAny(['plan', 'email', 'uid', 'createdAt']);
+          && !request.resource.data.diff(resource.data)
+              .affectedKeys()
+              .hasAny(['plan', 'email', 'uid', 'createdAt'])
+        || (isSignedIn()
+          && request.resource.data.diff(resource.data)
+              .affectedKeys()
+              .hasOnly(['followersCount']));
 
       allow delete: if false;
     }
