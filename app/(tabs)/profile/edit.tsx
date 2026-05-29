@@ -4,6 +4,7 @@ import { Text, TextInput, Button, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { updateUser } from '../../../src/services/userService';
+import { updateAuthorNameInPosts } from '../../../src/services/postService';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import type { UserRole } from '../../../src/models/types';
 
@@ -21,6 +22,9 @@ export default function EditProfileScreen() {
     setLoading(true);
     try {
       await updateUser(currentUser.uid, { displayName, bio, position, team, role });
+      if (displayName !== currentUser.displayName) {
+        await updateAuthorNameInPosts(currentUser.uid, displayName, currentUser.photoURL ?? null);
+      }
       await refreshUser({ displayName, bio, position, team, role });
       Alert.alert('保存完了', 'プロフィールを更新しました', [
         { text: 'OK', onPress: () => router.back() },

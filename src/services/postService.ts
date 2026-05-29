@@ -13,6 +13,7 @@ import {
   getDocs,
   increment,
   runTransaction,
+  writeBatch,
   Timestamp,
   QueryDocumentSnapshot,
   DocumentData,
@@ -467,4 +468,33 @@ export async function getLikedPostIds(userId: string, postIds: string[]): Promis
     }),
   );
   return new Set(checks.filter((id): id is string => id !== null));
+}
+
+/**
+ * プロフィール更新時に過去の投稿の authorName / authorPhotoURL を一括更新する。
+ * writeBatch で 500 件ずつ分割して処理する。
+ */
+export async function updateAuthorNameInPosts(
+  userId: string,
+  newName: string,
+  newPhotoURL: string | null,
+): Promise<void> {
+  try {
+    const postsRef = collection(db, COLLECTIONS.POSTS);
+    const q = query(postsRef, where('authorId', '==', userId));
+    const snap = await getDocs(q);
+
+    if (snap.empty) return;
+
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < snap.docs.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      snap.docs.slice(i, i + BATCH_SIZE).forEach((d) => {
+        batch.update(d.ref, { authorName: newName, authorPhotoURL: newPhotoURL });
+      });
+      await batch.commit();
+    }
+  } catch (error) {
+    throw new AppError('NETWORK', `Failed to update author name in posts: ${(error as Error).message}`);
+  }
 }

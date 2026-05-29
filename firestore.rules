@@ -22,6 +22,12 @@ service cloud.firestore {
           || request.resource.data.diff(resource.data)
               .affectedKeys()
               .hasOnly(['commentsCount', 'likesCount'])
+          || (
+            request.auth.uid == resource.data.authorId
+            && request.resource.data.diff(resource.data)
+                .affectedKeys()
+                .hasOnly(['authorName', 'authorPhotoURL'])
+          )
         );
       allow delete: if isOwner(resource.data.authorId);
 
