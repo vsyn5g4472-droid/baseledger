@@ -1,7 +1,9 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import { Expo } from "expo-server-sdk";
 import {
   SYSTEM_PROMPT,
   REPORT_TYPES,
@@ -414,5 +416,58 @@ export const generateAIPrediction = onCall(
 
     const userPrompt = buildPromptForPredictionType(predictionType as PredictionType, data);
     return await callAnthropicForPrediction(userPrompt, anthropicApiKey.value());
+  },
+);
+
+// =============================================================================
+// 6. プッシュ通知トリガー
+// =============================================================================
+
+const expoClient = new Expo();
+
+export const onNotificationCreated = onDocumentCreated(
+  "notifications/{notifId}",
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+
+    const { userId, type, fromUserId } = data as {
+      userId: string;
+      type: string;
+      fromUserId: string | null;
+    };
+
+    // 受信者の pushToken を取得
+    const userSnap = await db.collection("users").doc(userId).get();
+    const pushToken = userSnap.data()?.pushToken as string | undefined;
+    if (!pushToken || !Expo.isExpoPushToken(pushToken)) return;
+
+    // 送信者名を取得
+    let fromUserName = "誰か";
+    if (fromUserId) {
+      const fromSnap = await db.collection("users").doc(fromUserId).get();
+      fromUserName =
+        (fromSnap.data()?.displayName as string | undefined) ??
+        (fromSnap.data()?.username as string | undefined) ??
+        "誰か";
+    }
+
+    // type 別タイトル・本文
+    const messageMap: Record<string, { title: string; body: string }> = {
+      follow:     { title: "フォローされました",     body: `${fromUserName}さんがあなたをフォローしました` },
+      like:       { title: "いいねされました",       body: `${fromUserName}さんが投稿にいいねしました` },
+      comment:    { title: "コメントが届きました",   body: `${fromUserName}さんがコメントしました` },
+      dm:         { title: "メッセージが届きました", body: `${fromUserName}さんからメッセージです` },
+      teamInvite: { title: "チームへの招待",         body: "チームに招待されました" },
+    };
+    const msg = messageMap[type];
+    if (!msg) return;
+
+    await expoClient.sendPushNotificationsAsync([{
+      to: pushToken,
+      title: msg.title,
+      body: msg.body,
+      sound: "default",
+    }]);
   },
 );

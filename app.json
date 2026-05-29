@@ -55,6 +55,13 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#1B3A5C"
+        }
+      ],
+      [
         "expo-local-authentication",
         {
           "faceIDPermission": "BallPark uses Face ID to sign you in securely."

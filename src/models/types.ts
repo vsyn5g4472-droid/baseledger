@@ -93,6 +93,7 @@ export interface User {
   updatedAt: Timestamp;
   /** 未設定のユーザーは mergeWithDefaults で補完 */
   recordingPreferences?: RecordingPreferences;
+  pushToken?: string;
 }
 
 // ============================================================
