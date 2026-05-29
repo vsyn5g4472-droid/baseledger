@@ -51,6 +51,10 @@ export default function ScoreLayout() {
         name="spot-history"
         options={{ title: 'スポット打席履歴', headerShown: true }}
       />
+      <Stack.Screen
+        name="normal"
+        options={{ headerShown: false }}
+      />
     </Stack>
   );
 }
