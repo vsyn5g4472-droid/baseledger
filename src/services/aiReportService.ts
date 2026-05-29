@@ -18,6 +18,8 @@ import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import type { GameState } from '../types/game';
 import type { AggregatedPitchingStats, AggregatedBattingStats } from '../utils/multiGameStats';
 import type { BatteryProfile, BatterProfile } from '../utils/analysisEngine';
+import { aggregateBuntSignStats } from '../utils/buntSignAggregate';
+import { aggregateSignMisses } from '../utils/signMissAggregate';
 import { auth, db, functions, COLLECTIONS } from './firebase';
 import { UserPlan, USER_PLAN_META, checkFeatureAccess } from './planService';
 import {
@@ -336,63 +338,81 @@ function shapeTeam(
   return { topBatters, pitcherSummary, teamNames, score };
 }
 
-function shapeBatteryProfile(profile: BatteryProfile) {
-  const top2S = profile.pitchType2Strike[0];
-  const top2SZoneEntry = Object.entries(profile.zone2Strike)
-    .sort(([, a], [, b]) => b - a)[0];
+function shapeBatteryProfile(profile: BatteryProfile, games: GameState[]) {
+  const top2SPitches = profile.pitchType2Strike.slice(0, 3)
+    .map((p) => ({ type: p.type, pct: p.pct }));
+  const top2SZones = Object.entries(profile.zone2Strike)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([zone, count]) => ({ zone, count }));
+  const zone2StrikeR = Object.entries(profile.zone2StrikeR)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([zone, count]) => ({ zone, count }));
+  const zone2StrikeL = Object.entries(profile.zone2StrikeL)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([zone, count]) => ({ zone, count }));
+  const buntSign = aggregateBuntSignStats(games);
+  const signMiss = aggregateSignMisses(games);
 
   return {
-    pitcherName: profile.pitcherName,
-    catcherName: profile.catcherName,
-    totalGames: profile.totalGames,
+    pitcherName:  profile.pitcherName,
+    catcherName:  profile.catcherName,
+    totalGames:   profile.totalGames,
     totalPitches: profile.totalPitches,
-    strikeRate: profile.strikeRate,
-    avgVelocity: profile.avgVelocity ?? null,
-    maxVelocity: profile.maxVelocity ?? null,
-    top2SPitch: top2S ? { type: top2S.type, pct: top2S.pct } : null,
-    top2SZone: top2SZoneEntry ? { zone: top2SZoneEntry[0], count: top2SZoneEntry[1] } : null,
+    strikeRate:   profile.strikeRate,
+    avgVelocity:  profile.avgVelocity ?? null,
+    maxVelocity:  profile.maxVelocity ?? null,
+    top2SPitches,
+    top2SZones,
+    zone2StrikeR,
+    zone2StrikeL,
+    buntSuccessRate: buntSign.bunt.attempts > 0 ? buntSign.bunt.rate : null,
+    signSuccessRate: buntSign.sign.attempts > 0 ? buntSign.sign.rate : null,
+    signMissTotal:   signMiss.totalEvents,
     finishingPitches: profile.finishingPitches.slice(0, 3).map((f) => ({
       pitchType: f.pitchType,
-      zone: f.zone,
-      pct: f.pct,
+      zone:      f.zone,
+      pct:       f.pct,
     })),
     countTendencies: profile.countTendencies
       .filter((c) => c.total > 0)
       .slice(0, 5)
       .map((c) => ({
-        count: `${c.balls}B-${c.strikes}S`,
+        count:        `${c.balls}B-${c.strikes}S`,
         topPitchType: c.pitchTypes[0]?.type ?? '-',
-        topPitchPct: c.pitchTypes[0]?.pct ?? 0,
-        topZone: c.topZones[0]?.zone ?? '-',
+        topPitchPct:  c.pitchTypes[0]?.pct ?? 0,
+        topZone:      c.topZones[0]?.zone ?? '-',
       })),
   };
 }
 
 function shapeBatterProfile(profile: BatterProfile) {
   return {
-    batterName: profile.batterName,
-    totalGames: profile.totalGames,
-    totalAtBats: profile.totalAtBats,
-    totalPitchesFaced: profile.totalPitchesFaced,
-    avg: profile.avg,
-    strikeoutRate: profile.strikeoutRate,
-    walkRate: profile.walkRate,
+    batterName:          profile.batterName,
+    totalGames:          profile.totalGames,
+    totalAtBats:         profile.totalAtBats,
+    totalPitchesFaced:   profile.totalPitchesFaced,
+    avg:                 profile.avg,
+    strikeoutRate:       profile.strikeoutRate,
+    walkRate:            profile.walkRate,
     firstPitchSwingRate: profile.firstPitchSwingRate,
+    buntRate:            profile.buntRate,
     weakZones: profile.weakZones.slice(0, 3).map((z) => ({
-      zone: z.zone,
-      swingMissRate: z.swingMissRate,
-      pitchesFaced: z.pitchesFaced,
+      zone: z.zone, swingMissRate: z.swingMissRate, pitchesFaced: z.pitchesFaced,
     })),
     strongZones: profile.strongZones.slice(0, 3).map((z) => ({
-      zone: z.zone,
-      hitRate: z.hitRate,
-      pitchesFaced: z.pitchesFaced,
+      zone: z.zone, hitRate: z.hitRate, pitchesFaced: z.pitchesFaced,
     })),
     pitchTypeStats: profile.pitchTypeStats.slice(0, 5).map((p) => ({
-      type: p.type,
-      count: p.count,
-      swingMissRate: p.swingMissRate,
-      hitRate: p.hitRate,
+      type: p.type, count: p.count, swingMissRate: p.swingMissRate, hitRate: p.hitRate,
+    })),
+    velocityBands: profile.velocityBands.map((b) => ({
+      band:          b.label,
+      count:         b.pitchesFaced,
+      swingMissRate: b.swings > 0 ? b.swingMisses / b.swings : 0,
+      hitRate:       b.pitchesFaced > 0 ? b.hits / b.pitchesFaced : 0,
     })),
     avgHitDistance: profile.avgHitDistance ?? null,
   };
@@ -460,6 +480,7 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
  */
 export async function generateBatteryAIReport(
   profile: BatteryProfile,
+  games: GameState[],
   userPlan: UserPlan,
 ): Promise<AIReport> {
   const early = earlyPlanGate(userPlan);
@@ -482,7 +503,7 @@ export async function generateBatteryAIReport(
   }
 
   try {
-    const report = await callAIReportFunction('battery-profile', shapeBatteryProfile(profile));
+    const report = await callAIReportFunction('battery-profile', shapeBatteryProfile(profile, games));
     await writeCache(cacheKey, report, userPlan);                              // L1
     if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
     return report;

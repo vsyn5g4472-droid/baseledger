@@ -9,7 +9,7 @@
  *  5. AI 自然言語サマリ
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -143,11 +143,12 @@ export default function BatteryReportScreen() {
   const [loading, setLoading] = useState(true);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const gamesRef = useRef<import('../../src/types/game').GameState[]>([]);
 
   const loadAIReport = useCallback(async (p: BatteryProfile) => {
     setAiLoading(true);
     try {
-      const report = await generateBatteryAIReport(p, userPlan);
+      const report = await generateBatteryAIReport(p, gamesRef.current, userPlan);
       setAiReport(report);
     } finally {
       setAiLoading(false);
@@ -158,6 +159,7 @@ export default function BatteryReportScreen() {
     setAiReport(null);
     (async () => {
       const games = await db.games.getAll();
+      gamesRef.current = games;
       const p = buildBatteryProfile(games, pitcherId, catcherId);
       setProfile(p);
       setLoading(false);

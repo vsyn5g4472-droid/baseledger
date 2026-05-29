@@ -96,40 +96,46 @@ export interface TeamData {
 }
 
 export interface BatteryProfileData {
-  pitcherName: string;
-  catcherName: string;
-  totalGames: number;
+  pitcherName:  string;
+  catcherName:  string;
+  totalGames:   number;
   totalPitches: number;
-  strikeRate: number;
-  avgVelocity: number | null;
-  maxVelocity: number | null;
-  top2SPitch: { type: string; pct: number } | null;
-  top2SZone: { zone: string; count: number } | null;
+  strikeRate:   number;
+  avgVelocity:  number | null;
+  maxVelocity:  number | null;
+  top2SPitches:    Array<{ type: string; pct: number }>;
+  top2SZones:      Array<{ zone: string; count: number }>;
+  zone2StrikeR:    Array<{ zone: string; count: number }>;
+  zone2StrikeL:    Array<{ zone: string; count: number }>;
+  buntSuccessRate: number | null;
+  signSuccessRate: number | null;
+  signMissTotal:   number;
   finishingPitches: Array<{ pitchType: string; zone: string; pct: number }>;
   countTendencies: Array<{
-    count: string;
+    count:        string;
     topPitchType: string;
-    topPitchPct: number;
-    topZone: string;
+    topPitchPct:  number;
+    topZone:      string;
   }>;
 }
 
 export interface BatterProfileData {
-  batterName: string;
-  totalGames: number;
-  totalAtBats: number;
-  totalPitchesFaced: number;
-  avg: number;
-  strikeoutRate: number;
-  walkRate: number;
+  batterName:          string;
+  totalGames:          number;
+  totalAtBats:         number;
+  totalPitchesFaced:   number;
+  avg:                 number;
+  strikeoutRate:       number;
+  walkRate:            number;
   firstPitchSwingRate: number;
-  weakZones: Array<{ zone: string; swingMissRate: number; pitchesFaced: number }>;
-  strongZones: Array<{ zone: string; hitRate: number; pitchesFaced: number }>;
+  buntRate:            number;
+  weakZones:    Array<{ zone: string; swingMissRate: number; pitchesFaced: number }>;
+  strongZones:  Array<{ zone: string; hitRate: number; pitchesFaced: number }>;
   pitchTypeStats: Array<{
-    type: string;
-    count: number;
-    swingMissRate: number;
-    hitRate: number;
+    type: string; count: number; swingMissRate: number; hitRate: number;
+  }>;
+  velocityBands: Array<{
+    band: string; count: number; swingMissRate: number; hitRate: number;
   }>;
   avgHitDistance: number | null;
 }
@@ -330,26 +336,24 @@ function buildTeamPrompt(d: TeamData): string {
 
 function buildBatteryProfilePrompt(d: BatteryProfileData): string {
   const statsJson = {
-    バッテリー: `${d.pitcherName} × ${d.catcherName}`,
-    試合数: d.totalGames,
-    総投球数: d.totalPitches,
+    バッテリー:   `${d.pitcherName} × ${d.catcherName}`,
+    試合数:       d.totalGames,
+    総投球数:     d.totalPitches,
     ストライク率: pct(d.strikeRate),
-    平均球速: d.avgVelocity != null ? `${d.avgVelocity}km/h` : '未計測',
-    最高球速: d.maxVelocity != null ? `${d.maxVelocity}km/h` : '未計測',
-    '2ストライク時最多球種':
-      d.top2SPitch ? `${d.top2SPitch.type} (${pct(d.top2SPitch.pct)})` : '-',
-    '2ストライク時最多ゾーン':
-      d.top2SZone ? `ゾーン${d.top2SZone.zone} (${d.top2SZone.count}球)` : '-',
+    平均球速:     d.avgVelocity != null ? `${d.avgVelocity}km/h` : '未計測',
+    最高球速:     d.maxVelocity != null ? `${d.maxVelocity}km/h` : '未計測',
+    '2ストライク時球種上位3':         d.top2SPitches.map((p) => `${p.type}: ${pct(p.pct)}`).join(', ') || '-',
+    '2ストライク時ゾーン上位3（全体）': d.top2SZones.map((z) => `ゾーン${z.zone}: ${z.count}球`).join(', ') || '-',
+    '2ストライク時ゾーン上位3（対右）': d.zone2StrikeR.map((z) => `ゾーン${z.zone}: ${z.count}球`).join(', ') || '-',
+    '2ストライク時ゾーン上位3（対左）': d.zone2StrikeL.map((z) => `ゾーン${z.zone}: ${z.count}球`).join(', ') || '-',
+    バント成功率:   d.buntSuccessRate != null ? pct(d.buntSuccessRate) : 'データなし',
+    サイン成功率:   d.signSuccessRate != null ? pct(d.signSuccessRate) : 'データなし',
+    サインミス件数: d.signMissTotal,
     決め球ランキング: d.finishingPitches.map((f) => ({
-      球種: f.pitchType,
-      ゾーン: f.zone,
-      割合: pct(f.pct),
+      球種: f.pitchType, ゾーン: f.zone, 割合: pct(f.pct),
     })),
     カウント別傾向: d.countTendencies.map((c) => ({
-      カウント: c.count,
-      最多球種: c.topPitchType,
-      球種割合: pct(c.topPitchPct),
-      最多ゾーン: c.topZone,
+      カウント: c.count, 最多球種: c.topPitchType, 球種割合: pct(c.topPitchPct), 最多ゾーン: c.topZone,
     })),
   };
 
@@ -370,29 +374,27 @@ function buildBatteryProfilePrompt(d: BatteryProfileData): string {
 
 function buildBatterProfilePrompt(d: BatterProfileData): string {
   const statsJson = {
-    打者名: d.batterName,
-    試合数: d.totalGames,
-    打数: d.totalAtBats,
-    被投球数: d.totalPitchesFaced,
-    打率: fmt3(d.avg),
-    三振率: pct(d.strikeoutRate),
-    四球率: pct(d.walkRate),
+    打者名:     d.batterName,
+    試合数:     d.totalGames,
+    打数:       d.totalAtBats,
+    被投球数:   d.totalPitchesFaced,
+    打率:       fmt3(d.avg),
+    三振率:     pct(d.strikeoutRate),
+    四球率:     pct(d.walkRate),
     初球打ち率: pct(d.firstPitchSwingRate),
+    バント率:   pct(d.buntRate),
     苦手ゾーンTOP3: d.weakZones.map((z) => ({
-      ゾーン: z.zone,
-      空振り率: pct(z.swingMissRate),
-      投球数: z.pitchesFaced,
+      ゾーン: z.zone, 空振り率: pct(z.swingMissRate), 投球数: z.pitchesFaced,
     })),
     得意ゾーンTOP3: d.strongZones.map((z) => ({
-      ゾーン: z.zone,
-      被打率: pct(z.hitRate),
-      投球数: z.pitchesFaced,
+      ゾーン: z.zone, 被打率: pct(z.hitRate), 投球数: z.pitchesFaced,
     })),
     球種別成績: d.pitchTypeStats.map((p) => ({
-      球種: p.type,
-      投球数: p.count,
-      空振り率: pct(p.swingMissRate),
-      被打率: pct(p.hitRate),
+      球種: p.type, 投球数: p.count, 空振り率: pct(p.swingMissRate), 被打率: pct(p.hitRate),
+    })),
+    球速帯別成績: d.velocityBands.map((b) => ({
+      球速帯: b.band, 投球数: b.count,
+      空振り率: pct(b.swingMissRate), 被打率: pct(b.hitRate),
     })),
     平均打球飛距離: d.avgHitDistance != null ? `${d.avgHitDistance}m` : '未計測',
   };

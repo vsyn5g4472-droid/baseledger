@@ -12,7 +12,7 @@
  *  8. AI 自然言語サマリ
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -151,6 +151,7 @@ export default function PitcherReportScreen() {
   const [aiReport, setAiReport]   = useState<AIReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [catcherModalVisible, setCatcherModalVisible] = useState(false);
+  const gamesRef = useRef<import('../../src/types/game').GameState[]>([]);
 
   const loadAIReport = useCallback(async (p: PitcherProfile) => {
     if (p.catchers.length === 0) return;
@@ -176,7 +177,7 @@ export default function PitcherReportScreen() {
         countTendencies:  p.countTendencies,
         summary:          p.summary,
       };
-      const report = await generateBatteryAIReport(fakeBatteryProfile, userPlan);
+      const report = await generateBatteryAIReport(fakeBatteryProfile, gamesRef.current, userPlan);
       setAiReport(report);
     } finally {
       setAiLoading(false);
@@ -187,6 +188,7 @@ export default function PitcherReportScreen() {
     setAiReport(null);
     (async () => {
       const games = await db.games.getAll();
+      gamesRef.current = games;
       const p = buildPitcherProfile(games, pitcherId);
       setProfile(p);
       setLoading(false);
