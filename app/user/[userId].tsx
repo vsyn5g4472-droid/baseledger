@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import { Text, Avatar, Button, Card, Chip, Divider } from 'react-native-paper';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
@@ -7,8 +7,10 @@ import { useFollow } from '../../src/hooks/useFollow';
 import { useUser } from '../../src/hooks/useUser';
 import { useUserPosts } from '../../src/hooks/usePosts';
 import { useI18n } from '../../src/i18n';
+import { useAuth } from '../../src/contexts/AuthContext';
 import PostCard from '../../src/components/PostCard';
 import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/theme';
+import { getOrCreateConversation } from '../../src/services/messageService';
 import type { Post } from '../../src/models/types';
 
 const ROLE_COLORS: Record<string, string> = {
@@ -20,9 +22,25 @@ const ROLE_COLORS: Record<string, string> = {
 export default function UserProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { t } = useI18n();
+  const { currentUser } = useAuth();
   const { user, loading: userLoading } = useUser(userId ?? '');
   const { posts, loading: postsLoading } = useUserPosts(userId ?? '');
   const { isFollowing, isMutual, toggleFollow, loading: followLoading } = useFollow(userId ?? '');
+  const [messagingLoading, setMessagingLoading] = useState(false);
+  const isOwnProfile = currentUser?.uid === userId;
+
+  const handleMessage = useCallback(async () => {
+    if (!currentUser || !userId) return;
+    setMessagingLoading(true);
+    try {
+      const convo = await getOrCreateConversation(currentUser.uid, userId);
+      router.push(`/messages/${convo.id}` as any);
+    } catch {
+      // 失敗時は無視
+    } finally {
+      setMessagingLoading(false);
+    }
+  }, [currentUser, userId]);
 
   const formatTimeAgo = useCallback((date: any) => {
     const now = Date.now();
@@ -121,10 +139,12 @@ export default function UserProfileScreen() {
           >
             {isFollowing ? t.profile.followingBtn : t.profile.follow}
           </Button>
-          {isMutual && (
+          {!isOwnProfile && (
             <Button
               mode="outlined"
-              onPress={() => router.push('/messages' as any)}
+              onPress={handleMessage}
+              loading={messagingLoading}
+              disabled={messagingLoading}
               icon="message-outline"
               style={styles.messageButton}
               textColor={Colors.primary}
@@ -158,7 +178,7 @@ export default function UserProfileScreen() {
         <Divider style={styles.sectionDivider} />
       </>
     );
-  }, [user, userLoading, isFollowing, isMutual, toggleFollow, followLoading, t]);
+  }, [user, userLoading, isFollowing, isMutual, toggleFollow, followLoading, t, isOwnProfile, handleMessage, messagingLoading]);
 
   const renderPost = useCallback(({ item }: { item: Post }) => (
     <PostCard
