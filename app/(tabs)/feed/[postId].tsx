@@ -51,6 +51,7 @@ export default function PostDetailScreen() {
       });
       setComments((prev) => [newComment, ...prev]);
       setComment('');
+      setPost((prev) => prev ? { ...prev, commentsCount: prev.commentsCount + 1 } : prev);
     } catch {
       // 送信失敗は無視
     } finally {
