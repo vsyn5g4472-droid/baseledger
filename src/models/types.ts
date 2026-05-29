@@ -1,5 +1,6 @@
 import { Timestamp } from 'firebase/firestore';
 import type { UserPlan } from '../services/planService';
+import type { AtBatResult, StrikeZone, PitchResult, Count } from '../types/game';
 
 export type { UserPlan };
 
@@ -440,4 +441,42 @@ export class AppError extends Error {
     super(message);
     this.name = 'AppError';
   }
+}
+
+// ============================================================
+// SpotAtBat (スポット打席記録)
+// ============================================================
+
+export interface SpotAtBatPitch {
+  pitchNumber: number;
+  pitchType: string;
+  zone: StrikeZone;
+  pitchX?: number;
+  pitchY?: number;
+  result: PitchResult;
+  velocity?: number;
+  countBefore: Count;
+  countAfter: Count;
+}
+
+export interface SpotAtBat {
+  id: string;
+  userId: string;
+  playerName: string;
+  pitcherName: string;
+  opponent?: string;
+  gameDate: Timestamp;
+  outs?: number;
+  runnersOnBase?: { first: boolean; second: boolean; third: boolean };
+  pitches: SpotAtBatPitch[];
+  result: AtBatResult;
+  battedBall?: {
+    fieldX: number;
+    fieldY: number;
+    estimatedDistance?: number;
+    type?: string;
+  };
+  memo?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }

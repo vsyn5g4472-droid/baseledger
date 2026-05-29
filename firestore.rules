@@ -205,5 +205,15 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow delete: if false;
     }
+
+    // ─── spotAtBats ──────────────────────────────────────────
+    match /spotAtBats/{docId} {
+      allow read: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+    }
   }
 }

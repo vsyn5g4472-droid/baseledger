@@ -43,6 +43,14 @@ export default function ScoreLayout() {
         name="mapping"
         options={{ title: '選手名簿の設定', headerShown: true }}
       />
+      <Stack.Screen
+        name="spot"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="spot-history"
+        options={{ title: 'スポット打席履歴', headerShown: true }}
+      />
     </Stack>
   );
 }

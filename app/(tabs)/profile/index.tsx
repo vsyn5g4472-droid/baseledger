@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Text, Avatar, Button, Badge, Card, Chip, Divider } from 'react-native-paper';
 import { useNotificationContext } from '../../../src/contexts/NotificationContext';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../src/contexts/AuthContext';
+import { getUserSpotAtBats } from '../../../src/services/spotAtBatService';
 import BuntSignStatsCard from '../../../src/components/BuntSignStatsCard';
 import StatsChart from '../../../src/components/StatsChart';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
@@ -14,6 +15,24 @@ export default function ProfileScreen() {
   const { currentUser, signOut, userPlan } = useAuth();
   const { t } = useI18n();
   const { unreadCount } = useNotificationContext();
+
+  const [spotStats, setSpotStats] = useState<{
+    games: number; atBats: number; hits: number; avg: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    getUserSpotAtBats(currentUser.uid).then((records) => {
+      const atBats = records.filter(
+        (r) => !['walk', 'hit_by_pitch', 'sacrifice_bunt', 'sacrifice_fly'].includes(r.result),
+      ).length;
+      const hits = records.filter(
+        (r) => ['single', 'double', 'triple', 'home_run'].includes(r.result),
+      ).length;
+      const avg = atBats > 0 ? (hits / atBats).toFixed(3) : '.000';
+      setSpotStats({ games: records.length, atBats, hits, avg });
+    }).catch(() => {});
+  }, [currentUser]);
 
   // Guest landing — show sign-up CTA
   if (!currentUser) {
@@ -164,6 +183,34 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Card>
+
+      {spotStats && spotStats.games > 0 && (
+        <>
+          <Divider style={styles.divider} />
+          <Text style={styles.sectionTitle}>スポット打席</Text>
+          <Card style={styles.statsCard}>
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/score/spot-history' as any)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.statsGrid}>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{spotStats.avg}</Text>
+                  <Text style={styles.statLabel}>打率</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{spotStats.atBats}</Text>
+                  <Text style={styles.statLabel}>打数</Text>
+                </View>
+                <View style={styles.statBox}>
+                  <Text style={styles.statValue}>{spotStats.games}</Text>
+                  <Text style={styles.statLabel}>打席数</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </Card>
+        </>
+      )}
 
       <BuntSignStatsCard userPlan={userPlan} />
 

@@ -430,6 +430,24 @@ export default function ScoreIndexScreen() {
         <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.white} />
       </TouchableOpacity>
 
+      {/* ===== スポット打席 ===== */}
+      <TouchableOpacity
+        style={styles.spotCard}
+        onPress={() => router.push('/(tabs)/score/spot' as any)}
+        activeOpacity={0.88}
+      >
+        <View style={styles.quickStartLeft}>
+          <View style={styles.quickStartIconWrap}>
+            <MaterialCommunityIcons name="baseball-bat" size={26} color={Colors.white} />
+          </View>
+          <View style={styles.quickStartTextWrap}>
+            <Text style={styles.quickStartTitle}>スポット打席</Text>
+            <Text style={styles.quickStartSub}>1打席分を素早く記録。練習・試合問わず使えます。</Text>
+          </View>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.white} />
+      </TouchableOpacity>
+
       {/* 下書き再開ボタン */}
       {hasDraft && (
         <>
@@ -637,6 +655,21 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+
+  spotCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#E65100',
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    marginTop: Spacing.sm,
+    shadowColor: '#E65100',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
 
   scoutCard: {

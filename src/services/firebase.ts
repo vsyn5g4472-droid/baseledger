@@ -77,6 +77,7 @@ export const COLLECTIONS = {
   GROUPS: 'groups',
   GROUP_MESSAGES: 'messages',
   AI_REPORTS: 'aiReports',
+  SPOT_AT_BATS: 'spotAtBats',
 } as const;
 
 export { app, auth, db, storage, functions };
