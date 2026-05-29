@@ -69,6 +69,7 @@ export const COLLECTIONS = {
   LIKES: 'likes',
   TEAMS: 'teams',
   TEAM_MEMBERS: 'members',
+  TEAM_PLAYERS: 'players',
   SCORES: 'scores',
   GAMES: 'games',
   MESSAGES: 'messages',

@@ -491,6 +491,7 @@ export interface PlayerInput {
   bats: 'L' | 'R' | 'S';
   throws: 'L' | 'R';
   isPlaceholder?: boolean;
+  realPlayerId?: string;
 }
 
 export interface TeamInput {

@@ -170,6 +170,16 @@ export interface TeamMember {
   joinedAt: Timestamp;
 }
 
+export interface TeamPlayer {
+  id: string;
+  name: string;
+  number: number | null;
+  position: string;
+  bats: 'L' | 'R' | 'S';
+  throws: 'L' | 'R';
+  createdAt: Timestamp;
+}
+
 // ============================================================
 // Score
 // ============================================================

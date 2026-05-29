@@ -203,7 +203,7 @@ type GameStore = { game: GameState | null; pendingPickoffSafe: PendingPickoffSaf
 // ============================================================
 
 function toPlayer(
-  input: { name: string; number: string; position: string; bats: string; throws: string; isPlaceholder?: boolean },
+  input: { name: string; number: string; position: string; bats: string; throws: string; isPlaceholder?: boolean; realPlayerId?: string },
   index: number,
 ): Player {
   return {
@@ -214,6 +214,7 @@ function toPlayer(
     bats: (input.bats || 'R') as Player['bats'],
     throws: (input.throws || 'R') as Player['throws'],
     ...(input.isPlaceholder ? { isPlaceholder: true } : {}),
+    ...(input.realPlayerId ? { realPlayerId: input.realPlayerId } : {}),
   };
 }
 

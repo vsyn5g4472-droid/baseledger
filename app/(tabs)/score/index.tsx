@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Text, TextInput, Button } from 'react-native-paper';
+import { Text, TextInput, Button, Menu } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
@@ -13,12 +13,16 @@ import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 import type { GameCategory } from '../../../src/types/game';
 import { DRAFT_GAME_KEY } from '../../../src/db';
+import { useAuth } from '../../../src/contexts/AuthContext';
+import { getUserTeams } from '../../../src/services/teamService';
+import type { Team } from '../../../src/models/types';
 import TeamQuickSelect from '../../../src/components/score/TeamQuickSelect';
 
 const CATEGORIES: GameCategory[] = ['practice', 'official', 'tournament', 'other'];
 
 export default function ScoreIndexScreen() {
   const { t } = useI18n();
+  const { currentUser } = useAuth();
   const userPlan = useUserPlan();
   const [gameUsage, setGameUsage] = useState<UsageCheckResult | null>(null);
   const loadGame = useGameStore((s) => s.loadGame);
@@ -27,6 +31,17 @@ export default function ScoreIndexScreen() {
   useEffect(() => {
     checkGameUsage(userPlan).then(setGameUsage);
   }, [userPlan]);
+
+  const [myTeams, setMyTeams] = useState<Team[]>([]);
+  const [awayTeamId, setAwayTeamId] = useState('');
+  const [homeTeamId, setHomeTeamId] = useState('');
+  const [awayTeamMenuVisible, setAwayTeamMenuVisible] = useState(false);
+  const [homeTeamMenuVisible, setHomeTeamMenuVisible] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    getUserTeams(currentUser.uid).then(setMyTeams);
+  }, [currentUser]);
 
   // ── 下書き存在チェック（画面フォーカス時に毎回再確認） ────────────────
   const [hasDraft, setHasDraft] = useState(false);
@@ -94,6 +109,8 @@ export default function ScoreIndexScreen() {
       tournamentName: tournamentName.trim(),
       velocityEnabled: velocitySettings.enabled ? 'true' : 'false',
       pitchDistanceM: String(velocitySettings.pitchDistanceM),
+      awayTeamId: awayTeamId.trim(),
+      homeTeamId: homeTeamId.trim(),
     };
     const draftJson = await AsyncStorage.getItem(DRAFT_GAME_KEY);
     if (draftJson) {
@@ -206,6 +223,35 @@ export default function ScoreIndexScreen() {
           style={styles.input}
           dense
         />
+        {myTeams.length > 0 && (
+          <Menu
+            visible={awayTeamMenuVisible}
+            onDismiss={() => setAwayTeamMenuVisible(false)}
+            anchor={
+              <TouchableOpacity
+                style={styles.teamIdSelector}
+                onPress={() => setAwayTeamMenuVisible(true)}
+              >
+                <MaterialCommunityIcons name="account-group-outline" size={13} color={Colors.primary} />
+                <Text style={styles.teamIdSelectorText}>
+                  {awayTeamId
+                    ? (myTeams.find((t) => t.id === awayTeamId)?.name ?? '自チームを紐付け')
+                    : '自チームを紐付け'}
+                </Text>
+                <MaterialCommunityIcons name="chevron-down" size={13} color={Colors.primary} />
+              </TouchableOpacity>
+            }
+          >
+            <Menu.Item title="紐付けなし" onPress={() => { setAwayTeamId(''); setAwayTeamMenuVisible(false); }} />
+            {myTeams.map((team) => (
+              <Menu.Item
+                key={team.id}
+                title={team.name}
+                onPress={() => { setAwayTeamId(team.id); setAwayTeamMenuVisible(false); }}
+              />
+            ))}
+          </Menu>
+        )}
 
         {/* VS 区切り */}
         <View style={styles.vsRow}>
@@ -227,6 +273,35 @@ export default function ScoreIndexScreen() {
           style={styles.input}
           dense
         />
+        {myTeams.length > 0 && (
+          <Menu
+            visible={homeTeamMenuVisible}
+            onDismiss={() => setHomeTeamMenuVisible(false)}
+            anchor={
+              <TouchableOpacity
+                style={styles.teamIdSelector}
+                onPress={() => setHomeTeamMenuVisible(true)}
+              >
+                <MaterialCommunityIcons name="account-group-outline" size={13} color={Colors.primary} />
+                <Text style={styles.teamIdSelectorText}>
+                  {homeTeamId
+                    ? (myTeams.find((t) => t.id === homeTeamId)?.name ?? '自チームを紐付け')
+                    : '自チームを紐付け'}
+                </Text>
+                <MaterialCommunityIcons name="chevron-down" size={13} color={Colors.primary} />
+              </TouchableOpacity>
+            }
+          >
+            <Menu.Item title="紐付けなし" onPress={() => { setHomeTeamId(''); setHomeTeamMenuVisible(false); }} />
+            {myTeams.map((team) => (
+              <Menu.Item
+                key={team.id}
+                title={team.name}
+                onPress={() => { setHomeTeamId(team.id); setHomeTeamMenuVisible(false); }}
+              />
+            ))}
+          </Menu>
+        )}
       </View>
 
       {/* ===== 球場情報 ===== */}
@@ -425,6 +500,20 @@ const styles = StyleSheet.create({
   },
   teamBadgeText: { color: Colors.white, fontSize: Typography.tiny, fontWeight: '700' },
   input: { backgroundColor: Colors.card },
+  teamIdSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: Spacing.xs,
+    paddingVertical: 4,
+    paddingHorizontal: Spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  teamIdSelectorText: {
+    fontSize: Typography.caption,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
 
   // フェンス
   fieldLabel: {

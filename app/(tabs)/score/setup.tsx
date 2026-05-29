@@ -19,6 +19,8 @@ import { useI18n } from '../../../src/i18n';
 import { useGameStore } from '../../../src/stores/gameStore';
 import { POSITIONS, type Position, type PlayerInput, type GameSetupInput } from '../../../src/types/game';
 import { PositionDiamondPicker } from '../../../src/components/score/PositionDiamondPicker';
+import RosterPickerModal from '../../../src/components/score/RosterPickerModal';
+import type { TeamPlayer } from '../../../src/models/types';
 
 // Android LayoutAnimation を有効化
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -59,6 +61,8 @@ export default function SetupScreen() {
     tournamentName: string;
     velocityEnabled: string;
     pitchDistanceM: string;
+    awayTeamId: string;
+    homeTeamId: string;
   }>();
   const initGame = useGameStore((s) => s.initGame);
 
@@ -71,10 +75,34 @@ export default function SetupScreen() {
   const [homePitcher, setHomePitcher] = useState<PlayerInput>(emptyPitcher());
   const [errors, setErrors] = useState<string[]>([]);
 
+  const [rosterModal, setRosterModal] = useState<{ teamId: string; rowIndex: number; target: 'starter' | 'pitcher' } | null>(null);
+
   const starters = activeTeam === 'away' ? awayStarters : homeStarters;
   const setStarters = activeTeam === 'away' ? setAwayStarters : setHomeStarters;
   const pitcher = activeTeam === 'away' ? awayPitcher : homePitcher;
   const setPitcher = activeTeam === 'away' ? setAwayPitcher : setHomePitcher;
+  const activeTeamId = activeTeam === 'away' ? (params.awayTeamId || '') : (params.homeTeamId || '');
+
+  const selectFromRoster = useCallback((player: TeamPlayer) => {
+    if (!rosterModal) return;
+    const { rowIndex, target } = rosterModal;
+    const patch: Partial<PlayerInput> = {
+      name: player.name,
+      number: player.number != null ? String(player.number) : '',
+      bats: player.bats,
+      realPlayerId: player.id,
+    };
+    if (target === 'starter') {
+      setStarters((prev) => {
+        const next = [...prev];
+        next[rowIndex] = { ...next[rowIndex], ...patch };
+        return next;
+      });
+    } else {
+      setPitcher((prev) => ({ ...prev, ...patch }));
+    }
+    setRosterModal(null);
+  }, [rosterModal, setStarters, setPitcher]);
 
   // アクティブチームのDHのみ切り替え: LayoutAnimation でスムーズに表示/非表示
   const handleActiveTeamDHToggle = useCallback(() => {
@@ -347,6 +375,8 @@ export default function SetupScreen() {
             isDuplicate={duplicatePositions.has(idx)}
             availablePositions={activeTeamIsDH ? BATTING_ORDER_POSITIONS : POSITIONS}
             t={t}
+            teamId={activeTeamId}
+            onOpenRoster={(rowIndex) => setRosterModal({ teamId: activeTeamId, rowIndex, target: 'starter' })}
           />
         ))}
 
@@ -401,6 +431,15 @@ export default function SetupScreen() {
           {t.setup.playBall}
         </Button>
       </ScrollView>
+
+      {rosterModal && (
+        <RosterPickerModal
+          teamId={rosterModal.teamId}
+          visible={!!rosterModal}
+          onSelect={selectFromRoster}
+          onDismiss={() => setRosterModal(null)}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -416,9 +455,11 @@ interface PlayerRowProps {
   isDuplicate: boolean;
   availablePositions: readonly Position[];
   t: any;
+  teamId?: string;
+  onOpenRoster?: (rowIndex: number) => void;
 }
 
-function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t }: PlayerRowProps) {
+function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t, teamId, onOpenRoster }: PlayerRowProps) {
   const [batsMenuVisible, setBatsMenuVisible] = useState(false);
 
   return (
@@ -483,6 +524,13 @@ function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t
           />
         ))}
       </Menu>
+
+      {/* 名簿から選択ボタン */}
+      {!!teamId && (
+        <TouchableOpacity style={styles.rosterBtn} onPress={() => onOpenRoster?.(index)}>
+          <MaterialCommunityIcons name="account-search" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -750,6 +798,16 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption,
     fontWeight: '600',
     color: Colors.text,
+  },
+  rosterBtn: {
+    width: 32,
+    height: 36,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.primary + '60',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.primaryLight,
   },
 
   errorBox: {
