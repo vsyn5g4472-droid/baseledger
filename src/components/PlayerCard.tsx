@@ -121,7 +121,6 @@ const styles = StyleSheet.create({
   },
   chip: {
     backgroundColor: Colors.primary,
-    height: 24,
   },
   chipText: {
     fontSize: Typography.tiny,
