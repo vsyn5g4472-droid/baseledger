@@ -4,9 +4,9 @@
  * Aggregates batting and pitching metrics across multiple GameState objects.
  * Used for leaderboard computation and AI report generation.
  *
- * NOTE: Player identity is matched by playerId. If the same physical player
- * is set up with different UUIDs across games, they appear as separate entries.
- * Use consistent roster templates to ensure cross-game aggregation.
+ * Player identity: If a player has a `realPlayerId` (linked to team roster master),
+ * that ID is used as the aggregation key, enabling consistent cross-game stats.
+ * Players without a `realPlayerId` fall back to their game-scoped Player.id.
  */
 
 import type { GameState, AtBatResult, AtBatLog, PitchResult } from '../types/game';
@@ -124,20 +124,21 @@ function calcSLG(
   return (singles + doubles * 2 + triples * 3 + hr * 4) / ab;
 }
 
-/** 全試合から全プレイヤー (id → name) を収集 */
-function collectAllPlayers(games: GameState[]): Map<string, string> {
-  const m = new Map<string, string>();
+/** 全試合から全プレイヤー (resolvedId → { name, resolvedId }) を収集 */
+function collectAllPlayers(games: GameState[]): Map<string, { name: string; resolvedId: string }> {
+  const m = new Map<string, { name: string; resolvedId: string }>();
   for (const g of games) {
     for (const team of [g.awayTeam, g.homeTeam]) {
       for (const p of [...team.roster.starters, ...team.roster.bench]) {
-        if (!m.has(p.id)) m.set(p.id, p.name);
+        const key = p.realPlayerId ?? p.id;
+        if (!m.has(key)) m.set(key, { name: p.name, resolvedId: key });
       }
     }
   }
   return m;
 }
 
-/** 全試合から全投手 (id → name) を収集 — pitchLogs を基にする */
+/** 全試合から全投手 (resolvedId → name) を収集 — pitchLogs を基にする */
 function collectAllPitchers(games: GameState[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const g of games) {
@@ -148,10 +149,25 @@ function collectAllPitchers(games: GameState[]): Map<string, string> {
       ...g.homeTeam.roster.bench,
     ];
     for (const p of g.pitchLogs) {
-      if (!m.has(p.pitcherId)) {
-        const player = allPlayers.find((pl) => pl.id === p.pitcherId);
-        if (player) m.set(p.pitcherId, player.name);
+      const player = allPlayers.find((pl) => pl.id === p.pitcherId);
+      if (player) {
+        const key = player.realPlayerId ?? player.id;
+        if (!m.has(key)) m.set(key, player.name);
       }
+    }
+  }
+  return m;
+}
+
+/**
+ * 1試合内の Player.id → resolvedId (realPlayerId or Player.id) マップを生成する
+ * atBatLog.batterId / pitchLog.pitcherId を集計キーに変換するために使う
+ */
+function buildRealPlayerMap(game: GameState): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const team of [game.awayTeam, game.homeTeam]) {
+    for (const p of [...team.roster.starters, ...team.roster.bench]) {
+      m.set(p.id, p.realPlayerId ?? p.id);
     }
   }
   return m;
@@ -175,8 +191,9 @@ export function aggregatePlayerBatting(
   const hitDistances: number[] = [];
 
   for (const game of games) {
+    const realPlayerMap = buildRealPlayerMap(game);
     const myLogs = game.atBatLogs.filter(
-      (l) => l.batterId === playerId && l.result !== null,
+      (l) => realPlayerMap.get(l.batterId) === playerId && l.result !== null,
     );
     if (myLogs.length === 0) continue;
     gamesPlayed++;
@@ -217,7 +234,7 @@ export function aggregatePlayerBatting(
 
     // 盗塁数集計
     for (const sb of (game.stolenBaseLogs ?? [])) {
-      if (sb.runnerId === playerId && sb.result === 'safe') stolenBases++;
+      if (realPlayerMap.get(sb.runnerId) === playerId && sb.result === 'safe') stolenBases++;
     }
   }
 
@@ -266,7 +283,8 @@ export function aggregatePlayerPitching(
   const zoneCount: Record<string, number> = {};
 
   for (const game of games) {
-    const myPitches = game.pitchLogs.filter((p) => p.pitcherId === playerId);
+    const realPlayerMap = buildRealPlayerMap(game);
+    const myPitches = game.pitchLogs.filter((p) => realPlayerMap.get(p.pitcherId) === playerId);
     if (myPitches.length === 0) continue;
     gamesPlayed++;
     totalPitches += myPitches.length;
@@ -287,7 +305,7 @@ export function aggregatePlayerPitching(
 
     // 対戦打者・三振集計
     const myAtBats = game.atBatLogs.filter(
-      (l) => l.pitcherId === playerId && l.result !== null,
+      (l) => realPlayerMap.get(l.pitcherId) === playerId && l.result !== null,
     );
     battersFaced += myAtBats.length;
     strikeouts += myAtBats.filter(
@@ -371,7 +389,7 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
 
   // 全打撃成績を集計 (最小打席数以上のみ)
   const battingAll = Array.from(allPlayers.entries())
-    .map(([id, name]) => aggregatePlayerBatting(id, name, games))
+    .map(([id, { name }]) => aggregatePlayerBatting(id, name, games))
     .filter((s) => s.atBats >= MIN_AT_BATS);
 
   // 全投球成績を集計 (最小投球数以上のみ)
@@ -382,11 +400,13 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
   // wOBA 計算用: 打者ごとの AtBatLog を収集
   const playerAtBatLogs = new Map<string, AtBatLog[]>();
   for (const game of games) {
+    const realPlayerMap = buildRealPlayerMap(game);
     for (const log of game.atBatLogs) {
       if (!log.result) continue;
-      const existing = playerAtBatLogs.get(log.batterId) ?? [];
+      const resolvedId = realPlayerMap.get(log.batterId) ?? log.batterId;
+      const existing = playerAtBatLogs.get(resolvedId) ?? [];
       existing.push(log);
-      playerAtBatLogs.set(log.batterId, existing);
+      playerAtBatLogs.set(resolvedId, existing);
     }
   }
 
@@ -581,7 +601,7 @@ export function buildAIReportInput(game: GameState): {
       : null;
 
   const batters = Array.from(allPlayers.entries())
-    .map(([id, name]) => aggregatePlayerBatting(id, name, [game]))
+    .map(([id, { name }]) => aggregatePlayerBatting(id, name, [game]))
     .filter((s) => s.atBats > 0 || s.walks > 0);
 
   return {
