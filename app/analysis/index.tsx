@@ -251,7 +251,7 @@ export default function AnalysisIndexScreen() {
         },
       });
     }
-  }, [tab, selectedBatter, selectedBattery]);
+  }, [tab, selectedBatter, selectedPitcher, selectedBattery]);
 
   if (loading) {
     return (
