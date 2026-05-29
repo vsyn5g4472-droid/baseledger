@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import { View, Image, StyleSheet, Animated, ActivityIndicator } from 'react-native';
+import { View, Image, StyleSheet, Animated, ActivityIndicator, ImageBackground } from 'react-native';
 import { Text } from 'react-native-paper';
 
 const QUOTES = [
@@ -33,33 +33,58 @@ export default function LoadingScreen() {
   }, [fadeAnim]);
 
   return (
-    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      {/* ロゴ + アプリ名 */}
-      <View style={styles.logoSection}>
-        <Image
-          source={require('../../assets/splash-icon.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-        <Text style={styles.appName}>BaseLedger</Text>
-      </View>
+    <ImageBackground
+      source={require('../../assets/stadium-bg.png')}
+      style={styles.bg}
+      resizeMode="cover"
+    >
+      {/* 暗めのオーバーレイ */}
+      <View style={styles.overlay} />
 
-      {/* ローディング */}
-      <ActivityIndicator size="small" color="#A0B4C8" style={styles.indicator} />
+      {/* Geminiロゴ隠し（下部） */}
+      <View style={styles.bottomCover} />
 
-      {/* 名言 */}
-      <View style={styles.quoteSection}>
-        <Text style={styles.quoteText}>「{quote.text}」</Text>
-        <Text style={styles.quoteAuthor}>{quote.author}</Text>
-      </View>
-    </Animated.View>
+      <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+        {/* ロゴ + アプリ名 */}
+        <View style={styles.logoSection}>
+          <Image
+            source={require('../../assets/splash-icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <Text style={styles.appName}>BaseLedger</Text>
+        </View>
+
+        {/* ローディング */}
+        <ActivityIndicator size="small" color="#FFFFFF" style={styles.indicator} />
+
+        {/* 名言 */}
+        <View style={styles.quoteSection}>
+          <Text style={styles.quoteText}>「{quote.text}」</Text>
+          <Text style={styles.quoteAuthor}>{quote.author}</Text>
+        </View>
+      </Animated.View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  bg: {
+    flex: 1,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  bottomCover: {
+    position: 'absolute',
+    bottom: 0,
+    height: 40,
+    width: '100%',
+    backgroundColor: '#000',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#1B3A5C',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 80,
@@ -69,8 +94,8 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   logo: {
-    width: 160,
-    height: 160,
+    width: 120,
+    height: 120,
   },
   appName: {
     color: '#FFFFFF',
@@ -84,7 +109,10 @@ const styles = StyleSheet.create({
   },
   quoteSection: {
     paddingHorizontal: 32,
+    paddingVertical: 16,
     alignItems: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    width: '100%',
   },
   quoteText: {
     color: '#FFFFFF',
@@ -93,9 +121,10 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     textAlign: 'center',
     marginBottom: 8,
+    width: '100%',
   },
   quoteAuthor: {
-    color: '#A0B4C8',
+    color: 'rgba(255,255,255,0.7)',
     fontSize: 13,
     textAlign: 'right',
   },
