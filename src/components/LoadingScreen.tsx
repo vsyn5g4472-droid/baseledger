@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import { View, Image, StyleSheet, Animated, ActivityIndicator, ImageBackground } from 'react-native';
+import { View, StyleSheet, Animated, ActivityIndicator, ImageBackground } from 'react-native';
 import { Text } from 'react-native-paper';
 
 const QUOTES = [
@@ -45,13 +45,8 @@ export default function LoadingScreen() {
       <View style={styles.bottomCover} />
 
       <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-        {/* ロゴ + アプリ名 */}
+        {/* アプリ名 */}
         <View style={styles.logoSection}>
-          <Image
-            source={require('../../assets/splash-icon.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
           <Text style={styles.appName}>BaseLedger</Text>
         </View>
 
@@ -79,7 +74,7 @@ const styles = StyleSheet.create({
   bottomCover: {
     position: 'absolute',
     bottom: 0,
-    height: 40,
+    height: 80,
     width: '100%',
     backgroundColor: '#000',
   },
@@ -92,10 +87,6 @@ const styles = StyleSheet.create({
   logoSection: {
     alignItems: 'center',
     marginTop: 40,
-  },
-  logo: {
-    width: 120,
-    height: 120,
   },
   appName: {
     color: '#FFFFFF',
