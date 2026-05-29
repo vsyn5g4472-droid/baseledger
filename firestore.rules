@@ -16,7 +16,13 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn()
         && request.resource.data.authorId == request.auth.uid;
-      allow update: if isOwner(resource.data.authorId);
+      allow update: if isSignedIn()
+        && (
+          isOwner(resource.data.authorId)
+          || request.resource.data.diff(resource.data)
+              .affectedKeys()
+              .hasOnly(['commentsCount', 'likesCount'])
+        );
       allow delete: if isOwner(resource.data.authorId);
 
       match /comments/{commentId} {
