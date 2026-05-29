@@ -1,14 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
-import { Text, TextInput, Button } from 'react-native-paper';
+import { Text, TextInput, Button, Portal, Modal } from 'react-native-paper';
 import { router, Stack } from 'expo-router';
 import { Timestamp } from 'firebase/firestore';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
+import Svg, { Rect, Line, Circle, Text as SvgText } from 'react-native-svg';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { createSpotAtBat } from '../../../src/services/spotAtBatService';
-import type { AtBatResult } from '../../../src/types/game';
+import { PITCH_TYPES } from '../../../src/types/game';
+import type { AtBatResult, PitchResult, StrikeZone, PitchType } from '../../../src/types/game';
 import type { SpotAtBatPitch } from '../../../src/models/types';
+
+// ── キャンバス定数 ────────────────────────────────────────────────
+const SZ_W          = 112;
+const SZ_H          = Math.round(SZ_W * 7 / 4);   // 196
+const BALL_PAD_H    = 52;
+const BALL_PAD_V    = 44;
+const CANVAS_W      = SZ_W + 2 * BALL_PAD_H;       // 216
+const CANVAS_H      = SZ_H + 2 * BALL_PAD_V;       // 284
+const PITCH_COL_W   = 64;
+const CURSOR_OFFSET = 50;
+const CURSOR_R      = 10;
+
+const SZ_LEFT  = BALL_PAD_H;
+const SZ_TOP   = BALL_PAD_V;
+const SZ_RIGHT = BALL_PAD_H + SZ_W;
+const SZ_BOT   = BALL_PAD_V + SZ_H;
+
+/** タップ座標 (canvas px) → StrikeZone */
+function coordToZone(px: number, py: number): StrikeZone {
+  const inX = px >= SZ_LEFT && px <= SZ_RIGHT;
+  const inY = py >= SZ_TOP  && py <= SZ_BOT;
+  if (inX && inY) {
+    const col = Math.min(Math.floor((px - SZ_LEFT) / (SZ_W / 3)), 2) + 1;
+    const row = Math.min(Math.floor((py - SZ_TOP)  / (SZ_H / 3)), 2) + 1;
+    return String((row - 1) * 3 + col) as StrikeZone;
+  }
+  if (py < SZ_TOP)  return 'BH';
+  if (py > SZ_BOT)  return 'BL';
+  if (px < SZ_LEFT) return 'BI';
+  return 'BO';
+}
+
+const PITCH_LABELS: Record<string, string> = {
+  fastball: 'ストレート', curve: 'カーブ',     slider:    'スライダー',
+  changeup: 'チェンジアップ', cutter: 'カットボール', sinker: 'シンカー',
+  splitter: 'スプリット',  knuckle: 'ナックル',  fork:      'フォーク',
+  shootball: 'シュート',
+};
+
+const PITCH_RESULT_ROWS: { result: PitchResult; label: string; color: string }[] = [
+  { result: 'ball',            label: 'ボール',    color: '#2E7D9F' },
+  { result: 'strike_called',   label: '見逃し',    color: '#C41E3A' },
+  { result: 'strike_swinging', label: '空振り',    color: '#9B1528' },
+  { result: 'foul',            label: 'ファウル',  color: '#B87A00' },
+  { result: 'foul_tip',        label: 'チップ',    color: '#8B5E00' },
+  { result: 'in_play',         label: 'インプレー', color: '#38A1F3' },
+  { result: 'hit_by_pitch',    label: '死球',      color: '#5A1A5C' },
+];
 
 const AT_BAT_RESULTS: { result: AtBatResult; label: string; color: string }[] = [
   { result: 'single',            label: '単打',      color: '#43A047' },
@@ -39,8 +90,26 @@ export default function SpotAtBatScreen() {
   const [outs, setOuts]               = useState(0);
   const [runners, setRunners]         = useState({ first: false, second: false, third: false });
 
-  // Step 2: 投球記録（Step2実装後に追記）
-  const [pitches] = useState<SpotAtBatPitch[]>([]);
+  // Step 2: 投球記録
+  const [pitches, setPitches]             = useState<SpotAtBatPitch[]>([]);
+  const [balls, setBalls]                 = useState(0);
+  const [strikes, setStrikes]             = useState(0);
+  const [selectedPitch, setSelectedPitch] = useState<PitchType | string>(PITCH_TYPES[0]);
+  const [isLeftBatter, setIsLeftBatter]   = useState(false);
+  const [resultModalVisible, setResultModalVisible] = useState(false);
+  const [pendingZone, setPendingZone]       = useState<StrikeZone | null>(null);
+  const [pendingCoords, setPendingCoords]   = useState<{ x: number; y: number } | null>(null);
+  const [tapCoord, setTapCoord]             = useState<{ px: number; py: number } | null>(null);
+  const [isTouching, setIsTouching]         = useState(false);
+
+  const cursorX = useSharedValue(0);
+  const cursorY = useSharedValue(0);
+  const cursorStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: cursorX.value - CURSOR_R },
+      { translateY: cursorY.value - CURSOR_OFFSET - CURSOR_R },
+    ],
+  }));
 
   // Step 3: 打席結果・保存
   const [atBatResult, setAtBatResult] = useState<AtBatResult | null>(null);
@@ -78,6 +147,73 @@ export default function SpotAtBatScreen() {
       setSaving(false);
     }
   };
+
+  const handleCanvasTap = useCallback((px: number, py: number) => {
+    const zone = coordToZone(px, py);
+    setTapCoord({ px, py });
+    setPendingCoords({ x: px / CANVAS_W, y: py / CANVAS_H });
+    setPendingZone(zone);
+    setResultModalVisible(true);
+  }, []);
+
+  const handlePitchResultSelect = useCallback((result: PitchResult) => {
+    if (!pendingZone) return;
+    setResultModalVisible(false);
+
+    const pitchNumber = pitches.length + 1;
+    const countBefore = { balls, strikes, outs };
+    let newBalls   = balls;
+    let newStrikes = strikes;
+
+    if (result === 'ball') {
+      newBalls = balls + 1;
+    } else if (result === 'strike_called' || result === 'strike_swinging') {
+      newStrikes = strikes + 1;
+    } else if (result === 'foul' || result === 'foul_tip') {
+      if (strikes < 2) newStrikes = strikes + 1;
+    }
+
+    const countAfter = { balls: newBalls, strikes: newStrikes, outs };
+
+    const pitch: SpotAtBatPitch = {
+      pitchNumber,
+      pitchType:   selectedPitch,
+      zone:        pendingZone,
+      pitchX:      pendingCoords?.x,
+      pitchY:      pendingCoords?.y,
+      result,
+      countBefore,
+      countAfter,
+    };
+    const newPitches = [...pitches, pitch];
+    setPitches(newPitches);
+    setTapCoord(null);
+    setPendingZone(null);
+    setPendingCoords(null);
+
+    // 打席終了判定
+    if (result === 'hit_by_pitch') {
+      setAtBatResult('hit_by_pitch');
+      setStep(3);
+      return;
+    }
+    if (result === 'in_play') {
+      setStep(3);
+      return;
+    }
+    if (newBalls >= 4) {
+      setAtBatResult('walk');
+      setStep(3);
+      return;
+    }
+    if (newStrikes >= 3) {
+      setAtBatResult(result === 'strike_called' ? 'strikeout_looking' : 'strikeout');
+      setStep(3);
+      return;
+    }
+    setBalls(newBalls);
+    setStrikes(newStrikes);
+  }, [pendingZone, pendingCoords, pitches, balls, strikes, outs, selectedPitch]);
 
   // ── Step 1: 状況入力 ─────────────────────────────────────────
   if (step === 1) {
@@ -165,45 +301,181 @@ export default function SpotAtBatScreen() {
     );
   }
 
-  // ── Step 2: 投球記録（TODO: Step2実装で置換） ────────────────
+  // ── Step 2: 投球記録 ──────────────────────────────────────────
   if (step === 2) {
     return (
       <>
         <Stack.Screen options={{ title: 'スポット打席 — 投球記録', headerShown: true }} />
         <View style={styles.container}>
-          <View style={styles.step2Header}>
-            <Text style={styles.stepLabel}>STEP 2 / 投球記録</Text>
-            <Text style={styles.step2Sub}>{playerName} vs {pitcherName || '投手'}</Text>
-            <Text style={styles.step2Outs}>
-              {outs}アウト
-              {runners.first  ? ' ・1塁' : ''}
-              {runners.second ? ' ・2塁' : ''}
-              {runners.third  ? ' ・3塁' : ''}
-            </Text>
+
+          {/* カウント + マッチアップ行 */}
+          <View style={styles.s2CountRow}>
+            <View style={styles.s2CountSection}>
+              <CountDots label="B" count={balls}   max={3} color="#4CAF50" />
+              <CountDots label="S" count={strikes} max={2} color="#FFC107" />
+              <CountDots label="O" count={outs}    max={2} color="#F44336" />
+            </View>
+            <View style={styles.s2Matchup}>
+              <Text style={styles.step2Sub}>{playerName} vs {pitcherName || '投手'}</Text>
+              <Text style={styles.step2Outs}>
+                {pitches.length}球目
+                {runners.first  ? ' ・1塁' : ''}
+                {runners.second ? ' ・2塁' : ''}
+                {runners.third  ? ' ・3塁' : ''}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.handBadge, isLeftBatter && styles.handBadgeLeft]}
+              onPress={() => setIsLeftBatter((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.handBadgeText, isLeftBatter && { color: Colors.secondary }]}>
+                {isLeftBatter ? '左打ち' : '右打ち'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          {/* TODO: SVGキャンバス + 球種列 + ResultModal (Step2実装) */}
-          <View style={styles.todoCenterArea}>
-            <MaterialCommunityIcons name="baseball" size={56} color={Colors.border} />
-            <Text style={styles.todoTitle}>投球記録</Text>
-            <Text style={styles.todoSub}>Step 2 は別途実装予定</Text>
-            <Text style={styles.todoPitchCount}>現在記録済み: {pitches.length}球</Text>
+          {/* 球種縦列 + キャンバス */}
+          <View style={[styles.zoneSection, { flexDirection: isLeftBatter ? 'row-reverse' : 'row' }]}>
+
+            {/* 球種縦ボタン列 */}
+            <View style={styles.pitchColumn}>
+              <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                {PITCH_TYPES.map((pt) => {
+                  const isActive = selectedPitch === pt;
+                  return (
+                    <TouchableOpacity
+                      key={pt}
+                      style={[styles.pitchColBtn, isActive && styles.pitchColBtnActive]}
+                      onPress={() => setSelectedPitch(pt)}
+                    >
+                      <Text
+                        style={[styles.pitchColLabel, isActive && styles.pitchColLabelActive]}
+                        numberOfLines={1}
+                      >
+                        {PITCH_LABELS[pt] ?? pt}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* タップ可能なキャンバス */}
+            <View style={styles.zoneBatterArea}>
+              <View
+                style={styles.canvasArea}
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderTerminationRequest={() => false}
+                onResponderGrant={(e) => {
+                  cursorX.value = e.nativeEvent.locationX;
+                  cursorY.value = e.nativeEvent.locationY;
+                  setIsTouching(true);
+                }}
+                onResponderMove={(e) => {
+                  cursorX.value = e.nativeEvent.locationX;
+                  cursorY.value = e.nativeEvent.locationY;
+                }}
+                onResponderRelease={(e) => {
+                  const rawPx = e.nativeEvent.locationX;
+                  const rawPy = e.nativeEvent.locationY;
+                  const offsetPy = Math.max(0, Math.min(CANVAS_H, rawPy - CURSOR_OFFSET));
+                  const offsetPx = Math.max(0, Math.min(CANVAS_W, rawPx));
+                  setIsTouching(false);
+                  handleCanvasTap(offsetPx, offsetPy);
+                }}
+                onResponderTerminate={() => setIsTouching(false)}
+              >
+                <Svg width={CANVAS_W} height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
+                  {/* ストライクゾーン背景 */}
+                  <Rect
+                    x={SZ_LEFT} y={SZ_TOP}
+                    width={SZ_W} height={SZ_H}
+                    fill="rgba(56,161,243,0.07)"
+                    stroke="#38A1F3"
+                    strokeWidth={2}
+                  />
+                  {/* ガイドライン */}
+                  <Line
+                    x1={SZ_LEFT + SZ_W / 2} y1={SZ_TOP}
+                    x2={SZ_LEFT + SZ_W / 2} y2={SZ_BOT}
+                    stroke="rgba(56,161,243,0.22)" strokeWidth={1}
+                  />
+                  <Line
+                    x1={SZ_LEFT} y1={SZ_TOP + SZ_H / 2}
+                    x2={SZ_RIGHT} y2={SZ_TOP + SZ_H / 2}
+                    stroke="rgba(56,161,243,0.22)" strokeWidth={1}
+                  />
+                  {/* 高低ラベル */}
+                  <SvgText
+                    x={SZ_LEFT + SZ_W / 2} y={SZ_TOP / 2 + 5}
+                    textAnchor="middle" fontSize={11} fill="#8E8E93"
+                  >高</SvgText>
+                  <SvgText
+                    x={SZ_LEFT + SZ_W / 2} y={SZ_BOT + (CANVAS_H - SZ_BOT) / 2 + 5}
+                    textAnchor="middle" fontSize={11} fill="#8E8E93"
+                  >低</SvgText>
+                  {/* 確定マーカー */}
+                  {tapCoord && (
+                    <Circle
+                      cx={tapCoord.px} cy={tapCoord.py}
+                      r={9}
+                      fill="rgba(196,30,58,0.88)"
+                      stroke="#fff" strokeWidth={2}
+                    />
+                  )}
+                </Svg>
+
+                {isTouching && (
+                  <Animated.View style={[styles.cursorDot, cursorStyle]} pointerEvents="none" />
+                )}
+              </View>
+            </View>
           </View>
 
+          {/* フッター */}
           <View style={styles.step2Footer}>
             <Button mode="outlined" onPress={() => setStep(1)} style={styles.footerBtn}>
               戻る
             </Button>
             <Button
-              mode="contained"
+              mode="outlined"
               onPress={() => setStep(3)}
               style={styles.footerBtn}
-              buttonColor={Colors.primary}
               icon="chevron-right"
             >
-              打席結果へ
+              投球記録をスキップして結果へ
             </Button>
           </View>
+
+          {/* 投球結果モーダル */}
+          <Portal>
+            <Modal
+              visible={resultModalVisible}
+              onDismiss={() => {
+                setResultModalVisible(false);
+                setPendingZone(null);
+                setPendingCoords(null);
+                setTapCoord(null);
+              }}
+              contentContainerStyle={styles.pitchModal}
+            >
+              <Text style={styles.pitchModalTitle}>投球結果</Text>
+              <View style={styles.pitchResultGrid}>
+                {PITCH_RESULT_ROWS.map(({ result, label, color }) => (
+                  <TouchableOpacity
+                    key={result}
+                    style={[styles.pitchResultBtn, { backgroundColor: color }]}
+                    onPress={() => handlePitchResultSelect(result)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.pitchResultBtnText}>{label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Modal>
+          </Portal>
         </View>
       </>
     );
@@ -270,6 +542,24 @@ export default function SpotAtBatScreen() {
   );
 }
 
+function CountDots({ label, count, max, color }: {
+  label: string; count: number; max: number; color: string;
+}) {
+  return (
+    <View style={styles.countItem}>
+      <Text style={[styles.countLabel, { color }]}>{label}</Text>
+      <View style={styles.dotsRow}>
+        {Array.from({ length: max }, (_, i) => (
+          <View
+            key={i}
+            style={[styles.dot, { borderColor: color }, i < count && { backgroundColor: color }]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   content:   { padding: Spacing.md, paddingBottom: 80 },
@@ -302,17 +592,126 @@ const styles = StyleSheet.create({
 
   nextBtn: { marginTop: Spacing.lg, borderRadius: BorderRadius.lg },
 
-  // Step 2
-  step2Header:    { padding: Spacing.md, backgroundColor: Colors.card, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  step2Sub:       { fontSize: Typography.body, color: Colors.text, fontWeight: '600', marginTop: 2 },
-  step2Outs:      { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  todoCenterArea: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
-  todoTitle:      { fontSize: Typography.h4, color: Colors.textSecondary, fontWeight: '600' },
-  todoSub:        { fontSize: Typography.bodySmall, color: Colors.textDisabled },
-  todoPitchCount: { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: Spacing.sm },
-  step2Footer:    { flexDirection: 'row', gap: Spacing.sm, padding: Spacing.md },
-  footerBtn:      { flex: 1 },
-  footerRow:      { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
+  // Step 2 共通
+  step2Sub:    { fontSize: Typography.body, color: Colors.text, fontWeight: '600', marginTop: 2 },
+  step2Outs:   { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 2 },
+  step2Footer: { flexDirection: 'row', gap: Spacing.sm, padding: Spacing.md },
+  footerBtn:   { flex: 1 },
+  footerRow:   { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
+
+  // Step 2 カウント行
+  s2CountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    gap: Spacing.md,
+  },
+  s2CountSection: { gap: 4 },
+  s2Matchup: { flex: 1 },
+
+  // Step 2 左右打ちバッジ
+  handBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primaryLight,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  handBadgeLeft: {
+    backgroundColor: Colors.card,
+    borderColor: Colors.secondary,
+  },
+  handBadgeText: { fontSize: Typography.tiny, fontWeight: '700', color: Colors.primary },
+
+  // Step 2 キャンバスエリア
+  zoneSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: Spacing.sm,
+    gap: 4,
+  },
+  pitchColumn: {
+    width: PITCH_COL_W,
+    height: CANVAS_H,
+    gap: 3,
+  },
+  pitchColBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 3,
+    alignItems: 'center',
+  },
+  pitchColBtnActive:   { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  pitchColLabel:       { fontSize: 9, fontWeight: '700', color: Colors.text, textAlign: 'center' },
+  pitchColLabelActive: { color: Colors.white },
+
+  zoneBatterArea: { flexDirection: 'row', alignItems: 'center' },
+  canvasArea: {
+    width: CANVAS_W,
+    height: CANVAS_H,
+    overflow: 'hidden',
+  },
+  cursorDot: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: CURSOR_R * 2,
+    height: CURSOR_R * 2,
+    borderRadius: CURSOR_R,
+    backgroundColor: 'rgba(196,30,58,0.85)',
+    borderWidth: 2.5,
+    borderColor: '#fff',
+    zIndex: 10,
+  },
+
+  // Step 2 投球結果モーダル
+  pitchModal: {
+    backgroundColor: Colors.card,
+    marginHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+  },
+  pitchModalTitle: {
+    fontSize: Typography.h4,
+    fontWeight: '800',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+  },
+  pitchResultGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    justifyContent: 'center',
+  },
+  pitchResultBtn: {
+    width: 80,
+    height: 52,
+    borderRadius: BorderRadius.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pitchResultBtnText: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.white,
+    textAlign: 'center',
+  },
+
+  // Step 2 CountDots
+  countItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  countLabel: { fontSize: Typography.bodySmall, fontWeight: '800', width: 16 },
+  dotsRow: { flexDirection: 'row', gap: 3 },
+  dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
 
   // Step 3
   resultGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.md },
