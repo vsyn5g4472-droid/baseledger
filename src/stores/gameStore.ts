@@ -307,6 +307,7 @@ function createInitialGameState(input: GameSetupInput): GameState {
     signMissEvents: [],
     customPitchTypes: [],
     ...(input.isQuickStart ? { isQuickStart: true, hasUnmappedPlayers: true } : {}),
+    ...(input.isScout ? { isScout: true } : {}),
     pitchDistanceM: input.pitchDistanceM ?? 18.44,
     velocityEnabled: input.velocityEnabled ?? false,
     isDH: {

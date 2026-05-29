@@ -112,6 +112,7 @@ export default function AnalyticsIndexScreen() {
   const [games, setGames] = useState<GameState[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'normal' | 'scout'>('normal');
 
   const loadGames = useCallback(async () => {
     const all = await db.games.getAll();
@@ -121,6 +122,10 @@ export default function AnalyticsIndexScreen() {
   useEffect(() => {
     loadGames().finally(() => setLoading(false));
   }, [loadGames]);
+
+  const displayGames = games.filter((g) =>
+    activeTab === 'scout' ? g.isScout === true : !g.isScout,
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -165,8 +170,24 @@ export default function AnalyticsIndexScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* タブ: 通常 / 偵察データ */}
+      <View style={styles.tabRow}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'normal' && styles.tabActive]}
+          onPress={() => setActiveTab('normal')}
+        >
+          <Text style={[styles.tabText, activeTab === 'normal' && styles.tabTextActive]}>通常</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'scout' && styles.tabActive]}
+          onPress={() => setActiveTab('scout')}
+        >
+          <Text style={[styles.tabText, activeTab === 'scout' && styles.tabTextActive]}>偵察データ</Text>
+        </TouchableOpacity>
+      </View>
+
       <FlatList
-        data={games}
+        data={displayGames}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <GameCard game={item} />}
         contentContainerStyle={
@@ -225,6 +246,32 @@ const styles = StyleSheet.create({
     width: 1,
     height: 14,
     backgroundColor: Colors.border,
+  },
+
+  tabRow: {
+    flexDirection: 'row',
+    backgroundColor: Colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: Colors.primary,
+  },
+  tabText: {
+    fontSize: Typography.body,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: Colors.primary,
+    fontWeight: '700',
   },
 
   // リスト

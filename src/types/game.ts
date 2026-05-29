@@ -458,6 +458,9 @@ export interface GameState {
   isQuickStart?: boolean;         // クイックスタートで開始された試合
   hasUnmappedPlayers?: boolean;   // 仮選手が未紐付けのまま残っている
 
+  // 偵察モード
+  isScout?: boolean;              // 偵察モードで記録された試合
+
   // 計測設定
   pitchDistanceM?: number;        // 投球距離 (m): 18.44=一般・中学, 16.00=学童
   velocityEnabled?: boolean;      // 球速計測モード ON/OFF
@@ -513,6 +516,7 @@ export interface GameSetupInput {
     fenceRight: string;
   };
   isQuickStart?: boolean;
+  isScout?: boolean;
   pitchDistanceM?: number;
   velocityEnabled?: boolean;
   awayIsDH?: boolean;  // 先攻チームのDH制ON/OFF

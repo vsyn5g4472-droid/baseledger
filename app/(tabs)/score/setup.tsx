@@ -63,6 +63,7 @@ export default function SetupScreen() {
     pitchDistanceM: string;
     awayTeamId: string;
     homeTeamId: string;
+    isScout: string;
   }>();
   const initGame = useGameStore((s) => s.initGame);
 
@@ -250,6 +251,7 @@ export default function SetupScreen() {
         fenceRight:  params.fenceRight  || '91',
       },
       isQuickStart: true,
+      isScout: params.isScout === 'true',
       velocityEnabled: params.velocityEnabled === 'true',
       pitchDistanceM: parseFloat(params.pitchDistanceM || '18.44'),
       awayIsDH: isAwayDH,
@@ -293,6 +295,7 @@ export default function SetupScreen() {
       },
       velocityEnabled: params.velocityEnabled === 'true',
       pitchDistanceM: parseFloat(params.pitchDistanceM || '18.44'),
+      isScout: params.isScout === 'true',
       awayIsDH: isAwayDH,
       homeIsDH: isHomeDH,
     };
