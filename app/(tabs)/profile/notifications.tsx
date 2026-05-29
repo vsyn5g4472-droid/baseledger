@@ -5,9 +5,10 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { Text, Button } from 'react-native-paper';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useNotifications } from '../../../src/hooks/useNotifications';
@@ -16,7 +17,7 @@ import { getUser } from '../../../src/services/userService';
 import type { Notification } from '../../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 
-type Meta = { teamName?: string; inviterName?: string };
+type Meta = { teamName?: string; inviterName?: string; fromUserName?: string };
 
 export default function NotificationsScreen() {
   const { currentUser } = useAuth();
@@ -24,28 +25,34 @@ export default function NotificationsScreen() {
   const [meta, setMeta] = useState<Record<string, Meta>>({});
   const [processing, setProcessing] = useState<string | null>(null);
 
-  // teamInvite通知ごとにチーム名・招待者名を一括取得
   useEffect(() => {
-    const invites = notifications.filter((n) => n.type === 'teamInvite');
-    if (invites.length === 0) return;
+    if (notifications.length === 0) return;
     let cancelled = false;
     Promise.all(
-      invites.map(async (n) => {
-        const [team, inviter] = await Promise.all([
-          n.data.teamId ? getTeam(n.data.teamId).catch(() => null) : null,
-          n.fromUserId ? getUser(n.fromUserId).catch(() => null) : null,
-        ]);
+      notifications.map(async (n) => {
+        if (n.type === 'teamInvite') {
+          const [team, inviter] = await Promise.all([
+            n.data.teamId ? getTeam(n.data.teamId).catch(() => null) : null,
+            n.fromUserId ? getUser(n.fromUserId).catch(() => null) : null,
+          ]);
+          return {
+            id: n.id,
+            teamName: team?.name,
+            inviterName: inviter?.displayName ?? (inviter?.username ?? undefined),
+          };
+        }
+        // follow/like/comment/dm: fromUserName を取得
+        const fromUser = n.fromUserId ? await getUser(n.fromUserId).catch(() => null) : null;
         return {
           id: n.id,
-          teamName: team?.name,
-          inviterName: inviter?.displayName ?? (inviter?.username ?? undefined),
+          fromUserName: fromUser?.displayName ?? (fromUser?.username ?? undefined),
         };
       }),
     ).then((results) => {
       if (cancelled) return;
       const map: Record<string, Meta> = {};
-      results.forEach(({ id, teamName, inviterName }) => {
-        map[id] = { teamName, inviterName };
+      results.forEach(({ id, ...metaData }) => {
+        map[id] = metaData;
       });
       setMeta(map);
     });
@@ -71,6 +78,17 @@ export default function NotificationsScreen() {
       await markAsRead(n.id);
     } finally {
       setProcessing(null);
+    }
+  }, [markAsRead]);
+
+  const handlePress = useCallback(async (n: Notification) => {
+    await markAsRead(n.id).catch(() => {});
+    if (n.type === 'follow' && n.fromUserId) {
+      router.push(`/user/${n.fromUserId}` as any);
+    } else if ((n.type === 'like' || n.type === 'comment') && n.data.postId) {
+      router.push(`/(tabs)/feed/${n.data.postId}` as any);
+    } else if (n.type === 'dm' && n.data.conversationId) {
+      router.push(`/messages/${n.data.conversationId}` as any);
     }
   }, [markAsRead]);
 
@@ -132,8 +150,22 @@ export default function NotificationsScreen() {
       dm: 'message-text',
       aiReport: 'robot',
     };
+    const m = meta[item.id] ?? {};
+    const fromName = m.fromUserName ?? '誰か';
+    const bodyMap: Partial<Record<string, string>> = {
+      follow: `${fromName}さんがあなたをフォローしました`,
+      like: `${fromName}さんがあなたの投稿にいいねしました`,
+      comment: `${fromName}さんがあなたの投稿にコメントしました`,
+      dm: `${fromName}さんからメッセージが届きました`,
+    };
+    const body = bodyMap[item.type];
+    const isTappable = ['follow', 'like', 'comment', 'dm'].includes(item.type);
     return (
-      <View style={[styles.item, isRead && styles.itemRead]}>
+      <TouchableOpacity
+        style={[styles.item, isRead && styles.itemRead]}
+        onPress={isTappable ? () => handlePress(item) : undefined}
+        activeOpacity={isTappable ? 0.7 : 1}
+      >
         <View style={styles.iconWrap}>
           <MaterialCommunityIcons
             name={(iconMap[item.type] ?? 'bell') as any}
@@ -142,9 +174,11 @@ export default function NotificationsScreen() {
           />
         </View>
         <View style={styles.content}>
-          <Text style={[styles.title, isRead && styles.titleRead]}>{item.type}</Text>
+          <Text style={[styles.title, isRead && styles.titleRead]}>
+            {body ?? item.type}
+          </Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
