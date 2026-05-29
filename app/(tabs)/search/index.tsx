@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
 import { Searchbar, Chip, Text, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
@@ -26,10 +26,18 @@ export default function SearchScreen() {
     } else {
       setFilters({ ...filters, position: pos });
     }
-    applyFilters();
   };
 
-  const displayResults = query.length > 0 ? results : aiRecommendations;
+  // filters が変化したときに applyFilters を自動実行（race condition 対策）
+  // applyFilters は useCallback([filters]) で filters 変化時に再生成される
+  // 初回マウント時はフィルターが空なのでスキップ
+  useEffect(() => {
+    if (Object.values(filters).every((v) => v === undefined)) return;
+    applyFilters();
+  }, [applyFilters]);
+
+  const hasActiveFilter = Object.values(filters).some((v) => v !== undefined);
+  const displayResults = (query.length > 0 || hasActiveFilter) ? results : aiRecommendations;
 
   return (
     <View style={styles.container}>
