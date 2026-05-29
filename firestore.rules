@@ -93,7 +93,14 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.ownerId == request.auth.uid;
       allow update: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
+        && (
+          resource.data.ownerId == request.auth.uid
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
+            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            && request.auth.uid in request.resource.data.memberIds
+          )
+        );
       allow delete: if isSignedIn()
         && resource.data.ownerId == request.auth.uid;
 
