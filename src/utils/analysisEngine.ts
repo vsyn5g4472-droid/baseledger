@@ -52,6 +52,12 @@ export interface BatterInfo {
   gameCount:  number;
 }
 
+export interface PitcherInfo {
+  pitcherId:   string;
+  pitcherName: string;
+  gameCount:   number;
+}
+
 // ── Battery Profile ───────────────────────────────────────────────────────────
 
 export interface PitchTypeStat {
@@ -101,6 +107,30 @@ export interface BatteryProfile {
   countTendencies:   CountTendency[];
   /** ルールベースの自然言語サマリ */
   summary:           string;
+}
+
+export interface PitcherProfile {
+  pitcherId:    string;
+  pitcherName:  string;
+  totalGames:   number;
+  totalPitches: number;
+  strikeRate:   number;
+  avgVelocity:  number | null;
+  maxVelocity:  number | null;
+  /** 全体ゾーン分布 */
+  zoneDistribution:  Record<string, number>;
+  /** 全球種割合 */
+  pitchTypeAll:      PitchTypeStat[];
+  /** 2ストライク時のゾーン分布 */
+  zone2Strike:       Record<string, number>;
+  zone2StrikeR:      Record<string, number>;
+  zone2StrikeL:      Record<string, number>;
+  pitchType2Strike:  PitchTypeStat[];
+  finishingPitches:  FinishingPitch[];
+  countTendencies:   CountTendency[];
+  /** 一緒に組んだ捕手一覧（pitchCount 降順） */
+  catchers: Array<{ catcherId: string; catcherName: string; pitchCount: number }>;
+  summary:  string;
 }
 
 // ── Batter Profile ────────────────────────────────────────────────────────────
@@ -379,6 +409,33 @@ export function extractBatters(games: GameState[]): BatterInfo[] {
       batterId:   id,
       batterName: name,
       gameCount:  games.size,
+    }))
+    .sort((a, b) => b.gameCount - a.gameCount);
+}
+
+/**
+ * 全試合から投手一覧を抽出する（1球以上の選手のみ）
+ */
+export function extractPitchers(games: GameState[]): PitcherInfo[] {
+  const pitcherMap = new Map<string, { name: string; games: Set<string> }>();
+
+  for (const game of games) {
+    const players = allPlayersMap(game);
+    for (const p of game.pitchLogs) {
+      const name = players.get(p.pitcherId);
+      if (!name) continue;
+      if (!pitcherMap.has(p.pitcherId)) {
+        pitcherMap.set(p.pitcherId, { name, games: new Set() });
+      }
+      pitcherMap.get(p.pitcherId)!.games.add(game.id);
+    }
+  }
+
+  return Array.from(pitcherMap.entries())
+    .map(([id, { name, games }]) => ({
+      pitcherId:   id,
+      pitcherName: name,
+      gameCount:   games.size,
     }))
     .sort((a, b) => b.gameCount - a.gameCount);
 }
@@ -749,5 +806,163 @@ export function buildBatterProfile(
     pitchTypeStats,
     firstPitchSwingRate: allAtBats.length > 0 ? firstPitchSwings / allAtBats.length : 0,
     buntRate:            completedAtBats.length > 0 ? buntCount / completedAtBats.length : 0,
+  };
+}
+
+/**
+ * 投手プロファイルを構築する（全捕手合算）
+ */
+export function buildPitcherProfile(
+  games: GameState[],
+  pitcherId: string,
+): PitcherProfile {
+  const relevantGames = games.filter((game) =>
+    game.pitchLogs.some((p) => p.pitcherId === pitcherId),
+  );
+
+  const allPitches = relevantGames.flatMap((g) =>
+    g.pitchLogs.filter((p) => p.pitcherId === pitcherId),
+  );
+  const allAtBats = relevantGames.flatMap((g) =>
+    g.atBatLogs.filter((l) => l.pitcherId === pitcherId),
+  );
+
+  // 投手名解決
+  let resolvedPitcherName = pitcherId;
+  for (const g of relevantGames) {
+    const n = allPlayersMap(g).get(pitcherId);
+    if (n) { resolvedPitcherName = n; break; }
+  }
+
+  // ── 基本統計 ──────────────────────────────────────────────────
+  const velocities  = allPitches.filter((p) => p.velocity != null).map((p) => p.velocity!);
+  const strikeCount = allPitches.filter((p) => STRIKE_RESULTS.includes(p.result)).length;
+
+  // ── 全体ゾーン分布 ─────────────────────────────────────────────
+  const zoneDistribution: Record<string, number> = {};
+  for (const p of allPitches) {
+    zoneDistribution[p.zone] = (zoneDistribution[p.zone] ?? 0) + 1;
+  }
+
+  // ── 全球種割合 ─────────────────────────────────────────────────
+  const typeMapAll = new Map<string, { count: number; vels: number[] }>();
+  for (const p of allPitches) {
+    if (!typeMapAll.has(p.pitchType)) typeMapAll.set(p.pitchType, { count: 0, vels: [] });
+    const e = typeMapAll.get(p.pitchType)!;
+    e.count++;
+    if (p.velocity != null) e.vels.push(p.velocity);
+  }
+
+  // ── 2ストライク時の分析 ───────────────────────────────────────
+  const batsMap = new Map<string, 'L' | 'R' | 'S'>();
+  for (const g of relevantGames) {
+    allPlayersBatsMap(g).forEach((bats, id) => batsMap.set(id, bats));
+  }
+  const pitches2S = allPitches.filter((p) => p.countBefore.strikes === 2);
+  const zone2Strike: Record<string, number>  = {};
+  const zone2StrikeR: Record<string, number> = {};
+  const zone2StrikeL: Record<string, number> = {};
+  const typeMap2S = new Map<string, { count: number; vels: number[] }>();
+  for (const p of pitches2S) {
+    zone2Strike[p.zone]  = (zone2Strike[p.zone]  ?? 0) + 1;
+    const bats = batsMap.get(p.batterId);
+    if (bats === 'R' || bats === 'S') zone2StrikeR[p.zone] = (zone2StrikeR[p.zone] ?? 0) + 1;
+    if (bats === 'L' || bats === 'S') zone2StrikeL[p.zone] = (zone2StrikeL[p.zone] ?? 0) + 1;
+    if (!typeMap2S.has(p.pitchType)) typeMap2S.set(p.pitchType, { count: 0, vels: [] });
+    const e = typeMap2S.get(p.pitchType)!;
+    e.count++;
+    if (p.velocity != null) e.vels.push(p.velocity);
+  }
+
+  // ── 決め球（三振の最終球） ─────────────────────────────────────
+  const strikeoutLogs = allAtBats.filter(
+    (l) => l.result === 'strikeout' || l.result === 'strikeout_looking',
+  );
+  const finishingMap = new Map<string, { count: number; vels: number[] }>();
+  for (const log of strikeoutLogs) {
+    const lastPitch = log.pitches[log.pitches.length - 1];
+    if (!lastPitch) continue;
+    const key = `${lastPitch.pitchType}::${lastPitch.zone}`;
+    if (!finishingMap.has(key)) finishingMap.set(key, { count: 0, vels: [] });
+    const e = finishingMap.get(key)!;
+    e.count++;
+    if (lastPitch.velocity != null) e.vels.push(lastPitch.velocity);
+  }
+  const totalFinishing = strikeoutLogs.length;
+  const finishingPitches: FinishingPitch[] = Array.from(finishingMap.entries())
+    .map(([key, { count, vels }]) => {
+      const [pitchType, zone] = key.split('::');
+      return {
+        pitchType, zone, count,
+        pct: totalFinishing > 0 ? count / totalFinishing : 0,
+        avgVelocity: vels.length > 0 ? Math.round(vels.reduce((a, b) => a + b, 0) / vels.length) : null,
+      };
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  // ── カウント別傾向 ────────────────────────────────────────────
+  const KEY_COUNTS = [
+    { balls: 0, strikes: 0 }, { balls: 2, strikes: 0 }, { balls: 3, strikes: 1 },
+    { balls: 0, strikes: 2 }, { balls: 1, strikes: 2 }, { balls: 2, strikes: 2 }, { balls: 3, strikes: 2 },
+  ];
+  const countTendencies: CountTendency[] = KEY_COUNTS.map(({ balls, strikes }) => {
+    const countPitches = allPitches.filter(
+      (p) => p.countBefore.balls === balls && p.countBefore.strikes === strikes,
+    );
+    const total = countPitches.length;
+    const typeMap = new Map<string, { count: number; vels: number[] }>();
+    const zoneMap = new Map<string, number>();
+    for (const p of countPitches) {
+      if (!typeMap.has(p.pitchType)) typeMap.set(p.pitchType, { count: 0, vels: [] });
+      const e = typeMap.get(p.pitchType)!;
+      e.count++;
+      if (p.velocity != null) e.vels.push(p.velocity);
+      zoneMap.set(p.zone, (zoneMap.get(p.zone) ?? 0) + 1);
+    }
+    return {
+      balls, strikes, total,
+      pitchTypes: toPitchTypeStats(typeMap, total).slice(0, 3),
+      topZones:   topZones(zoneMap, total, 3),
+    };
+  }).filter((c) => c.total > 0);
+
+  // ── 捕手一覧（PitchLog.catcherId 優先、なければ roster から推定） ─
+  const catcherAccum = new Map<string, { name: string; count: number }>();
+  for (const g of relevantGames) {
+    const players = allPlayersMap(g);
+    for (const p of g.pitchLogs.filter((pl) => pl.pitcherId === pitcherId)) {
+      const cId = p.catcherId ?? deriveDefenseCatcher(g, p.inning.half)?.id;
+      if (!cId) continue;
+      const cName = players.get(cId) ?? cId;
+      const existing = catcherAccum.get(cId) ?? { name: cName, count: 0 };
+      existing.count++;
+      catcherAccum.set(cId, existing);
+    }
+  }
+  const catchers = Array.from(catcherAccum.entries())
+    .map(([catcherId, { name, count }]) => ({ catcherId, catcherName: name, pitchCount: count }))
+    .sort((a, b) => b.pitchCount - a.pitchCount);
+
+  const summary =
+    `${resolvedPitcherName}の投手分析: ${relevantGames.length}試合・計${allPitches.length}球。` +
+    `ストライク率${Math.round(allPitches.length > 0 ? strikeCount / allPitches.length * 100 : 0)}%。`;
+
+  return {
+    pitcherId,
+    pitcherName: resolvedPitcherName,
+    totalGames:   relevantGames.length,
+    totalPitches: allPitches.length,
+    strikeRate:   allPitches.length > 0 ? strikeCount / allPitches.length : 0,
+    avgVelocity:  velocities.length > 0 ? Math.round(velocities.reduce((a, b) => a + b, 0) / velocities.length) : null,
+    maxVelocity:  velocities.length > 0 ? Math.max(...velocities) : null,
+    zoneDistribution,
+    pitchTypeAll: toPitchTypeStats(typeMapAll, allPitches.length),
+    zone2Strike, zone2StrikeR, zone2StrikeL,
+    pitchType2Strike: toPitchTypeStats(typeMap2S, pitches2S.length),
+    finishingPitches,
+    countTendencies,
+    catchers,
+    summary,
   };
 }

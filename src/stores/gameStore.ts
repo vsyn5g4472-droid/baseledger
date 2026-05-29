@@ -69,6 +69,13 @@ function currentPitcherId(game: GameState): string {
   return game.currentPitcherId[defenseSide(game)];
 }
 
+/** 現在の捕手IDを取得 (守備チームのスタメン捕手) */
+function currentCatcherId(game: GameState): string | undefined {
+  const defSide = defenseSide(game);
+  const defTeam = defSide === 'away' ? game.awayTeam : game.homeTeam;
+  return defTeam.roster.starters.find((p) => p.position === 'C')?.id;
+}
+
 // ============================================================
 // ヘルパー: ユニークID生成
 // ============================================================
@@ -939,6 +946,7 @@ export const useGameStore = create<GameStore>()(
         const countAfter: Count = { ...g.count };
 
         // PitchLog を作成
+        const catcherId = currentCatcherId(g);
         const pitchLog: PitchLog = {
           id: uid('pitch'),
           inning: { ...g.inning },
@@ -946,6 +954,7 @@ export const useGameStore = create<GameStore>()(
           totalPitchNumber: g.totalPitchCount[defSide],
           pitcherId: currentPitcherId(g),
           batterId: currentBatter(g).id,
+          ...(catcherId !== undefined ? { catcherId } : {}),
           pitchType,
           zone,
           result,

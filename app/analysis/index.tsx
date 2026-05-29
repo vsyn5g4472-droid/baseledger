@@ -21,14 +21,16 @@ import type { GameState } from '../../src/types/game';
 import {
   extractBatters,
   extractBatteryPairs,
+  extractPitchers,
   type BatterInfo,
   type BatteryPair,
+  type PitcherInfo,
 } from '../../src/utils/analysisEngine';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 
 // ── Tab type ──────────────────────────────────────────────────────────────────
 
-type TabKey = 'batter' | 'battery';
+type TabKey = 'batter' | 'pitcher' | 'battery';
 
 // ── Picker Modal ──────────────────────────────────────────────────────────────
 
@@ -100,6 +102,12 @@ export default function AnalysisIndexScreen() {
   const [selectedBatter, setSelectedBatter]   = useState<BatterInfo | null>(null);
   const [batterPickerOpen, setBatterPickerOpen] = useState(false);
 
+  // Pitcher tab state
+  const [pitchers, setPitchers]                     = useState<PitcherInfo[]>([]);
+  const [selectedPitcher, setSelectedPitcher]       = useState<PitcherInfo | null>(null);
+  const [pitcherPickerOpen, setPitcherPickerOpen]   = useState(false);
+  const [selectedPitcherTeam, setSelectedPitcherTeam] = useState<string | null>(null);
+
   // Battery tab state
   const [batteries, setBatteries]               = useState<BatteryPair[]>([]);
   const [selectedBattery, setSelectedBattery]   = useState<BatteryPair | null>(null);
@@ -113,6 +121,7 @@ export default function AnalysisIndexScreen() {
     const all = await db.games.getAll();
     setGames(all);
     setBatters(extractBatters(all));
+    setPitchers(extractPitchers(all));
     setBatteries(extractBatteryPairs(all));
   }, []);
 
@@ -142,6 +151,29 @@ export default function AnalysisIndexScreen() {
     return map;
   }, [games, batters]);
 
+  // チーム名 → 投手リスト
+  const teamPitchersMap = useMemo(() => {
+    const map = new Map<string, PitcherInfo[]>();
+    for (const game of games) {
+      for (const team of [game.awayTeam, game.homeTeam]) {
+        const ids = new Set([
+          ...team.roster.starters.map((p) => p.id),
+          ...team.roster.bench.map((p) => p.id),
+          ...(team.roster.pitcher ? [team.roster.pitcher.id] : []),
+        ]);
+        const list = pitchers.filter((p) => ids.has(p.pitcherId));
+        if (list.length === 0) continue;
+        const existing = map.get(team.name) ?? [];
+        const merged = [...existing];
+        for (const p of list) {
+          if (!merged.some((e) => e.pitcherId === p.pitcherId)) merged.push(p);
+        }
+        map.set(team.name, merged);
+      }
+    }
+    return map;
+  }, [games, pitchers]);
+
   // チーム名 → バッテリーペアリスト
   const teamBatteryMap = useMemo(() => {
     const map = new Map<string, BatteryPair[]>();
@@ -167,16 +199,21 @@ export default function AnalysisIndexScreen() {
   }, [games, batteries]);
 
   const teamNames = useMemo(
-    () => [...new Set([...teamBattersMap.keys(), ...teamBatteryMap.keys()])].sort(),
-    [teamBattersMap, teamBatteryMap],
+    () => [...new Set([...teamBattersMap.keys(), ...teamPitchersMap.keys(), ...teamBatteryMap.keys()])].sort(),
+    [teamBattersMap, teamPitchersMap, teamBatteryMap],
   );
 
-  const filteredBatters   = selectedBatterTeam  ? (teamBattersMap.get(selectedBatterTeam)  ?? []) : [];
-  const filteredBatteries = selectedBatteryTeam ? (teamBatteryMap.get(selectedBatteryTeam) ?? []) : [];
+  const filteredBatters   = selectedBatterTeam  ? (teamBattersMap.get(selectedBatterTeam)   ?? []) : [];
+  const filteredPitchers  = selectedPitcherTeam ? (teamPitchersMap.get(selectedPitcherTeam) ?? []) : [];
+  const filteredBatteries = selectedBatteryTeam ? (teamBatteryMap.get(selectedBatteryTeam)  ?? []) : [];
 
   const handleBatterTeamSelect = (name: string) => {
     setSelectedBatterTeam(name === selectedBatterTeam ? null : name);
     setSelectedBatter(null);
+  };
+  const handlePitcherTeamSelect = (name: string) => {
+    setSelectedPitcherTeam(name === selectedPitcherTeam ? null : name);
+    setSelectedPitcher(null);
   };
   const handleBatteryTeamSelect = (name: string) => {
     setSelectedBatteryTeam(name === selectedBatteryTeam ? null : name);
@@ -184,7 +221,7 @@ export default function AnalysisIndexScreen() {
   };
 
   const canStart =
-    tab === 'batter' ? !!selectedBatter : !!selectedBattery;
+    tab === 'batter' ? !!selectedBatter : tab === 'pitcher' ? !!selectedPitcher : !!selectedBattery;
 
   const handleStart = useCallback(() => {
     if (tab === 'batter' && selectedBatter) {
@@ -193,6 +230,14 @@ export default function AnalysisIndexScreen() {
         params: {
           batterId:   selectedBatter.batterId,
           batterName: selectedBatter.batterName,
+        },
+      });
+    } else if (tab === 'pitcher' && selectedPitcher) {
+      router.push({
+        pathname: '/analysis/pitcher-report' as any,
+        params: {
+          pitcherId:   selectedPitcher.pitcherId,
+          pitcherName: selectedPitcher.pitcherName,
         },
       });
     } else if (tab === 'battery' && selectedBattery) {
@@ -243,10 +288,10 @@ export default function AnalysisIndexScreen() {
 
         {/* ── タブ ── */}
         <View style={styles.tabBar}>
-          {(['batter', 'battery'] as const).map((key) => {
+          {(['batter', 'pitcher', 'battery'] as const).map((key) => {
             const isActive = tab === key;
-            const icon     = key === 'batter' ? 'baseball-bat' : 'account-group';
-            const label    = key === 'batter' ? '打者分析' : 'バッテリー分析';
+            const icon  = key === 'batter' ? 'baseball-bat' : key === 'pitcher' ? 'baseball' : 'account-group';
+            const label = key === 'batter' ? '打者分析' : key === 'pitcher' ? '投手分析' : 'バッテリー分析';
             return (
               <TouchableOpacity
                 key={key}
@@ -344,6 +389,81 @@ export default function AnalysisIndexScreen() {
               </View>
             )}
           </View>
+        ) : tab === 'pitcher' ? (
+          // ── 投手分析タブ ──────────────────────────────────────────────────
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>投手を選択</Text>
+            <Text style={styles.cardDesc}>
+              全捕手との投球ログを合算した投手総合分析を表示します。
+            </Text>
+
+            {/* Step 1: チーム選択 */}
+            <Text style={styles.stepLabel}>① チームを選ぶ</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teamChipScroll}>
+              <View style={styles.teamChipRow}>
+                {teamNames.map((name) => (
+                  <TouchableOpacity
+                    key={name}
+                    style={[styles.teamChip, selectedPitcherTeam === name && styles.teamChipActive]}
+                    onPress={() => handlePitcherTeamSelect(name)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.teamChipText, selectedPitcherTeam === name && styles.teamChipTextActive]}>
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Step 2: 投手選択 */}
+            <Text style={[styles.stepLabel, !selectedPitcherTeam && styles.stepLabelDim]}>② 投手を選ぶ</Text>
+            <TouchableOpacity
+              style={[
+                styles.selector,
+                !selectedPitcher && styles.selectorEmpty,
+                !selectedPitcherTeam && styles.selectorDisabled,
+              ]}
+              onPress={() => { if (selectedPitcherTeam) setPitcherPickerOpen(true); }}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name="baseball"
+                size={20}
+                color={selectedPitcher ? Colors.primary : Colors.textSecondary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.selectorText, !selectedPitcher && styles.selectorPlaceholder]}>
+                  {selectedPitcher?.pitcherName ?? (selectedPitcherTeam ? '投手を選ぶ…' : 'まずチームを選択')}
+                </Text>
+                {selectedPitcher && (
+                  <Text style={styles.selectorSub}>{selectedPitcher.gameCount}試合のデータあり</Text>
+                )}
+              </View>
+              <MaterialCommunityIcons name="chevron-down" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
+
+            {selectedPitcher && (
+              <View style={styles.infoChips}>
+                <View style={styles.chip}>
+                  <MaterialCommunityIcons name="chart-donut" size={12} color={Colors.primary} />
+                  <Text style={styles.chipText}>球種割合</Text>
+                </View>
+                <View style={styles.chip}>
+                  <MaterialCommunityIcons name="fire" size={12} color={Colors.primary} />
+                  <Text style={styles.chipText}>決め球分析</Text>
+                </View>
+                <View style={styles.chip}>
+                  <MaterialCommunityIcons name="grid" size={12} color={Colors.primary} />
+                  <Text style={styles.chipText}>カウント別傾向</Text>
+                </View>
+                <View style={styles.chip}>
+                  <MaterialCommunityIcons name="robot-outline" size={12} color={Colors.primary} />
+                  <Text style={styles.chipText}>AI要約</Text>
+                </View>
+              </View>
+            )}
+          </View>
         ) : (
           // ── バッテリー分析タブ ────────────────────────────────────────────
           <View style={styles.card}>
@@ -431,11 +551,16 @@ export default function AnalysisIndexScreen() {
         </TouchableOpacity>
 
         {/* ── データなし補足 ── */}
-        {hasData && (batters.length === 0 && tab === 'batter' ||
-          batteries.length === 0 && tab === 'battery') && (
+        {hasData && (
+          (batters.length === 0 && tab === 'batter') ||
+          (pitchers.length === 0 && tab === 'pitcher') ||
+          (batteries.length === 0 && tab === 'battery')
+        ) && (
           <Text style={styles.noDataHint}>
             {tab === 'batter'
               ? '打席データのある選手が見つかりません。'
+              : tab === 'pitcher'
+              ? '投球データのある投手が見つかりません。'
               : '投球データのある試合がありません。'}
           </Text>
         )}
@@ -449,6 +574,15 @@ export default function AnalysisIndexScreen() {
         onClose={() => setBatterPickerOpen(false)}
         labelFn={(b) => b.batterName}
         subFn={(b) => `${b.gameCount}試合`}
+      />
+
+      <PickerModal<PitcherInfo>
+        visible={pitcherPickerOpen}
+        items={filteredPitchers}
+        onSelect={setSelectedPitcher}
+        onClose={() => setPitcherPickerOpen(false)}
+        labelFn={(p) => p.pitcherName}
+        subFn={(p) => `${p.gameCount}試合`}
       />
 
       <PickerModal<BatteryPair>

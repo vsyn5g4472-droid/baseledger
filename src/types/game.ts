@@ -225,6 +225,7 @@ export interface PitchLog {
   totalPitchNumber: number;   // この試合での通算球数
   pitcherId: string;
   batterId: string;
+  catcherId?: string;             // 捕手ID（守備チームの捕手ポジション選手）
   pitchType: PitchType | string;  // カスタム球種にも対応
   zone: StrikeZone;
   pitchX?: number;            // キャンバス正規化座標 X (0-1, 左=0 右=1)
