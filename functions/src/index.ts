@@ -420,7 +420,116 @@ export const generateAIPrediction = onCall(
 );
 
 // =============================================================================
-// 6. プッシュ通知トリガー
+// 6. メンバー表画像からスタメン抽出
+// =============================================================================
+
+interface LineupPlayer {
+  order: number;
+  number: string;
+  name: string;
+  position: string;
+}
+
+export const extractLineupFromImage = onCall(
+  { secrets: [anthropicApiKey], maxInstances: 3 },
+  async (request): Promise<{ players: LineupPlayer[] }> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "ログインしてからもう一度お試しください", {
+        reason: "unauthenticated",
+      });
+    }
+
+    const { imageBase64, mimeType } = request.data as {
+      imageBase64?: unknown;
+      mimeType?: unknown;
+    };
+
+    if (typeof imageBase64 !== "string" || !imageBase64) {
+      throw new HttpsError("invalid-argument", "imageBase64 が不正です");
+    }
+    if (typeof mimeType !== "string" || !mimeType) {
+      throw new HttpsError("invalid-argument", "mimeType が不正です");
+    }
+
+    const apiKey = anthropicApiKey.value();
+    if (!apiKey) {
+      throw new HttpsError("internal", "予期しないエラーが発生しました。再度お試しください");
+    }
+
+    // Emulator モック
+    if (
+      process.env.FUNCTIONS_EMULATOR === "true" &&
+      process.env.MOCK_ANTHROPIC === "true"
+    ) {
+      return {
+        players: [
+          { order: 1, number: "1", name: "[MOCK] 選手A", position: "CF" },
+          { order: 2, number: "5", name: "[MOCK] 選手B", position: "SS" },
+        ],
+      };
+    }
+
+    const prompt = `このメンバー表・スタメン表から選手情報を読み取り、以下のJSON形式のみで返してください。説明文は不要です。
+{
+  "players": [
+    { "order": 1, "number": "背番号", "name": "選手名", "position": "ポジション略称(P/C/1B/2B/3B/SS/LF/CF/RF/DH)" }
+  ]
+}
+打順が不明な場合は記載順に1から割り当てて。ポジションが不明な場合は空文字にして。`;
+
+    const response = await fetch(ANTHROPIC_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 1024,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mimeType,
+                data: imageBase64,
+              },
+            },
+            { type: "text", text: prompt },
+          ],
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
+      console.error("[extractLineupFromImage] Anthropic API error", response.status, errBody);
+      throw new HttpsError("internal", "AI サービスが一時的に利用できません。時間をおいて再度お試しください");
+    }
+
+    const data = await response.json();
+    const text: string = data?.content?.[0]?.text ?? "{}";
+    try {
+      const parsed = JSON.parse(text);
+      return { players: Array.isArray(parsed.players) ? parsed.players : [] };
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]);
+          return { players: Array.isArray(parsed.players) ? parsed.players : [] };
+        } catch { /* fall through */ }
+      }
+      return { players: [] };
+    }
+  },
+);
+
+// =============================================================================
+// 7. プッシュ通知トリガー
 // =============================================================================
 
 const expoClient = new Expo();

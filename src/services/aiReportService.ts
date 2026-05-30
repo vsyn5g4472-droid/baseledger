@@ -660,6 +660,18 @@ export async function generateAIPrediction(
 // 7. UI ユーティリティ
 // =============================================================================
 
+export async function extractLineupFromImage(
+  imageBase64: string,
+  mimeType: string,
+): Promise<{ players: Array<{ order: number; number: string; name: string; position: string }> }> {
+  const fn = httpsCallable<
+    { imageBase64: string; mimeType: string },
+    { players: Array<{ order: number; number: string; name: string; position: string }> }
+  >(functions, 'extractLineupFromImage');
+  const result = await fn({ imageBase64, mimeType });
+  return result.data;
+}
+
 export function reportToSections(report: AIReport): AIReportSection[] {
   return [
     { title: '総合評価', content: report.overall },

@@ -10,7 +10,10 @@ import {
   Switch,
   LayoutAnimation,
   UIManager,
+  ActivityIndicator,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { extractLineupFromImage } from '../../../src/services/aiReportService';
 import { Text, TextInput, Button, Menu } from 'react-native-paper';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -77,6 +80,7 @@ export default function SetupScreen() {
   const [errors, setErrors] = useState<string[]>([]);
 
   const [rosterModal, setRosterModal] = useState<{ teamId: string; rowIndex: number; target: 'starter' | 'pitcher' } | null>(null);
+  const [extracting, setExtracting] = useState(false);
 
   const starters = activeTeam === 'away' ? awayStarters : homeStarters;
   const setStarters = activeTeam === 'away' ? setAwayStarters : setHomeStarters;
@@ -128,6 +132,75 @@ export default function SetupScreen() {
   }, [activeTeam, isAwayDH, isHomeDH]);
 
   const activeTeamIsDH = activeTeam === 'away' ? isAwayDH : isHomeDH;
+
+  const processImage = async (base64: string, mimeType: string) => {
+    setExtracting(true);
+    try {
+      const result = await extractLineupFromImage(base64, mimeType);
+      if (!result.players || result.players.length === 0) {
+        Alert.alert('読み取り失敗', 'メンバー表を認識できませんでした。手動で入力してください。');
+        return;
+      }
+      const newStarters = [...starters];
+      result.players.slice(0, 9).forEach((p, i) => {
+        if (newStarters[i]) {
+          newStarters[i] = {
+            ...newStarters[i],
+            name: p.name ?? '',
+            number: p.number ?? '',
+            position: (p.position || newStarters[i].position) as any,
+          };
+        }
+      });
+      setStarters(newStarters);
+      Alert.alert('読み取り完了', `${result.players.length}人の選手情報を入力しました。内容を確認・修正してください。`);
+    } catch {
+      Alert.alert('エラー', '読み取りに失敗しました。手動で入力してください。');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleCameraPress = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('権限エラー', 'カメラロールへのアクセスを許可してください');
+      return;
+    }
+    Alert.alert(
+      'メンバー表を読み取る',
+      '画像の選択方法を選んでください',
+      [
+        {
+          text: 'カメラで撮影',
+          onPress: async () => {
+            const result = await ImagePicker.launchCameraAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.8,
+              base64: true,
+            });
+            if (!result.canceled && result.assets[0].base64) {
+              await processImage(result.assets[0].base64, result.assets[0].mimeType ?? 'image/jpeg');
+            }
+          },
+        },
+        {
+          text: 'アルバムから選択',
+          onPress: async () => {
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.8,
+              base64: true,
+            });
+            if (!result.canceled && result.assets[0].base64) {
+              await processImage(result.assets[0].base64, result.assets[0].mimeType ?? 'image/jpeg');
+            }
+          },
+        },
+        { text: 'キャンセル', style: 'cancel' },
+      ],
+    );
+  };
 
   const updatePlayer = useCallback(
     (index: number, field: keyof PlayerInput, value: string) => {
@@ -359,6 +432,16 @@ export default function SetupScreen() {
             <Text style={[styles.tabText, activeTeam === 'home' && { color: Colors.secondary, fontWeight: '700' }]}>
               {params.homeName || t.setup.homeTeam}
             </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleCameraPress}
+            disabled={extracting}
+            style={styles.cameraButton}
+          >
+            {extracting
+              ? <ActivityIndicator size="small" color={Colors.primary} />
+              : <MaterialCommunityIcons name="camera" size={22} color={Colors.primary} />
+            }
           </TouchableOpacity>
         </View>
 
@@ -677,6 +760,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   tabActive: {},
+  cameraButton: { padding: 8, marginLeft: 8 },
   tabText: {
     fontSize: Typography.body,
     color: Colors.textSecondary,
