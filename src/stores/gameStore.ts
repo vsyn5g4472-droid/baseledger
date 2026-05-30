@@ -990,6 +990,12 @@ export const useGameStore = create<GameStore>()(
       const g = get().game;
       if (!g) return;
 
+      // ホームランは打者+ランナー全員が生還するため、rbiCountを自動計算
+      if (result === 'home_run') {
+        const r = g.runners;
+        rbiCount = 1 + (r.first ? 1 : 0) + (r.second ? 1 : 0) + (r.third ? 1 : 0);
+      }
+
       // ランナーがいれば進塁確認モードへ（3アウト確定で省略する場合を除く）
       const hasRunners = g.runners.first || g.runners.second || g.runners.third;
       if (hasRunners && !shouldResolveInPlayWithoutAdvancement(g, result)) {

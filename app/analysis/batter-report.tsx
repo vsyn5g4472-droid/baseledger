@@ -100,7 +100,7 @@ function VelocityBandChart({ bands }: { bands: VelocityBandStat[] }) {
             <Rect x={LABEL_W} y={y} width={barMaxW} height={BAR_H}
               rx={4} fill={Colors.surfaceGray} />
 
-            {/* 被打率部分 (green) */}
+            {/* 打率部分 (green) */}
             {hitW > 0 && (
               <Rect x={LABEL_W} y={y} width={hitW} height={BAR_H}
                 rx={4} fill="rgba(52,199,89,0.75)" />
@@ -134,7 +134,7 @@ function ZoneBadge({ stat, mode }: { stat: ZoneSwingStat; mode: 'weak' | 'strong
   const isWeak  = mode === 'weak';
   const label   = ZONE_JP[stat.zone] ?? stat.zone;
   const metric  = isWeak ? pct(stat.swingMissRate) : pct(stat.hitRate);
-  const metricLabel = isWeak ? '空振率' : '被打率';
+  const metricLabel = isWeak ? '空振率' : '打率';
   const bg      = isWeak ? 'rgba(196,30,58,0.1)' : 'rgba(52,199,89,0.1)';
   const color   = isWeak ? Colors.secondary : Colors.success;
 
@@ -238,7 +238,7 @@ export default function BatterReportScreen() {
     );
   }, [profile]);
 
-  // 得意コースヒートマップ — 被打率を色強度に使う
+  // 得意コースヒートマップ — 打率を色強度に使う
   const strongHeatData = useMemo(() => {
     if (!profile) return {};
     return Object.fromEntries(
@@ -336,7 +336,7 @@ export default function BatterReportScreen() {
                 />
               </View>
               <View style={styles.heatmapBlock}>
-                <Text style={styles.heatmapLabel}>被打率</Text>
+                <Text style={styles.heatmapLabel}>打率</Text>
                 <ZoneHeatmap
                   heatData={strongHeatData}
                   labelData={labelDataStrong}
@@ -358,7 +358,7 @@ export default function BatterReportScreen() {
             )}
             {profile.strongZones.length > 0 && (
               <View>
-                <Text style={styles.subHeading}>得意コース (被打率上位)</Text>
+                <Text style={styles.subHeading}>得意コース (打率上位)</Text>
                 <View style={styles.badgeRow}>
                   {profile.strongZones.map((z) => (
                     <ZoneBadge key={z.zone} stat={z} mode="strong" />
@@ -376,7 +376,7 @@ export default function BatterReportScreen() {
           <View style={styles.card}>
             <SectionHeader icon="speedometer" label="球速帯別成績" />
             <View style={styles.bandLegend}>
-              <LegendRect color="rgba(52,199,89,0.75)"  label="被打率" />
+              <LegendRect color="rgba(52,199,89,0.75)"  label="打率" />
               <LegendRect color="rgba(196,30,58,0.65)"  label="空振り率" />
             </View>
             <VelocityBandChart bands={profile.velocityBands} />
@@ -391,7 +391,7 @@ export default function BatterReportScreen() {
               <Text style={[tableStyles.type, tableStyles.headerCell]}>球種</Text>
               <Text style={[tableStyles.cell, tableStyles.headerCell]}>球数</Text>
               <Text style={[tableStyles.cell, tableStyles.headerCell]}>空振率</Text>
-              <Text style={[tableStyles.cell, tableStyles.headerCell]}>被打率</Text>
+              <Text style={[tableStyles.cell, tableStyles.headerCell]}>打率</Text>
               <Text style={[tableStyles.cell, tableStyles.headerCell]}>avg球速</Text>
             </View>
             {profile.pitchTypeStats.map((s) => (
