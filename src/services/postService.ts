@@ -5,6 +5,7 @@ import {
   deleteDoc,
   updateDoc,
   collection,
+  collectionGroup,
   query,
   where,
   orderBy,
@@ -471,7 +472,7 @@ export async function getLikedPostIds(userId: string, postIds: string[]): Promis
 }
 
 /**
- * プロフィール更新時に過去の投稿の authorName / authorPhotoURL を一括更新する。
+ * プロフィール更新時に過去の投稿・コメントの authorName / authorPhotoURL を一括更新する。
  * writeBatch で 500 件ずつ分割して処理する。
  */
 export async function updateAuthorNameInPosts(
@@ -479,19 +480,27 @@ export async function updateAuthorNameInPosts(
   newName: string,
   newPhotoURL: string | null,
 ): Promise<void> {
+  const BATCH_SIZE = 500;
+  const update = { authorName: newName, authorPhotoURL: newPhotoURL };
+
   try {
-    const postsRef = collection(db, COLLECTIONS.POSTS);
-    const q = query(postsRef, where('authorId', '==', userId));
-    const snap = await getDocs(q);
-
-    if (snap.empty) return;
-
-    const BATCH_SIZE = 500;
-    for (let i = 0; i < snap.docs.length; i += BATCH_SIZE) {
+    // ── 投稿の更新 ──────────────────────────────────────────────
+    const postsSnap = await getDocs(
+      query(collection(db, COLLECTIONS.POSTS), where('authorId', '==', userId)),
+    );
+    for (let i = 0; i < postsSnap.docs.length; i += BATCH_SIZE) {
       const batch = writeBatch(db);
-      snap.docs.slice(i, i + BATCH_SIZE).forEach((d) => {
-        batch.update(d.ref, { authorName: newName, authorPhotoURL: newPhotoURL });
-      });
+      postsSnap.docs.slice(i, i + BATCH_SIZE).forEach((d) => batch.update(d.ref, update));
+      await batch.commit();
+    }
+
+    // ── コメントの更新 (collectionGroup) ─────────────────────────
+    const commentsSnap = await getDocs(
+      query(collectionGroup(db, COLLECTIONS.COMMENTS), where('authorId', '==', userId)),
+    );
+    for (let i = 0; i < commentsSnap.docs.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      commentsSnap.docs.slice(i, i + BATCH_SIZE).forEach((d) => batch.update(d.ref, update));
       await batch.commit();
     }
   } catch (error) {
