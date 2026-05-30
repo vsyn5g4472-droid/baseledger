@@ -388,13 +388,18 @@ export default function LiveScoreScreen() {
   const simpleZone = !isRecItem(prefs, 'pitch_zone_detail');
 
   const handleCanvasTap = useCallback((px: number, py: number) => {
-    setMeasuredVelocity(null);
+    if (measuredVelocity !== null) {
+      setModalVelocity(measuredVelocity);
+      setMeasuredVelocity(null);
+    } else {
+      setModalVelocity(130);
+    }
     const zone = coordToZone(px, py, simpleZone);
     setTapCoord({ px, py });
     setPendingCoords({ x: px / CANVAS_W, y: py / CANVAS_H });
     setPendingZone(zone);
     setResultModalVisible(true);
-  }, [simpleZone]);
+  }, [simpleZone, measuredVelocity]);
 
   const handleResultSelect = useCallback((result: PitchResult) => {
     if (!pendingZone) return;
