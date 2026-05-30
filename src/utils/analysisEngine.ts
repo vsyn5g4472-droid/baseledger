@@ -99,6 +99,10 @@ export interface BatteryProfile {
   zone2StrikeR:      Record<string, number>;
   /** 2ストライク時のゾーン投球分布（対左打者） */
   zone2StrikeL:      Record<string, number>;
+  /** 全球ゾーン投球分布（対右打者） */
+  zoneAllR:          Record<string, number>;
+  /** 全球ゾーン投球分布（対左打者） */
+  zoneAllL:          Record<string, number>;
   /** 2ストライク時の球種割合 */
   pitchType2Strike:  PitchTypeStat[];
   /** 決め球 (三振を奪った最終球) */
@@ -506,6 +510,19 @@ export function buildBatteryProfile(
     if (p.velocity != null) e.vels.push(p.velocity);
   }
 
+  // ── 全球ゾーン分布（対右打者 / 対左打者）────────────────────────────────
+  const zoneAllR: Record<string, number> = {};
+  const zoneAllL: Record<string, number> = {};
+  for (const p of allPitches) {
+    const bats = batsMap.get(p.batterId);
+    if (bats === 'R' || bats === 'S') {
+      zoneAllR[p.zone] = (zoneAllR[p.zone] ?? 0) + 1;
+    }
+    if (bats === 'L' || bats === 'S') {
+      zoneAllL[p.zone] = (zoneAllL[p.zone] ?? 0) + 1;
+    }
+  }
+
   // ── 決め球 (三振の最終球) ─────────────────────────────────────────────────
   const strikeoutLogs = allAtBats.filter(
     (l) => l.result === 'strikeout' || l.result === 'strikeout_looking',
@@ -600,6 +617,8 @@ export function buildBatteryProfile(
     zone2Strike,
     zone2StrikeR,
     zone2StrikeL,
+    zoneAllR,
+    zoneAllL,
     pitchType2Strike: toPitchTypeStats(typeMap2S, pitches2S.length),
     finishingPitches,
     countTendencies,

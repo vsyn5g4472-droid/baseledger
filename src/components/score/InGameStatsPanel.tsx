@@ -51,6 +51,7 @@ export default function InGameStatsPanel({
   const gate = usePlanGate('ai_prediction');
   const [tab, setTab] = useState<'stats' | 'ai'>('stats');
   const [batterHand, setBatterHand] = useState<'R' | 'L'>('R');
+  const [pitchFilter, setPitchFilter] = useState<'all' | '2strike'>('all');
   const [prediction, setPrediction] = useState<AIPrediction | null>(null);
   const [predLoading, setPredLoading] = useState(false);
   const countRef = useRef(count);
@@ -101,7 +102,16 @@ export default function InGameStatsPanel({
         <Stat label="最速" value={p.maxVelocity ? `${p.maxVelocity}km/h` : '-'} />
       </View>
 
-      <Text style={s.sectionLabel}>2ストライク時コース</Text>
+      <Text style={s.sectionLabel}>配球コース</Text>
+      <SegmentedButtons
+        value={pitchFilter}
+        onValueChange={(v) => setPitchFilter(v as 'all' | '2strike')}
+        buttons={[
+          { value: 'all', label: '全球' },
+          { value: '2strike', label: '2ストライク' },
+        ]}
+        style={s.handToggle}
+      />
       <SegmentedButtons
         value={batterHand}
         onValueChange={(v) => setBatterHand(v as 'R' | 'L')}
@@ -113,7 +123,11 @@ export default function InGameStatsPanel({
       />
       <View style={s.heatmapWrap}>
         <ZoneHeatmap
-          heatData={batterHand === 'R' ? p.zone2StrikeR : p.zone2StrikeL}
+          heatData={
+            pitchFilter === 'all'
+              ? (batterHand === 'R' ? p.zoneAllR : p.zoneAllL)
+              : (batterHand === 'R' ? p.zone2StrikeR : p.zone2StrikeL)
+          }
           colorTheme="blue"
           compact
         />

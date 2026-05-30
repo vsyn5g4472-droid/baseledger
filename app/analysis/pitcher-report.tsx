@@ -172,6 +172,8 @@ export default function PitcherReportScreen() {
         zone2Strike:      p.zone2Strike,
         zone2StrikeR:     p.zone2StrikeR,
         zone2StrikeL:     p.zone2StrikeL,
+        zoneAllR:         {},
+        zoneAllL:         {},
         pitchType2Strike: p.pitchType2Strike,
         finishingPitches: p.finishingPitches,
         countTendencies:  p.countTendencies,
