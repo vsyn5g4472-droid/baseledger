@@ -1,6 +1,6 @@
 import React from 'react';
 import { FlatList, StyleSheet, View, TouchableOpacity } from 'react-native';
-import { FAB, Text } from 'react-native-paper';
+import { FAB, Text, Button } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import PostCard from '../../../src/components/PostCard';
@@ -15,13 +15,25 @@ import { useRequireAuth } from '../../../src/hooks/useRequireAuth';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 
 export default function FeedScreen() {
-  const { posts, loading, refreshing, refresh, loadMore, hasMore } = useFeedPosts();
+  const { posts, loading, refreshing, error, refresh, loadMore, hasMore } = useFeedPosts();
   const { currentUser } = useAuth();
   const requireAuth = useRequireAuth();
   const { likePost, unlikePost } = usePostActions();
 
   if (loading && posts.length === 0) {
     return <LoadingScreen />;
+  }
+
+  if (error && posts.length === 0) {
+    return (
+      <View style={styles.errorContainer}>
+        <MaterialCommunityIcons name="wifi-off" size={48} color={Colors.textDisabled} />
+        <Text style={styles.errorText}>{error}</Text>
+        <Button mode="contained" onPress={refresh} buttonColor={Colors.primary} style={styles.retryButton}>
+          再試行
+        </Button>
+      </View>
+    );
   }
 
   const formatTimeAgo = (date: any) => {
@@ -111,7 +123,10 @@ export default function FeedScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container:      { flex: 1, backgroundColor: Colors.background },
+  errorContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md, paddingHorizontal: Spacing.xl },
+  errorText:      { fontSize: Typography.body, color: Colors.textSecondary, textAlign: 'center' },
+  retryButton:    { marginTop: Spacing.sm },
   listContent: { paddingTop: Spacing.md, paddingBottom: 80 },
   emptyContainer: { flex: 1 },
   fab: {

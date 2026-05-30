@@ -18,6 +18,7 @@ export function useFeedPosts(): {
   posts: Post[];
   loading: boolean;
   refreshing: boolean;
+  error: string | null;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
   hasMore: boolean;
@@ -27,6 +28,7 @@ export function useFeedPosts(): {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const lastDocRef = useRef<unknown>(null);
 
   const fetchPosts = useCallback(
@@ -55,8 +57,10 @@ export function useFeedPosts(): {
         }
         lastDocRef.current = result.lastDoc;
         setHasMore(result.hasMore);
-      } catch (error) {
-        if (__DEV__) console.error('Failed to fetch feed posts:', error);
+        setError(null);
+      } catch (err) {
+        if (__DEV__) console.error('Failed to fetch feed posts:', err);
+        setError('フィードの読み込みに失敗しました');
       }
     },
     [currentUser],
@@ -85,7 +89,7 @@ export function useFeedPosts(): {
     setRefreshing(false);
   }, [fetchPosts]);
 
-  return { posts, loading, refreshing, loadMore, refresh, hasMore };
+  return { posts, loading, refreshing, error, loadMore, refresh, hasMore };
 }
 
 export function useUserPosts(userId: string): {
