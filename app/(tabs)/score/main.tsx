@@ -388,6 +388,7 @@ export default function LiveScoreScreen() {
   const simpleZone = !isRecItem(prefs, 'pitch_zone_detail');
 
   const handleCanvasTap = useCallback((px: number, py: number) => {
+    setMeasuredVelocity(null);
     const zone = coordToZone(px, py, simpleZone);
     setTapCoord({ px, py });
     setPendingCoords({ x: px / CANVAS_W, y: py / CANVAS_H });
