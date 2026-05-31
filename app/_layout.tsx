@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, StyleSheet, TouchableOpacity, Animated, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { PaperProvider, Text } from 'react-native-paper';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -69,17 +69,38 @@ function AppShell() {
   const { loading } = useAuth();
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 
+  // AdMob 初期化（モジュール未対応環境はtry-catchでスキップ）
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    try {
+      const { MobileAds } = require('react-native-google-mobile-ads');
+      MobileAds().initialize();
+    } catch (e) {
+      console.warn('AdMob init skipped:', e);
+    }
+  }, []);
+  const [showLoading, setShowLoading] = useState(true);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     const timer = setTimeout(() => setMinTimeElapsed(true), 3000);
     return () => clearTimeout(timer);
   }, []);
 
-  if (loading || !minTimeElapsed) {
-    return <LoadingScreen />;
-  }
+  useEffect(() => {
+    if (!loading && minTimeElapsed && showLoading) {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 2000,
+        useNativeDriver: true,
+      }).start(() => {
+        setShowLoading(false);
+      });
+    }
+  }, [loading, minTimeElapsed]);
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
@@ -88,6 +109,30 @@ function AppShell() {
           options={{
             headerShown: true,
             title: '',
+            headerStyle: { backgroundColor: Colors.white },
+            headerTintColor: Colors.primary,
+            headerTitleStyle: { fontWeight: '700', color: Colors.text },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="user/[userId]/followers"
+          options={{
+            headerShown: true,
+            title: 'フォロワー',
+            headerBackTitle: '戻る',
+            headerStyle: { backgroundColor: Colors.white },
+            headerTintColor: Colors.primary,
+            headerTitleStyle: { fontWeight: '700', color: Colors.text },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="user/[userId]/following"
+          options={{
+            headerShown: true,
+            title: 'フォロー中',
+            headerBackTitle: '戻る',
             headerStyle: { backgroundColor: Colors.white },
             headerTintColor: Colors.primary,
             headerTitleStyle: { fontWeight: '700', color: Colors.text },
@@ -158,7 +203,17 @@ function AppShell() {
         />
       </Stack>
       <AuthModal />
-    </>
+
+      {showLoading && (
+        <Animated.View style={{
+          ...StyleSheet.absoluteFillObject,
+          opacity: fadeAnim,
+          zIndex: 999,
+        }}>
+          <LoadingScreen />
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
