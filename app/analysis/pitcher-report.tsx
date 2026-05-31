@@ -87,7 +87,7 @@ function PitchTypeBar({
         <View style={[pitchBarStyles.bar, { width: `${barW}%` as any }]} />
       </View>
       <Text style={pitchBarStyles.pctText}>{pct(p)}</Text>
-      <Text style={pitchBarStyles.velText}>{fmtV(avgVelocity)}</Text>
+      <Text style={pitchBarStyles.velText}>{avgVelocity != null ? `平均 ${fmtV(avgVelocity)}` : '-'}</Text>
     </View>
   );
 }

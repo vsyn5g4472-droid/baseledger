@@ -390,9 +390,11 @@ export default function LiveScoreScreen() {
   const handleCanvasTap = useCallback((px: number, py: number) => {
     if (measuredVelocity !== null) {
       setModalVelocity(measuredVelocity);
+      setModalVelocityEnabled(true);
       setMeasuredVelocity(null);
     } else {
       setModalVelocity(130);
+      setModalVelocityEnabled(false);
     }
     const zone = coordToZone(px, py, simpleZone);
     setTapCoord({ px, py });
