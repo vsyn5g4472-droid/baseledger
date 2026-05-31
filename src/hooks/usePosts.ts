@@ -11,6 +11,7 @@ import {
   unlikePost as serviceUnlikePost,
   getLikedPostIds,
 } from '../services/postService';
+import { getFollowingIds } from '../services/followService';
 
 const PAGE_SIZE = 20;
 
@@ -35,11 +36,14 @@ export function useFeedPosts(): {
     async (isRefresh: boolean) => {
       try {
         const cursor = isRefresh ? undefined : (lastDocRef.current ?? undefined);
-        let result = currentUser
-          ? await getFeedPosts(currentUser.uid, cursor, PAGE_SIZE)
-          : await getPublicPosts(cursor, PAGE_SIZE);
-        // ログイン済みだがフォロー0件でフィードが空の場合、パブリック投稿にフォールバック
-        if (currentUser && result.items.length === 0) {
+        let result;
+        if (currentUser) {
+          const followingIds = await getFollowingIds(currentUser.uid);
+          // フォロー0件の場合はパブリック投稿を表示
+          result = followingIds.length > 0
+            ? await getFeedPosts(currentUser.uid, cursor, PAGE_SIZE)
+            : await getPublicPosts(cursor, PAGE_SIZE);
+        } else {
           result = await getPublicPosts(cursor, PAGE_SIZE);
         }
 
