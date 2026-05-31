@@ -165,6 +165,7 @@ export default function GameAnalyticsScreen() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('batting');
   const [heatmapTeam, setHeatmapTeam] = useState<'away' | 'home'>('home');
+  const [sprayTeam, setSprayTeam] = useState<'away' | 'home'>('away');
 
   useEffect(() => {
     if (!gameId) return;
@@ -353,8 +354,33 @@ export default function GameAnalyticsScreen() {
           {/* ─ Spray Chart ─ */}
           {activeTab === 'spray' && (
             <>
+              {/* Team toggle */}
+              <View style={styles.teamToggle}>
+                <TouchableOpacity
+                  style={[styles.toggleBtn, sprayTeam === 'away' && styles.toggleBtnActive]}
+                  onPress={() => setSprayTeam('away')}
+                >
+                  <Text style={[styles.toggleText, sprayTeam === 'away' && styles.toggleTextActive]}>
+                    {t.analytics.away} {game.awayTeam.name}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.toggleBtn, sprayTeam === 'home' && styles.toggleBtnActive]}
+                  onPress={() => setSprayTeam('home')}
+                >
+                  <Text style={[styles.toggleText, sprayTeam === 'home' && styles.toggleTextActive]}>
+                    {t.analytics.home} {game.homeTeam.name}
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <View style={styles.chartCard}>
-                <SprayChart atBatLogs={game.atBatLogs} />
+                <SprayChart
+                  atBatLogs={game.atBatLogs.filter((log) =>
+                    sprayTeam === 'away'
+                      ? log.inning.half === 'top'
+                      : log.inning.half === 'bottom'
+                  )}
+                />
               </View>
               <Legend
                 items={[
