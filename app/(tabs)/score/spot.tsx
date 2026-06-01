@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, PanResponder, Dimensions } from 'react-native';
 import { Text, TextInput, Button, Portal, Modal } from 'react-native-paper';
 import { router, Stack } from 'expo-router';
 import { Timestamp } from 'firebase/firestore';
@@ -9,8 +9,9 @@ import Svg, { Rect, Line, Circle, Text as SvgText } from 'react-native-svg';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { createSpotAtBat } from '../../../src/services/spotAtBatService';
-import { PITCH_TYPES } from '../../../src/types/game';
-import type { AtBatResult, PitchResult, StrikeZone, PitchType } from '../../../src/types/game';
+import { PITCH_TYPES, DEFAULT_BALLPARK } from '../../../src/types/game';
+import FieldView from '../../../src/components/score/FieldView';
+import type { AtBatResult, PitchResult, StrikeZone, PitchType, BattedBall } from '../../../src/types/game';
 import type { SpotAtBatPitch } from '../../../src/models/types';
 
 // ── キャンバス定数 ────────────────────────────────────────────────
@@ -23,11 +24,17 @@ const CANVAS_H      = SZ_H + 2 * BALL_PAD_V;       // 284
 const PITCH_COL_W   = 64;
 const CURSOR_OFFSET = 50;
 const CURSOR_R      = 10;
+const BATTER_W      = 100;
 
 const SZ_LEFT  = BALL_PAD_H;
 const SZ_TOP   = BALL_PAD_V;
 const SZ_RIGHT = BALL_PAD_H + SZ_W;
 const SZ_BOT   = BALL_PAD_V + SZ_H;
+
+// ── 球速スライダー定数 ─────────────────────────────────────────────
+const MODAL_VEL_MIN = 50;
+const MODAL_VEL_MAX = 160;
+const MODAL_TRACK_W = Dimensions.get('window').width - 80;
 
 /** タップ座標 (canvas px) → StrikeZone */
 function coordToZone(px: number, py: number): StrikeZone {
@@ -102,6 +109,14 @@ export default function SpotAtBatScreen() {
   const [tapCoord, setTapCoord]             = useState<{ px: number; py: number } | null>(null);
   const [isTouching, setIsTouching]         = useState(false);
 
+  // 球速スライダー
+  const [modalVelocity, setModalVelocity]               = useState(130);
+  const [modalVelocityEnabled, setModalVelocityEnabled] = useState(false);
+
+  // 打球位置
+  const [showFieldView, setShowFieldView] = useState(false);
+  const [battedBall, setBattedBall]       = useState<BattedBall | null>(null);
+
   const cursorX = useSharedValue(0);
   const cursorY = useSharedValue(0);
   const cursorStyle = useAnimatedStyle(() => ({
@@ -136,6 +151,7 @@ export default function SpotAtBatScreen() {
         runnersOnBase: runners,
         pitches,
         result:        atBatResult,
+        battedBall:    battedBall ?? undefined,
         memo:          memo.trim() || undefined,
       });
       Alert.alert('保存完了', 'スポット打席を記録しました', [
@@ -182,6 +198,7 @@ export default function SpotAtBatScreen() {
       pitchX:      pendingCoords?.x,
       pitchY:      pendingCoords?.y,
       result,
+      velocity:    modalVelocityEnabled ? modalVelocity : undefined,
       countBefore,
       countAfter,
     };
@@ -190,6 +207,8 @@ export default function SpotAtBatScreen() {
     setTapCoord(null);
     setPendingZone(null);
     setPendingCoords(null);
+    setModalVelocityEnabled(false);
+    setModalVelocity(130);
 
     // 打席終了判定
     if (result === 'hit_by_pitch') {
@@ -198,7 +217,7 @@ export default function SpotAtBatScreen() {
       return;
     }
     if (result === 'in_play') {
-      setStep(3);
+      setShowFieldView(true);
       return;
     }
     if (newBalls >= 4) {
@@ -213,7 +232,33 @@ export default function SpotAtBatScreen() {
     }
     setBalls(newBalls);
     setStrikes(newStrikes);
-  }, [pendingZone, pendingCoords, pitches, balls, strikes, outs, selectedPitch]);
+  }, [pendingZone, pendingCoords, pitches, balls, strikes, outs, selectedPitch, modalVelocityEnabled, modalVelocity]);
+
+  const handleFieldConfirm = useCallback((result: AtBatResult, bb: BattedBall) => {
+    setBattedBall(bb);
+    setAtBatResult(result);
+    setShowFieldView(false);
+    setStep(3);
+  }, []);
+
+  const handleFieldCancel = useCallback(() => {
+    setPitches((prev) => prev.slice(0, -1));
+    setShowFieldView(false);
+  }, []);
+
+  // ── FieldView: 打球位置入力 ──────────────────────────────────────
+  if (showFieldView) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'スポット打席 — 打球位置', headerShown: true }} />
+        <FieldView
+          ballpark={DEFAULT_BALLPARK}
+          onConfirm={handleFieldConfirm}
+          onCancel={handleFieldCancel}
+        />
+      </>
+    );
+  }
 
   // ── Step 1: 状況入力 ─────────────────────────────────────────
   if (step === 1) {
@@ -335,7 +380,7 @@ export default function SpotAtBatScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* 球種縦列 + キャンバス */}
+          {/* 球種縦列 + バッターシルエット + キャンバス */}
           <View style={[styles.zoneSection, { flexDirection: isLeftBatter ? 'row-reverse' : 'row' }]}>
 
             {/* 球種縦ボタン列 */}
@@ -361,8 +406,14 @@ export default function SpotAtBatScreen() {
               </ScrollView>
             </View>
 
-            {/* タップ可能なキャンバス */}
+            {/* バッターシルエット + タップ可能なキャンバス */}
             <View style={styles.zoneBatterArea}>
+              {isLeftBatter && (
+                <TouchableOpacity onPress={() => setIsLeftBatter((v) => !v)} activeOpacity={0.75}>
+                  <BatterSilhouetteSVG side="L" />
+                </TouchableOpacity>
+              )}
+
               <View
                 style={styles.canvasArea}
                 onStartShouldSetResponder={() => true}
@@ -431,6 +482,12 @@ export default function SpotAtBatScreen() {
                   <Animated.View style={[styles.cursorDot, cursorStyle]} pointerEvents="none" />
                 )}
               </View>
+
+              {!isLeftBatter && (
+                <TouchableOpacity onPress={() => setIsLeftBatter((v) => !v)} activeOpacity={0.75}>
+                  <BatterSilhouetteSVG side="R" />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -474,6 +531,12 @@ export default function SpotAtBatScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+              <ModalVelocitySlider
+                enabled={modalVelocityEnabled}
+                value={modalVelocity}
+                onToggle={setModalVelocityEnabled}
+                onChange={setModalVelocity}
+              />
             </Modal>
           </Portal>
         </View>
@@ -556,6 +619,96 @@ function CountDots({ label, count, max, color }: {
           />
         ))}
       </View>
+    </View>
+  );
+}
+
+function BatterSilhouetteSVG({ side }: { side: 'L' | 'R' }) {
+  const source = side === 'R'
+    ? require('../../../assets/batter_right.png')
+    : require('../../../assets/batter_left.png');
+  return (
+    <Image
+      source={source}
+      style={{ width: BATTER_W, height: CANVAS_H }}
+      resizeMode="contain"
+    />
+  );
+}
+
+function ModalVelocitySlider({
+  enabled,
+  value,
+  onToggle,
+  onChange,
+}: {
+  enabled: boolean;
+  value: number;
+  onToggle: (v: boolean) => void;
+  onChange: (v: number) => void;
+}) {
+  const fillRatio = (value - MODAL_VEL_MIN) / (MODAL_VEL_MAX - MODAL_VEL_MIN);
+  const startRef = useRef<{ pageX: number; value: number } | null>(null);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
+      onPanResponderGrant: (e) => {
+        startRef.current = { pageX: e.nativeEvent.pageX, value };
+      },
+      onPanResponderMove: (e) => {
+        if (!startRef.current) return;
+        const deltaX = e.nativeEvent.pageX - startRef.current.pageX;
+        const deltaV = (deltaX / MODAL_TRACK_W) * (MODAL_VEL_MAX - MODAL_VEL_MIN);
+        onChange(Math.round(Math.max(MODAL_VEL_MIN, Math.min(MODAL_VEL_MAX,
+          startRef.current.value + deltaV))));
+      },
+      onPanResponderRelease: () => { startRef.current = null; },
+      onPanResponderTerminate: () => { startRef.current = null; },
+    })
+  ).current;
+
+  return (
+    <View style={velStyles.section}>
+      <TouchableOpacity
+        style={[velStyles.toggleRow, enabled && velStyles.toggleRowOn]}
+        onPress={() => onToggle(!enabled)}
+        activeOpacity={0.8}
+      >
+        <MaterialCommunityIcons
+          name="speedometer"
+          size={16}
+          color={enabled ? '#fff' : Colors.textSecondary}
+        />
+        <Text style={[velStyles.toggleLabel, enabled && velStyles.toggleLabelOn]}>
+          球速を入力
+        </Text>
+        {enabled && (
+          <Text style={velStyles.toggleValue}>{value} km/h</Text>
+        )}
+        <View style={[velStyles.badge, enabled && velStyles.badgeOn]}>
+          <Text style={[velStyles.badgeText, enabled && velStyles.badgeTextOn]}>
+            {enabled ? 'あり' : 'なし'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+
+      {enabled && (
+        <View style={velStyles.sliderWrap}>
+          <View
+            style={velStyles.track}
+            {...panResponder.panHandlers}
+          >
+            <View style={velStyles.trackBg} />
+            <View style={[velStyles.trackFill, { width: `${fillRatio * 100}%` as any }]} />
+            <View style={[velStyles.thumb, { left: fillRatio * (MODAL_TRACK_W - 20) }]} />
+          </View>
+          <View style={velStyles.rangeRow}>
+            <Text style={velStyles.rangeLabel}>{MODAL_VEL_MIN}</Text>
+            <Text style={velStyles.rangeLabel}>{MODAL_VEL_MAX}</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -717,4 +870,107 @@ const styles = StyleSheet.create({
   resultGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.md },
   resultBtn:     { width: 80, height: 52, borderRadius: BorderRadius.md, alignItems: 'center', justifyContent: 'center' },
   resultBtnText: { fontSize: Typography.caption, fontWeight: '700' },
+});
+
+const velStyles = StyleSheet.create({
+  section: {
+    marginTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: Spacing.sm,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: 'transparent',
+  },
+  toggleRowOn: {
+    backgroundColor: '#1565C0',
+    borderColor: '#0D47A1',
+  },
+  toggleLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  toggleLabelOn: { color: '#fff' },
+  toggleValue: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#fff',
+    marginRight: 4,
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  badgeOn: { backgroundColor: '#fff' },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.textSecondary,
+    letterSpacing: 0.5,
+  },
+  badgeTextOn: { color: '#1565C0' },
+  sliderWrap: {
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
+  track: {
+    height: 28,
+    width: MODAL_TRACK_W,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  trackBg: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.border,
+    top: 10,
+  },
+  trackFill: {
+    position: 'absolute',
+    left: 0,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#1565C0',
+    top: 10,
+  },
+  thumb: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderWidth: 2.5,
+    borderColor: '#1565C0',
+    top: 4,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  rangeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: MODAL_TRACK_W,
+    marginTop: 2,
+  },
+  rangeLabel: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+  },
 });
