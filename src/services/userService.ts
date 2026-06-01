@@ -8,6 +8,7 @@ import {
   orderBy,
   getDocs,
   serverTimestamp,
+  limit,
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
 import {
@@ -217,5 +218,23 @@ export async function updateUserStats(userId: string): Promise<void> {
     });
   } catch (error) {
     throw new AppError('NETWORK', `Failed to update user stats: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * 最近登録したユーザーを取得する（おすすめ表示用）。
+ * @param limitCount - 取得件数（デフォルト20）
+ */
+export async function getRecentUsers(limitCount: number = 20): Promise<User[]> {
+  try {
+    const q = query(
+      collection(db, COLLECTIONS.USERS),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount),
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((d) => ({ uid: d.id, ...d.data() } as User));
+  } catch (error) {
+    throw new AppError('NETWORK', `Failed to fetch recent users: ${(error as Error).message}`);
   }
 }

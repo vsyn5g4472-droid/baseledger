@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { User, ScoutSearchFilters } from '../models/types';
-import { searchUsers, getPlayersByFilters } from '../services/userService';
+import { searchUsers, getPlayersByFilters, getRecentUsers } from '../services/userService';
+import { useAuth } from '../contexts/AuthContext';
 
 const DEFAULT_FILTERS: ScoutSearchFilters = {};
 
@@ -15,11 +16,29 @@ export function usePlayerSearch(): {
   aiRecommendations: User[];
   loadingRecommendations: boolean;
 } {
+  const { currentUser } = useAuth();
   const [results, setResults] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState<ScoutSearchFilters>(DEFAULT_FILTERS);
-  const [aiRecommendations] = useState<User[]>([]);
-  const [loadingRecommendations] = useState(false);
+  const [aiRecommendations, setAiRecommendations] = useState<User[]>([]);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+
+  useEffect(() => {
+    const fetchRecommendations = async () => {
+      setLoadingRecommendations(true);
+      try {
+        const users = await getRecentUsers(20);
+        setAiRecommendations(
+          currentUser ? users.filter((u) => u.uid !== currentUser.uid) : users,
+        );
+      } catch (e) {
+        if (__DEV__) console.error('fetchRecommendations error:', e);
+      } finally {
+        setLoadingRecommendations(false);
+      }
+    };
+    fetchRecommendations();
+  }, [currentUser]);
 
   const search = useCallback(async (queryText: string) => {
     if (!queryText.trim()) {
