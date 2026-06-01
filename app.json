@@ -1,5 +1,11 @@
 {
   "expo": {
+    "updates": {
+      "url": "https://u.expo.dev/231a57a2-356a-4309-8a4d-634156eac428"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "name": "BaseLedger",
     "slug": "ballpark",
     "version": "1.0.0",
