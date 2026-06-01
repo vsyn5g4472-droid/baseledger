@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { Text, TextInput, Avatar, IconButton, Divider, ActivityIndicator } from 'react-native-paper';
-import { useLocalSearchParams } from 'expo-router';
-import { Colors, Spacing, Typography } from '../../../src/constants/theme';
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TouchableOpacity, Alert } from 'react-native';
+import { Text, TextInput, Avatar, IconButton, Divider, ActivityIndicator, Modal, Portal } from 'react-native-paper';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
-import { getPost, getComments, addComment } from '../../../src/services/postService';
-import type { Post, Comment } from '../../../src/models/types';
+import { getPost, getComments, addComment, getLikes, deletePost } from '../../../src/services/postService';
+import type { Post, Comment, User } from '../../../src/models/types';
 
 function formatTimeAgo(date: any): string {
   const now = Date.now();
@@ -26,6 +27,9 @@ export default function PostDetailScreen() {
   const [comment, setComment] = useState('');
   const [loadingPost, setLoadingPost] = useState(true);
   const [sending, setSending] = useState(false);
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likedUsers, setLikedUsers] = useState<User[]>([]);
+  const [likesLoading, setLikesLoading] = useState(false);
 
   useEffect(() => {
     if (!postId) return;
@@ -38,6 +42,45 @@ export default function PostDetailScreen() {
       .catch(() => {})
       .finally(() => setLoadingPost(false));
   }, [postId]);
+
+  const isOwnPost = post !== null && post.authorId === currentUser?.uid;
+
+  const handleDelete = useCallback(() => {
+    if (!post || !currentUser) return;
+    Alert.alert(
+      '投稿を削除',
+      'この投稿を削除しますか？この操作は取り消せません。',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '削除',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deletePost(post.id, currentUser.uid);
+              router.back();
+            } catch (e: any) {
+              Alert.alert('エラー', e?.message ?? '削除に失敗しました');
+            }
+          },
+        },
+      ],
+    );
+  }, [post, currentUser]);
+
+  const handleLikesPress = useCallback(async () => {
+    if (!postId || !post?.likesCount) return;
+    setLikesModalVisible(true);
+    setLikesLoading(true);
+    try {
+      const users = await getLikes(postId);
+      setLikedUsers(users);
+    } catch {
+      setLikedUsers([]);
+    } finally {
+      setLikesLoading(false);
+    }
+  }, [postId, post?.likesCount]);
 
   const handleSend = useCallback(async () => {
     if (!currentUser || !postId || !comment.trim()) return;
@@ -73,6 +116,15 @@ export default function PostDetailScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
+      <Stack.Screen
+        options={{
+          headerRight: isOwnPost ? () => (
+            <TouchableOpacity onPress={handleDelete} style={{ paddingRight: 16 }}>
+              <MaterialCommunityIcons name="trash-can-outline" size={22} color={Colors.error} />
+            </TouchableOpacity>
+          ) : undefined,
+        }}
+      />
       <FlatList
         data={comments}
         keyExtractor={(item) => item.id}
@@ -92,7 +144,11 @@ export default function PostDetailScreen() {
               </View>
               <Text style={styles.postContent}>{post.content}</Text>
               <View style={styles.statsRow}>
-                <Text style={styles.stat}>{post.likesCount}件のいいね</Text>
+                <TouchableOpacity onPress={handleLikesPress} disabled={!post.likesCount}>
+                  <Text style={[styles.stat, post.likesCount > 0 && styles.statTappable]}>
+                    {post.likesCount}件のいいね
+                  </Text>
+                </TouchableOpacity>
                 <Text style={styles.stat}>{post.commentsCount}件のコメント</Text>
               </View>
               <Divider style={styles.divider} />
@@ -132,6 +188,42 @@ export default function PostDetailScreen() {
           disabled={!comment.trim() || sending}
         />
       </View>
+
+      <Portal>
+        <Modal
+          visible={likesModalVisible}
+          onDismiss={() => setLikesModalVisible(false)}
+          contentContainerStyle={styles.likesModal}
+        >
+          <Text style={styles.likesModalTitle}>{post?.likesCount}件のいいね</Text>
+          {likesLoading ? (
+            <ActivityIndicator color={Colors.primary} style={styles.likesLoader} />
+          ) : (
+            <FlatList
+              data={likedUsers}
+              keyExtractor={(item) => item.uid}
+              style={styles.likeUserList}
+              renderItem={({ item }) => (
+                <View style={styles.likeUserRow}>
+                  {item.photoURL ? (
+                    <Avatar.Image size={36} source={{ uri: item.photoURL }} />
+                  ) : (
+                    <Avatar.Text
+                      size={36}
+                      label={(item.displayName ?? 'U').charAt(0).toUpperCase()}
+                      style={styles.likeUserAvatar}
+                    />
+                  )}
+                  <Text style={styles.likeUserName}>{item.displayName ?? 'ユーザー'}</Text>
+                </View>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.likesEmpty}>まだいいねはありません</Text>
+              }
+            />
+          )}
+        </Modal>
+      </Portal>
     </KeyboardAvoidingView>
   );
 }
@@ -149,6 +241,7 @@ const styles = StyleSheet.create({
   postContent: { fontSize: Typography.body, color: Colors.text, lineHeight: 24, marginBottom: Spacing.md },
   statsRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.sm },
   stat: { fontSize: Typography.caption, color: Colors.textSecondary },
+  statTappable: { textDecorationLine: 'underline' },
   divider: { marginVertical: Spacing.md },
   sectionTitle: { fontSize: Typography.h4, fontWeight: '600', color: Colors.text, marginBottom: Spacing.sm },
   commentItem: { flexDirection: 'row', padding: Spacing.md, paddingVertical: Spacing.sm },
@@ -166,4 +259,23 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.border,
   },
   commentInput: { flex: 1, backgroundColor: Colors.card },
+  likesModal: {
+    backgroundColor: Colors.card,
+    margin: Spacing.lg,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    maxHeight: '70%',
+  },
+  likesModalTitle: { fontSize: Typography.h4, fontWeight: '600', color: Colors.text, marginBottom: Spacing.md },
+  likesLoader: { marginVertical: Spacing.xl },
+  likeUserList: { maxHeight: 400 },
+  likeUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  likeUserAvatar: { backgroundColor: Colors.primary },
+  likeUserName: { fontSize: Typography.body, color: Colors.text },
+  likesEmpty: { textAlign: 'center', color: Colors.textSecondary, marginVertical: Spacing.xl },
 });

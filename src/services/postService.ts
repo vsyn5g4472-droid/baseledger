@@ -25,6 +25,7 @@ import {
   Post,
   Comment,
   Like,
+  User,
   CreatePostInput,
   PaginatedResult,
   AppError,
@@ -472,6 +473,30 @@ export async function getLikedPostIds(userId: string, postIds: string[]): Promis
 }
 
 /**
+ * いいねしたユーザー一覧を取得する（最大50件・新しい順）。
+ * @param postId - 対象の投稿ID
+ */
+export async function getLikes(postId: string): Promise<User[]> {
+  const q = query(
+    collection(db, COLLECTIONS.LIKES),
+    where('postId', '==', postId),
+    orderBy('createdAt', 'desc'),
+    fbLimit(50),
+  );
+  const snapshot = await getDocs(q);
+  const users = await Promise.all(
+    snapshot.docs.map(async (likeDoc) => {
+      try {
+        return await getUser(likeDoc.data().userId);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return users.filter((u): u is User => u !== null);
+}
+
+/**
  * プロフィール更新時に過去の投稿・コメントの authorName / authorPhotoURL を一括更新する。
  * writeBatch で 500 件ずつ分割して処理する。
  */
@@ -507,3 +532,4 @@ export async function updateAuthorNameInPosts(
     throw new AppError('NETWORK', `Failed to update author name in posts: ${(error as Error).message}`);
   }
 }
+

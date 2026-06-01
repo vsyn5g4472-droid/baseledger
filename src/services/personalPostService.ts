@@ -23,17 +23,17 @@ export interface GameRecordStatsData {
     id: string;
     pitchType: string;
     zone: string;
-    pitchX?: number;
-    pitchY?: number;
+    pitchX: number | null;
+    pitchY: number | null;
     result: string;
-    velocity?: number;
+    velocity: number | null;
   }>;
-  battedBall?: {
+  battedBall: {
     type: string;
     fieldX: number;
     fieldY: number;
     estimatedDistance: number;
-  };
+  } | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -182,12 +182,12 @@ export async function createPersonalPost(
       id: p.id,
       pitchType: p.pitchType,
       zone: p.zone,
-      pitchX: p.pitchX,
-      pitchY: p.pitchY,
+      pitchX: p.pitchX ?? null,
+      pitchY: p.pitchY ?? null,
       result: p.result,
-      velocity: p.velocity,
+      velocity: p.velocity ?? null,
     })),
-    battedBall: atBat.battedBall,
+    battedBall: atBat.battedBall ?? null,
   };
 
   // ── 7. Create the post ─────────────────────────────────────────────────────
