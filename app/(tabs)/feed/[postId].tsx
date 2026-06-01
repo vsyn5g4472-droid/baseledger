@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
   postContent: { fontSize: Typography.body, color: Colors.text, lineHeight: 24, marginBottom: Spacing.md },
   statsRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.sm },
   stat: { fontSize: Typography.caption, color: Colors.textSecondary },
-  statTappable: { textDecorationLine: 'underline' },
+  statTappable: { fontWeight: '600' },
   divider: { marginVertical: Spacing.md },
   sectionTitle: { fontSize: Typography.h4, fontWeight: '600', color: Colors.text, marginBottom: Spacing.sm },
   commentItem: { flexDirection: 'row', padding: Spacing.md, paddingVertical: Spacing.sm },
