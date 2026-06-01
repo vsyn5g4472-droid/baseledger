@@ -10,6 +10,7 @@ import BuntSignStatsCard from '../../../src/components/BuntSignStatsCard';
 import StatsChart from '../../../src/components/StatsChart';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
+import PlanBadge from '../../../src/components/PlanBadge';
 
 export default function ProfileScreen() {
   const { currentUser, signOut, userPlan } = useAuth();
@@ -82,7 +83,10 @@ export default function ProfileScreen() {
         ) : (
           <Avatar.Text size={80} label={u.displayName.charAt(0)} style={styles.avatar} />
         )}
-        <Text style={styles.name}>{u.displayName}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={styles.name}>{u.displayName}</Text>
+          <PlanBadge plan={userPlan} size="md" />
+        </View>
         <View style={styles.roleRow}>
           <Chip
             compact

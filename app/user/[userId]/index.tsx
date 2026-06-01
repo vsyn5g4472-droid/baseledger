@@ -9,6 +9,7 @@ import { useUserPosts } from '../../../src/hooks/usePosts';
 import { useI18n } from '../../../src/i18n';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import PostCard from '../../../src/components/PostCard';
+import PlanBadge from '../../../src/components/PlanBadge';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { getOrCreateConversation } from '../../../src/services/messageService';
 import type { Post } from '../../../src/models/types';
@@ -78,7 +79,10 @@ export default function UserProfileScreen() {
             />
           )}
 
-          <Text style={styles.displayName}>{user.displayName}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.displayName}>{user.displayName}</Text>
+            <PlanBadge plan={user.plan ?? 'free'} size="md" />
+          </View>
 
           <View style={styles.badgeRow}>
             <Chip
