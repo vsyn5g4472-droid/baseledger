@@ -11,7 +11,7 @@ interface PlanBadgeProps {
 export default function PlanBadge({ plan, size = 'md' }: PlanBadgeProps) {
   if (plan === 'free' || plan === 'light') return null;
 
-  const px = size === 'sm' ? 20 : 26;
+  const px = size === 'sm' ? 30 : 40;
 
   const source = plan === 'pro'
     ? require('../../assets/badge_pro.png')
@@ -27,8 +27,8 @@ export default function PlanBadge({ plan, size = 'md' }: PlanBadgeProps) {
     }]}>
       <Image
         source={source}
-        style={{ width: px, height: px }}
-        resizeMode="contain"
+        style={{ width: px, height: px, borderRadius: px / 2 }}
+        resizeMode="cover"
       />
     </View>
   );
@@ -39,5 +39,6 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
 });
