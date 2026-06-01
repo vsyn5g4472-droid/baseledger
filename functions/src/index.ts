@@ -472,10 +472,16 @@ export const extractLineupFromImage = onCall(
     const prompt = `このメンバー表・スタメン表から選手情報を読み取り、以下のJSON形式のみで返してください。説明文は不要です。
 {
   "players": [
-    { "order": 1, "number": "背番号", "name": "選手名", "position": "ポジション略称(P/C/1B/2B/3B/SS/LF/CF/RF/DH)" }
+    { "order": 1, "number": "背番号", "name": "選手名", "position": "ポジション略称" }
   ]
 }
-打順が不明な場合は記載順に1から割り当てて。ポジションが不明な場合は空文字にして。`;
+
+守備位置番号とポジション略称の対応:
+1=P, 2=C, 3=1B, 4=2B, 5=3B, 6=SS, 7=LF, 8=CF, 9=RF, DH=DH, 10=DH
+
+打順が不明な場合は記載順に1から割り当てて。
+守備位置が番号で書かれている場合は上記の対応表でポジション略称に変換して。
+守備位置が不明な場合は空文字にして。`;
 
     const response = await fetch(ANTHROPIC_API_URL, {
       method: "POST",
