@@ -5,6 +5,8 @@ import {
   query,
   where,
   orderBy,
+  getDoc,
+  doc,
 } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../services/firebase';
 import { Team, TeamMember, User, CreateTeamInput, GroupMessage } from '../models/types';
@@ -202,10 +204,15 @@ export function useTeamChat(teamId: string): {
     async (content: string) => {
       if (!currentUser) throw new Error('Not authenticated');
       try {
+        const teamDoc = await getDoc(doc(db, 'teams', teamId));
+        const allMemberIds: string[] = teamDoc.exists()
+          ? (teamDoc.data().memberIds ?? [currentUser.uid])
+          : [currentUser.uid];
+
         const group = await getOrCreateTeamGroup(
           teamId,
           currentUser.displayName ?? '',
-          [currentUser.uid],
+          allMemberIds,
         );
         await sendGroupMessage(
           group.id,

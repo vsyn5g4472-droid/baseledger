@@ -166,13 +166,6 @@ export default function TeamDetailScreen() {
         contentContainerStyle={styles.membersList}
       />
 
-      <Text style={styles.sectionTitle}>チームフィード</Text>
-      <EmptyState
-        icon="message-text-outline"
-        title="まだ投稿がありません"
-        subtitle="チームの近況を共有しましょう"
-      />
-
       {/* ── 招待モーダル ──────────────────────────────────────────── */}
       <Modal
         visible={inviteVisible}
