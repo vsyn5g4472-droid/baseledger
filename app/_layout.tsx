@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Animated, Platform } from 'react-native';
-import { Stack } from 'expo-router';
+import { View, StyleSheet, TouchableOpacity, Animated, Platform, Linking } from 'react-native';
+import { Stack, router } from 'expo-router';
 import { PaperProvider, Text } from 'react-native-paper';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
@@ -217,7 +217,34 @@ function AppShell() {
   );
 }
 
+const handleDeepLink = (url: string) => {
+  // ballpark://join?code=XXXXXX の形式を処理
+  if (url.startsWith('ballpark://join')) {
+    const code = url.split('code=')[1];
+    if (code) {
+      router.push({
+        pathname: '/(tabs)/teams',
+        params: { inviteCode: code },
+      });
+    }
+  }
+};
+
 export default function RootLayout() {
+  useEffect(() => {
+    // アプリ起動時のディープリンク処理
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink(url);
+    });
+
+    // アプリ起動中のディープリンク処理
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleDeepLink(url);
+    });
+
+    return () => subscription.remove();
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PaperProvider theme={PaperTheme as any}>

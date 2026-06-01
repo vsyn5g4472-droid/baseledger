@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
 import { Card, Text, Avatar, FAB, Button, TextInput, Portal, Modal } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import EmptyState from '../../../src/components/EmptyState';
 import { useTeams } from '../../../src/hooks/useTeam';
@@ -11,6 +11,14 @@ export default function TeamsScreen() {
   const { teams, loading, joinByCode } = useTeams();
   const [joinModal, setJoinModal] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
+  const { inviteCode: initialInviteCode } = useLocalSearchParams<{ inviteCode?: string }>();
+
+  useEffect(() => {
+    if (initialInviteCode) {
+      setInviteCode(initialInviteCode);
+      setJoinModal(true);
+    }
+  }, [initialInviteCode]);
 
   const handleJoin = async () => {
     if (inviteCode.trim()) {

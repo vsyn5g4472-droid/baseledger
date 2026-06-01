@@ -88,7 +88,7 @@ export default function TeamDetailScreen() {
     if (!team?.inviteCode) return;
     try {
       await Share.share({
-        message: `チーム「${team.name}」に招待します。\n招待コード: ${team.inviteCode}`,
+        message: `🎯 BaseLedgerチームへの招待が届いています！\n\n「${team.name}」があなたを待っています。\n\n今すぐ参加する👇\nballpark://join?code=${team.inviteCode}\n\n招待コード: ${team.inviteCode}`,
       });
       setShared(true);
       setTimeout(() => setShared(false), 2000);
