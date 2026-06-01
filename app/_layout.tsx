@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, Animated, Platform, Linking } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { Stack, router } from 'expo-router';
 import { PaperProvider, Text } from 'react-native-paper';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,6 +11,8 @@ import AuthModal from '../src/components/AuthModal';
 import LoadingScreen from '../src/components/LoadingScreen';
 import { PaperTheme, Colors, Spacing, Typography, BorderRadius } from '../src/constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+SplashScreen.preventAutoHideAsync();
 
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
   return (
@@ -68,6 +71,11 @@ const errorStyles = StyleSheet.create({
 function AppShell() {
   const { loading } = useAuth();
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+
+  // ネイティブスプラッシュをカスタムローディング画面に切り替える
+  useEffect(() => {
+    SplashScreen.hideAsync();
+  }, []);
 
   // AdMob 初期化（モジュール未対応環境はtry-catchでスキップ）
   useEffect(() => {
