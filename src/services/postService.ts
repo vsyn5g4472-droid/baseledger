@@ -390,6 +390,23 @@ export async function addComment(
 }
 
 /**
+ * Delete a comment. Only the comment author can delete it. Decrements commentsCount.
+ * @param postId - Post the comment belongs to
+ * @param commentId - Comment to delete
+ * @param userId - Must match the comment's authorId
+ */
+export async function deleteComment(postId: string, commentId: string, userId: string): Promise<void> {
+  const commentRef = doc(db, COLLECTIONS.POSTS, postId, COLLECTIONS.COMMENTS, commentId);
+  const commentDoc = await getDoc(commentRef);
+  if (!commentDoc.exists()) throw new Error('コメントが見つかりません');
+  if (commentDoc.data().authorId !== userId) throw new Error('削除権限がありません');
+  await deleteDoc(commentRef);
+  await updateDoc(doc(db, COLLECTIONS.POSTS, postId), {
+    commentsCount: increment(-1),
+  });
+}
+
+/**
  * Get comments for a post with pagination.
  * @param postId - Post ID
  * @param lastDoc - Cursor for pagination

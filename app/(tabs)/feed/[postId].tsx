@@ -5,7 +5,7 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
-import { getPost, getComments, addComment, getLikes, deletePost } from '../../../src/services/postService';
+import { getPost, getComments, addComment, getLikes, deletePost, deleteComment } from '../../../src/services/postService';
 import type { Post, Comment, User } from '../../../src/models/types';
 
 function formatTimeAgo(date: any): string {
@@ -67,6 +67,30 @@ export default function PostDetailScreen() {
       ],
     );
   }, [post, currentUser]);
+
+  const handleDeleteComment = useCallback((commentId: string) => {
+    if (!postId || !currentUser) return;
+    Alert.alert(
+      'コメントを削除',
+      'このコメントを削除しますか？',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '削除',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteComment(postId as string, commentId, currentUser.uid);
+              setComments((prev) => prev.filter((c) => c.id !== commentId));
+              setPost((prev) => prev ? { ...prev, commentsCount: Math.max(0, prev.commentsCount - 1) } : prev);
+            } catch (e: any) {
+              Alert.alert('エラー', e?.message ?? '削除に失敗しました');
+            }
+          },
+        },
+      ],
+    );
+  }, [postId, currentUser]);
 
   const handleLikesPress = useCallback(async () => {
     if (!postId || !post?.likesCount) return;
@@ -168,6 +192,14 @@ export default function PostDetailScreen() {
               <Text style={styles.commentText}>{item.content}</Text>
               <Text style={styles.commentTime}>{formatTimeAgo(item.createdAt)}</Text>
             </View>
+            {item.authorId === currentUser?.uid && (
+              <TouchableOpacity
+                onPress={() => handleDeleteComment(item.id)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="trash-can-outline" size={16} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            )}
           </View>
         )}
         contentContainerStyle={styles.listContent}
