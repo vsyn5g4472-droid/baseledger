@@ -30,6 +30,7 @@ import {
   logoutRevenueCatUser,
   syncPlanToFirestore,
 } from '../services/revenueCatService';
+import { syncGamesFromFirestore } from '../services/gameService';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -117,6 +118,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return unsubscribe;
   }, []);
+
+  // ── ゲームデータ同期 ─────────────────────────────────────────────────────────
+  // ログイン後、AsyncStorage が空の場合のみ Firestore からリストア
+  useEffect(() => {
+    if (currentUser?.uid) {
+      syncGamesFromFirestore(currentUser.uid).catch((e) =>
+        console.warn('syncGamesFromFirestore error:', e),
+      );
+    }
+  }, [currentUser?.uid]);
 
   // ── メールアドレス + パスワード ログイン ────────────────────────────────────
   // Firebase Auth のみ実行。Firestore sync は onAuthStateChanged に一本化して二重呼び出しを防ぐ
