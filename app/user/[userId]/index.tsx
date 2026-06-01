@@ -81,7 +81,7 @@ export default function UserProfileScreen() {
 
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={styles.displayName}>{user.displayName}</Text>
-            <PlanBadge plan={user.plan ?? 'free'} size="md" />
+            <PlanBadge plan={user.plan ?? 'free'} size="md" variant="text" />
           </View>
 
           <View style={styles.badgeRow}>

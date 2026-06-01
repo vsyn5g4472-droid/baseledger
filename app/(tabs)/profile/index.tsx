@@ -85,7 +85,7 @@ export default function ProfileScreen() {
         )}
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.name}>{u.displayName}</Text>
-          <PlanBadge plan={userPlan} size="md" />
+          <PlanBadge plan={userPlan} size="md" variant="text" />
         </View>
         <View style={styles.roleRow}>
           <Chip
