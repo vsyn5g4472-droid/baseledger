@@ -96,6 +96,74 @@ export function useFeedPosts(): {
   return { posts, loading, refreshing, error, loadMore, refresh, hasMore };
 }
 
+export function usePublicPosts(): {
+  posts: Post[];
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+  loadMore: () => Promise<void>;
+  refresh: () => Promise<void>;
+  hasMore: boolean;
+} {
+  const { currentUser } = useAuth();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const lastDocRef = useRef<unknown>(null);
+
+  const fetchPosts = useCallback(
+    async (isRefresh: boolean) => {
+      try {
+        const cursor = isRefresh ? undefined : (lastDocRef.current ?? undefined);
+        const result = await getPublicPosts(cursor, PAGE_SIZE);
+
+        let items = result.items;
+        if (currentUser) {
+          const likedIds = await getLikedPostIds(currentUser.uid, items.map((p) => p.id));
+          items = items.map((p) => ({ ...p, isLiked: likedIds.has(p.id) }));
+        }
+
+        if (isRefresh) {
+          setPosts(items);
+        } else {
+          setPosts((prev) => [...prev, ...items]);
+        }
+        lastDocRef.current = result.lastDoc;
+        setHasMore(result.hasMore);
+        setError(null);
+      } catch (err) {
+        if (__DEV__) console.error('Failed to fetch public posts:', err);
+        setError('フィードの読み込みに失敗しました');
+      }
+    },
+    [currentUser],
+  );
+
+  useEffect(() => {
+    setLoading(true);
+    lastDocRef.current = null;
+    fetchPosts(true).finally(() => setLoading(false));
+  }, [fetchPosts]);
+
+  const loadMore = useCallback(async () => {
+    if (loading || !hasMore) return;
+    setLoading(true);
+    await fetchPosts(false);
+    setLoading(false);
+  }, [loading, hasMore, fetchPosts]);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    lastDocRef.current = null;
+    await fetchPosts(true);
+    setRefreshing(false);
+  }, [fetchPosts]);
+
+  return { posts, loading, refreshing, error, loadMore, refresh, hasMore };
+}
+
 export function useUserPosts(userId: string): {
   posts: Post[];
   loading: boolean;

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FlatList, StyleSheet, View, TouchableOpacity } from 'react-native';
-import { FAB, Text, Button } from 'react-native-paper';
+import { FAB, Text, Button, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import PostCard from '../../../src/components/PostCard';
@@ -9,13 +9,17 @@ import EmptyState from '../../../src/components/EmptyState';
 import FeaturedPlayers from '../../../src/components/feed/FeaturedPlayers';
 import type { FeaturedPlayer } from '../../../src/services/rankingService';
 import AdBanner from '../../../src/components/ads/AdBanner';
-import { useFeedPosts, usePostActions } from '../../../src/hooks/usePosts';
+import { useFeedPosts, usePublicPosts, usePostActions } from '../../../src/hooks/usePosts';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useRequireAuth } from '../../../src/hooks/useRequireAuth';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 
 export default function FeedScreen() {
-  const { posts, loading, refreshing, error, refresh, loadMore, hasMore } = useFeedPosts();
+  const [feedTab, setFeedTab] = useState<'recommend' | 'following'>('recommend');
+  const publicFeed = usePublicPosts();
+  const followingFeed = useFeedPosts();
+  const activeFeed = feedTab === 'recommend' ? publicFeed : followingFeed;
+  const { posts, loading, refreshing, error, refresh, loadMore, hasMore } = activeFeed;
   const { currentUser } = useAuth();
   const requireAuth = useRequireAuth();
   const { likePost, unlikePost } = usePostActions();
@@ -54,6 +58,15 @@ export default function FeedScreen() {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <>
+            <SegmentedButtons
+              value={feedTab}
+              onValueChange={(v) => setFeedTab(v as 'recommend' | 'following')}
+              buttons={[
+                { value: 'recommend', label: 'おすすめ' },
+                { value: 'following', label: 'フォロー中' },
+              ]}
+              style={{ marginHorizontal: 16, marginBottom: 8 }}
+            />
             <FeaturedPlayers
               onPlayerPress={(_player: FeaturedPlayer) => {
                 // 将来: router.push(`/player/${_player.id}`)
