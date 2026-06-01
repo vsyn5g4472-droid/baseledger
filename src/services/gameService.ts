@@ -22,12 +22,22 @@ export interface SavedGame extends GameState {
 }
 
 export async function syncGamesFromFirestore(userId: string): Promise<void> {
-  const existing = await localDb.games.getAll();
-  if (existing.length > 0) return;
+  try {
+    // Firestoreからゲームを取得
+    const firestoreGames = await gameService.getUserGames(userId);
+    if (firestoreGames.length === 0) return;
 
-  const games = await gameService.getUserGames(userId);
-  for (const game of games) {
-    await localDb.games.put(game);
+    // ローカルの既存IDを取得
+    const existingIds = new Set((await localDb.games.getAll()).map((g) => g.id));
+
+    // Firestoreにあってローカルにないものだけ保存
+    for (const game of firestoreGames) {
+      if (!existingIds.has(game.id)) {
+        await localDb.games.put(game);
+      }
+    }
+  } catch (e) {
+    console.warn('syncGamesFromFirestore error:', e);
   }
 }
 
