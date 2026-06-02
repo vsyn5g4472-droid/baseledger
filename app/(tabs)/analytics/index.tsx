@@ -7,10 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { db } from '../../../src/db';
+import { gameService } from '../../../src/services/gameService';
+import { useGameStore } from '../../../src/stores/gameStore';
 import type { GameState } from '../../../src/types/game';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
@@ -27,7 +30,7 @@ function formatDate(ts: number): string {
 //   ③ 状態バッジ + 日付 (いつ・どんな状態?) — 上部の補足情報
 //   ④ 球数・打席数 (どのくらいのボリューム?) — 下部のメタ情報
 // カード全体がタップ領域 → 「分析を見る」テキストリンクは不要なので削除
-function GameCard({ game }: { game: GameState }) {
+function GameCard({ game, onDelete, onResume }: { game: GameState; onDelete: (id: string) => void; onResume: (id: string) => void }) {
   const { t } = useI18n();
   const isCompleted = game.phase === 'finished';
 
@@ -52,7 +55,23 @@ function GameCard({ game }: { game: GameState }) {
             </Text>
           </View>
         )}
+        {isCompleted && (
+          <TouchableOpacity
+            onPress={(e) => { e.stopPropagation(); onResume(game.id); }}
+            style={styles.resumeButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons name="play-circle-outline" size={18} color={Colors.primary} />
+            <Text style={styles.resumeText}>再開</Text>
+          </TouchableOpacity>
+        )}
         <Text style={styles.dateText}>{formatDate(game.createdAt)}</Text>
+        <TouchableOpacity
+          onPress={() => onDelete(game.id)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <MaterialCommunityIcons name="trash-can-outline" size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </View>
 
       {/* ① スコア + ② チーム名 — 画面中央の主役 */}
@@ -96,8 +115,8 @@ function GameCard({ game }: { game: GameState }) {
       {/* ④ メタ情報 — 最後に読むボリューム感 */}
       <View style={styles.cardFooter}>
         <Text style={styles.footerText}>
-          {game.pitchLogs.length > 0 || game.atBatLogs.length > 0
-            ? `${game.pitchLogs.length}球 · ${game.atBatLogs.length}打席`
+          {(game.pitchLogs ?? []).length > 0 || (game.atBatLogs ?? []).length > 0
+            ? `${(game.pitchLogs ?? []).length}球 · ${(game.atBatLogs ?? []).length}打席`
             : 'データ未記録'}
         </Text>
         <MaterialCommunityIcons name="chevron-right" size={16} color={Colors.textDisabled} />
@@ -109,6 +128,8 @@ function GameCard({ game }: { game: GameState }) {
 // ── メイン画面 ────────────────────────────────────────────────────────────────
 export default function AnalyticsIndexScreen() {
   const { t } = useI18n();
+  const loadGame = useGameStore((s) => s.loadGame);
+  const setPhase = useGameStore((s) => s.setPhase);
   const [games, setGames] = useState<GameState[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -132,6 +153,50 @@ export default function AnalyticsIndexScreen() {
     await loadGames();
     setRefreshing(false);
   }, [loadGames]);
+
+  const handleResume = useCallback((gameId: string) => {
+    Alert.alert(
+      '試合を再開',
+      'この試合の記録を再開しますか？',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '再開',
+          onPress: async () => {
+            try {
+              await loadGame(gameId);
+              setPhase('live');
+              router.push('/(tabs)/score/main');
+            } catch {
+              Alert.alert('エラー', '試合の再開に失敗しました');
+            }
+          },
+        },
+      ],
+    );
+  }, [loadGame, setPhase]);
+
+  const handleDelete = useCallback((gameId: string) => {
+    Alert.alert(
+      '試合を削除',
+      'この試合データを削除しますか？',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '削除',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await gameService.deleteGame(gameId);
+              setGames((prev) => prev.filter((g) => g.id !== gameId));
+            } catch {
+              Alert.alert('エラー', '削除に失敗しました');
+            }
+          },
+        },
+      ],
+    );
+  }, []);
 
   if (loading) {
     return (
@@ -189,7 +254,7 @@ export default function AnalyticsIndexScreen() {
       <FlatList
         data={displayGames}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <GameCard game={item} />}
+        renderItem={({ item }) => <GameCard game={item} onDelete={handleDelete} onResume={handleResume} />}
         contentContainerStyle={
           games.length === 0 ? styles.emptyContainer : styles.listContent
         }
@@ -413,5 +478,16 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: Typography.caption,
     color: Colors.textDisabled,
+  },
+  resumeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 8,
+  },
+  resumeText: {
+    fontSize: 12,
+    color: Colors.primary,
+    fontWeight: '600',
   },
 });
