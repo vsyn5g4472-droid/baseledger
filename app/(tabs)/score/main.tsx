@@ -1565,13 +1565,16 @@ export default function LiveScoreScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 }}>
               <TouchableOpacity
                 onPress={() => {
+                  if (!game?.currentAtBat?.pitches?.length) return;
                   undoLastPitch();
                   persist();
                   setResultModalVisible(false);
                   setPendingZone(null);
                   setPendingCoords(null);
                 }}
+                disabled={!game?.currentAtBat?.pitches?.length}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{ opacity: game?.currentAtBat?.pitches?.length ? 1 : 0.3 }}
               >
                 <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.textSecondary} />
               </TouchableOpacity>
