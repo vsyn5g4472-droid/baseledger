@@ -109,11 +109,17 @@ export default function ProfileScreen() {
             <Text style={styles.countNumber}>{u.postsCount}</Text>
             <Text style={styles.countLabel}>{t.profile.posts}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.countItem}>
+          <TouchableOpacity
+            style={styles.countItem}
+            onPress={() => router.push(`/user/${currentUser?.uid}/followers` as any)}
+          >
             <Text style={styles.countNumber}>{u.followersCount}</Text>
             <Text style={styles.countLabel}>{t.profile.followers}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.countItem}>
+          <TouchableOpacity
+            style={styles.countItem}
+            onPress={() => router.push(`/user/${currentUser?.uid}/following` as any)}
+          >
             <Text style={styles.countNumber}>{u.followingCount}</Text>
             <Text style={styles.countLabel}>{t.profile.following}</Text>
           </TouchableOpacity>

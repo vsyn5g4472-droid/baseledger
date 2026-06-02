@@ -8,7 +8,7 @@ export type { UserPlan };
 // User
 // ============================================================
 
-export type UserRole = 'player' | 'scout' | 'coach';
+export type UserRole = 'player' | 'scout' | 'coach' | 'manager';
 export type ThrowHand = 'left' | 'right' | 'both';
 export type BatHand = 'left' | 'right' | 'switch';
 

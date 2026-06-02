@@ -126,6 +126,7 @@ export default function EditProfileScreen() {
           { value: 'player', label: '選手' },
           { value: 'scout', label: 'スカウト' },
           { value: 'coach', label: 'コーチ' },
+          { value: 'manager', label: 'マネージャー' },
         ]}
         style={styles.roleSelector}
       />
