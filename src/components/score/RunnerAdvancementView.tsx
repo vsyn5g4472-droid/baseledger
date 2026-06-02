@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, ScrollView, Animated, PanResponder } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text, Portal, Modal } from 'react-native-paper';
 import Svg, { Rect, Line, Circle, Text as SvgText } from 'react-native-svg';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
@@ -391,10 +392,20 @@ export default function RunnerAdvancementView({
     <>
       <ScrollView style={styles.wrapper} contentContainerStyle={styles.content} scrollEnabled={scrollEnabled}>
         {/* ヘッダー */}
-        <View style={styles.header}>
-          <Text style={styles.resultText}>{resultLabel}</Text>
-          {fieldingLabel ? <Text style={styles.fieldingText}>{fieldingLabel}</Text> : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12 }}>
+          <TouchableOpacity
+            onPress={onCancel}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.textSecondary} />
+          </TouchableOpacity>
+          <View style={[styles.header, { flex: 1, borderBottomWidth: 0, marginHorizontal: 0, paddingTop: 0 }]}>
+            <Text style={styles.resultText}>{resultLabel}</Text>
+            {fieldingLabel ? <Text style={styles.fieldingText}>{fieldingLabel}</Text> : null}
+          </View>
+          <View style={{ width: 22 }} />
         </View>
+        <View style={styles.headerDivider} />
         <Text style={styles.subtitle}>{t.advancement.title}</Text>
 
         {/* SVG ダイヤモンド（インタラクティブ） */}
@@ -701,6 +712,12 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xs,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  headerDivider: {
+    height: 1,
+    backgroundColor: Colors.border,
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.xs,
   },

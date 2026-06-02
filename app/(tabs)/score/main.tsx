@@ -515,7 +515,8 @@ export default function LiveScoreScreen() {
   const handleAdvancementCancel = useCallback(() => {
     cancelAdvancement();
     persist();
-  }, [cancelAdvancement, persist]);
+    setShowFieldView(true);
+  }, [cancelAdvancement, persist, setShowFieldView]);
 
   const handleFieldCancel = useCallback(() => {
     setShowFieldView(false);
@@ -1546,7 +1547,22 @@ export default function LiveScoreScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.modalTitle}>{t.live.resultTitle}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  undoLastPitch();
+                  persist();
+                  setResultModalVisible(false);
+                  setPendingZone(null);
+                  setPendingCoords(null);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>{t.live.resultTitle}</Text>
+              <View style={{ width: 22 }} />
+            </View>
 
             {/* ── 走者アクション（盗塁）セクション ── */}
             {(game.runners.first || game.runners.second || game.runners.third) && (
