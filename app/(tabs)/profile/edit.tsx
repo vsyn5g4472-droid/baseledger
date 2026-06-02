@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, ScrollView, Alert, TouchableOpacity, View, ActivityIndicator } from 'react-native';
-import { Text, TextInput, Button, SegmentedButtons, Avatar } from 'react-native-paper';
+import { Text, TextInput, Button, Avatar } from 'react-native-paper';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -120,17 +120,43 @@ export default function EditProfileScreen() {
       <TextInput label="チーム" value={team} onChangeText={setTeam} mode="outlined" style={styles.input} placeholder="例: 東京ジャイアンツ" />
 
       <Text style={styles.label}>役割</Text>
-      <SegmentedButtons
-        value={role}
-        onValueChange={(v) => setRole(v as UserRole)}
-        buttons={[
-          { value: 'player', label: '選手' },
-          { value: 'scout', label: 'スカウト' },
-          { value: 'coach', label: 'コーチ' },
-          { value: 'manager', label: 'マネージャー' },
-        ]}
-        style={styles.roleSelector}
-      />
+      <View style={styles.roleSelector}>
+        {(
+          [
+            ['player', '選手'],
+            ['manager', 'マネージャー'],
+            ['coach', 'コーチ'],
+            ['scout', 'スカウト'],
+          ] as [UserRole, string][]
+        ).map(([value, label], index) => {
+          const isSelected = role === value;
+          const isLeft = index % 2 === 0;
+          const isTop = index < 2;
+          return (
+            <TouchableOpacity
+              key={value}
+              onPress={() => setRole(value)}
+              style={[
+                styles.roleButton,
+                isSelected && styles.roleButtonSelected,
+                isLeft ? styles.roleButtonLeft : styles.roleButtonRight,
+                isTop ? styles.roleButtonTop : styles.roleButtonBottom,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.roleButtonLabel,
+                  isSelected && styles.roleButtonLabelSelected,
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       <Button mode="contained" onPress={handleSave} loading={loading} disabled={loading || uploadingPhoto} style={styles.saveButton} buttonColor={Colors.primary}>
         変更を保存
@@ -158,6 +184,48 @@ const styles = StyleSheet.create({
   },
   input: { marginBottom: Spacing.md, backgroundColor: Colors.card, width: '100%' },
   label: { fontSize: Typography.body, fontWeight: '600', color: Colors.text, marginBottom: Spacing.sm, alignSelf: 'flex-start' },
-  roleSelector: { marginBottom: Spacing.lg, width: '100%' },
+  roleSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: Spacing.lg,
+    width: '100%',
+    borderRadius: BorderRadius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  roleButton: {
+    width: '50%',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.card,
+  },
+  roleButtonSelected: {
+    backgroundColor: Colors.primary,
+  },
+  roleButtonLeft: {
+    borderRightWidth: 0.5,
+    borderRightColor: Colors.primary,
+  },
+  roleButtonRight: {
+    borderLeftWidth: 0.5,
+    borderLeftColor: Colors.primary,
+  },
+  roleButtonTop: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.primary,
+  },
+  roleButtonBottom: {},
+  roleButtonLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.primary,
+  },
+  roleButtonLabelSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
   saveButton: { borderRadius: BorderRadius.lg, paddingVertical: 4, width: '100%' },
 });
