@@ -4,10 +4,12 @@ import { TextInput, IconButton } from 'react-native-paper';
 import { useLocalSearchParams } from 'expo-router';
 import ChatBubble from '../../src/components/ChatBubble';
 import { useChat } from '../../src/hooks/useMessages';
+import { useAuth } from '../../src/contexts/AuthContext';
 import { Colors, Spacing } from '../../src/constants/theme';
 
 export default function ChatScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const { currentUser } = useAuth();
   const { messages, sendMessage } = useChat(conversationId ?? '');
   const [text, setText] = useState('');
 
@@ -30,8 +32,8 @@ export default function ChatScreen() {
         renderItem={({ item }) => (
           <ChatBubble
             message={item.content}
-            isSent={item.senderId === 'mock-user-1'}
-            senderName={item.senderId === 'mock-user-1' ? 'You' : 'Friend'}
+            isSent={item.senderId === currentUser?.uid}
+            senderName={item.senderId === currentUser?.uid ? '' : item.senderId}
             timestamp={item.createdAt?.toDate?.()?.toLocaleTimeString?.() ?? ''}
           />
         )}
