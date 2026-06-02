@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, PanResponder, Dimensions } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, PanResponder, Dimensions, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button, Portal, Modal } from 'react-native-paper';
 import { router, Stack } from 'expo-router';
 import { Timestamp } from 'firebase/firestore';
@@ -88,7 +88,7 @@ const AT_BAT_RESULTS: { result: AtBatResult; label: string; color: string }[] = 
 
 export default function SpotAtBatScreen() {
   const { currentUser } = useAuth();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1);
 
   // Step 1: 状況入力
   const [playerName, setPlayerName]   = useState('');
@@ -126,20 +126,17 @@ export default function SpotAtBatScreen() {
     ],
   }));
 
-  // Step 3: 打席結果・保存
-  const [atBatResult, setAtBatResult] = useState<AtBatResult | null>(null);
-  const [memo, setMemo]               = useState('');
-  const [saving, setSaving]           = useState(false);
+  // 確認・保存画面 (旧 Step 3 → 打席結果グリッドなし、メモのみ)
+  const [showConfirm, setShowConfirm]   = useState(false);
+  const [atBatResult, setAtBatResult]   = useState<AtBatResult | null>(null);
+  const [memo, setMemo]                 = useState('');
+  const [saving, setSaving]             = useState(false);
 
   const toggleRunner = (base: 'first' | 'second' | 'third') =>
     setRunners((prev) => ({ ...prev, [base]: !prev[base] }));
 
   const handleSave = async () => {
-    if (!currentUser) return;
-    if (!atBatResult) {
-      Alert.alert('エラー', '打席結果を選択してください');
-      return;
-    }
+    if (!currentUser || !atBatResult) return;
     setSaving(true);
     try {
       await createSpotAtBat(currentUser.uid, {
@@ -213,7 +210,7 @@ export default function SpotAtBatScreen() {
     // 打席終了判定
     if (result === 'hit_by_pitch') {
       setAtBatResult('hit_by_pitch');
-      setStep(3);
+      setShowConfirm(true);
       return;
     }
     if (result === 'in_play') {
@@ -222,12 +219,12 @@ export default function SpotAtBatScreen() {
     }
     if (newBalls >= 4) {
       setAtBatResult('walk');
-      setStep(3);
+      setShowConfirm(true);
       return;
     }
     if (newStrikes >= 3) {
       setAtBatResult(result === 'strike_called' ? 'strikeout_looking' : 'strikeout');
-      setStep(3);
+      setShowConfirm(true);
       return;
     }
     setBalls(newBalls);
@@ -238,7 +235,7 @@ export default function SpotAtBatScreen() {
     setBattedBall(bb);
     setAtBatResult(result);
     setShowFieldView(false);
-    setStep(3);
+    setShowConfirm(true);
   }, []);
 
   const handleFieldCancel = useCallback(() => {
@@ -342,6 +339,107 @@ export default function SpotAtBatScreen() {
             次へ: 投球記録
           </Button>
         </ScrollView>
+      </>
+    );
+  }
+
+  // ── 確認・メモ・保存画面 (旧 Step 3 に相当) ────────────────────
+  if (showConfirm) {
+    const resultLabel = AT_BAT_RESULTS.find((r) => r.result === atBatResult)?.label ?? '—';
+    const resultColor = AT_BAT_RESULTS.find((r) => r.result === atBatResult)?.color ?? Colors.primary;
+
+    return (
+      <>
+        <Stack.Screen options={{ title: 'スポット打席 — 保存', headerShown: true }} />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={88}
+        >
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.stepLabel}>打席結果を保存</Text>
+
+            {/* 結果サマリ or 結果選択 */}
+            {atBatResult ? (
+              <View style={styles.confirmSummaryRow}>
+                <View style={[styles.confirmResultBadge, { backgroundColor: resultColor }]}>
+                  <Text style={styles.confirmResultText}>{resultLabel}</Text>
+                </View>
+                <View style={styles.confirmMeta}>
+                  <Text style={styles.confirmPlayerName}>{playerName}</Text>
+                  <Text style={styles.confirmPitches}>
+                    {pitches.length > 0 ? `${pitches.length}球` : '投球記録なし'}
+                    {pitcherName ? ` vs ${pitcherName}` : ''}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.sectionLabel}>打席結果 *</Text>
+                <View style={styles.resultGrid}>
+                  {AT_BAT_RESULTS.map(({ result, label, color }) => (
+                    <TouchableOpacity
+                      key={result}
+                      style={[
+                        styles.resultBtn,
+                        { backgroundColor: color },
+                      ]}
+                      onPress={() => setAtBatResult(result)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.resultBtnText}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* メモ */}
+            <Text style={styles.sectionLabel}>メモ（任意）</Text>
+            <TextInput
+              mode="outlined"
+              label="メモ（任意）"
+              value={memo}
+              onChangeText={setMemo}
+              multiline
+              numberOfLines={4}
+              style={styles.input}
+              autoFocus={false}
+              returnKeyType="done"
+              blurOnSubmit={false}
+            />
+            {memo.length > 0 && (
+              <View style={styles.memoPreview}>
+                <Text style={styles.memoPreviewText}>{memo}</Text>
+              </View>
+            )}
+
+            <View style={styles.footerRow}>
+              <Button
+                mode="outlined"
+                onPress={() => { setShowConfirm(false); setShowFieldView(false); }}
+                style={styles.footerBtn}
+              >
+                戻る
+              </Button>
+              <Button
+                mode="contained"
+                onPress={handleSave}
+                loading={saving}
+                disabled={saving || atBatResult === null}
+                style={styles.footerBtn}
+                buttonColor={Colors.primary}
+                icon="content-save"
+              >
+                保存
+              </Button>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </>
     );
   }
@@ -498,11 +596,24 @@ export default function SpotAtBatScreen() {
             </Button>
             <Button
               mode="outlined"
-              onPress={() => setStep(3)}
+              onPress={() => {
+                if (pitches.length === 0) {
+                  Alert.alert('エラー', '投球を1球以上記録してください');
+                  return;
+                }
+                // 最後の投球結果から打席結果を推定
+                const lastPitch = pitches[pitches.length - 1];
+                if (lastPitch.result === 'in_play') {
+                  setShowFieldView(true);
+                } else {
+                  setAtBatResult(null);
+                  setShowConfirm(true);
+                }
+              }}
               style={styles.footerBtn}
               icon="chevron-right"
             >
-              投球記録をスキップして結果へ
+              スキップして保存へ
             </Button>
           </View>
 
@@ -544,65 +655,8 @@ export default function SpotAtBatScreen() {
     );
   }
 
-  // ── Step 3: 打席結果・保存 ────────────────────────────────────
-  return (
-    <>
-      <Stack.Screen options={{ title: 'スポット打席 — 結果確定', headerShown: true }} />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.stepLabel}>STEP 3 / 打席結果</Text>
-        <Text style={styles.step2Sub}>{playerName}（{pitches.length}球）</Text>
-
-        <Text style={styles.sectionLabel}>打席結果 *</Text>
-        <View style={styles.resultGrid}>
-          {AT_BAT_RESULTS.map(({ result, label, color }) => (
-            <TouchableOpacity
-              key={result}
-              style={[
-                styles.resultBtn,
-                { backgroundColor: atBatResult === result ? color : Colors.surfaceGray },
-              ]}
-              onPress={() => setAtBatResult(result)}
-              activeOpacity={0.8}
-            >
-              <Text style={[
-                styles.resultBtnText,
-                { color: atBatResult === result ? Colors.white : Colors.text },
-              ]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <TextInput
-          mode="outlined"
-          label="メモ（任意）"
-          value={memo}
-          onChangeText={setMemo}
-          multiline
-          numberOfLines={3}
-          style={styles.input}
-        />
-
-        <View style={styles.footerRow}>
-          <Button mode="outlined" onPress={() => setStep(2)} style={styles.footerBtn}>
-            戻る
-          </Button>
-          <Button
-            mode="contained"
-            onPress={handleSave}
-            loading={saving}
-            disabled={!atBatResult || saving}
-            style={styles.footerBtn}
-            buttonColor={Colors.primary}
-            icon="content-save"
-          >
-            保存
-          </Button>
-        </View>
-      </ScrollView>
-    </>
-  );
+  // ── Step 2 に戻る (デフォルト) ──────────────────────────────
+  return null;
 }
 
 function CountDots({ label, count, max, color }: {
@@ -866,10 +920,58 @@ const styles = StyleSheet.create({
   dotsRow: { flexDirection: 'row', gap: 3 },
   dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
 
-  // Step 3
+  // 打席結果グリッド (スキップ時のみ表示)
   resultGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.md },
   resultBtn:     { width: 80, height: 52, borderRadius: BorderRadius.md, alignItems: 'center', justifyContent: 'center' },
-  resultBtnText: { fontSize: Typography.caption, fontWeight: '700' },
+  resultBtnText: { fontSize: Typography.caption, fontWeight: '700', color: Colors.white },
+
+  // 確認・保存画面
+  confirmSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  confirmResultBadge: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  confirmResultText: {
+    fontSize: Typography.body,
+    fontWeight: '800',
+    color: Colors.white,
+  },
+  confirmMeta: { flex: 1 },
+  confirmPlayerName: {
+    fontSize: Typography.body,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  confirmPitches: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  memoPreview: {
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    marginTop: 4,
+    marginBottom: Spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.primary,
+  },
+  memoPreviewText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.text,
+    lineHeight: 20,
+  },
 });
 
 const velStyles = StyleSheet.create({
