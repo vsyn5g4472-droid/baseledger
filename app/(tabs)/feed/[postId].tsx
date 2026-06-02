@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TouchableOpacity, Alert } from 'react-native';
-import { Text, TextInput, Avatar, IconButton, Divider, ActivityIndicator, Modal, Portal } from 'react-native-paper';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TouchableOpacity, Alert, Animated, Modal } from 'react-native';
+import { Text, TextInput, Avatar, IconButton, Divider, ActivityIndicator } from 'react-native-paper';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
@@ -27,9 +27,10 @@ export default function PostDetailScreen() {
   const [comment, setComment] = useState('');
   const [loadingPost, setLoadingPost] = useState(true);
   const [sending, setSending] = useState(false);
-  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likesSheetVisible, setLikesSheetVisible] = useState(false);
   const [likedUsers, setLikedUsers] = useState<User[]>([]);
   const [likesLoading, setLikesLoading] = useState(false);
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!postId) return;
@@ -92,9 +93,16 @@ export default function PostDetailScreen() {
     );
   }, [postId, currentUser]);
 
-  const handleLikesPress = useCallback(async () => {
+  const openLikesSheet = useCallback(async () => {
     if (!postId || !post?.likesCount) return;
-    setLikesModalVisible(true);
+    slideAnim.setValue(0);
+    setLikesSheetVisible(true);
+    Animated.spring(slideAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      damping: 22,
+      stiffness: 180,
+    }).start();
     setLikesLoading(true);
     try {
       const users = await getLikes(postId);
@@ -104,7 +112,18 @@ export default function PostDetailScreen() {
     } finally {
       setLikesLoading(false);
     }
-  }, [postId, post?.likesCount]);
+  }, [postId, post?.likesCount, slideAnim]);
+
+  const closeLikesSheet = useCallback(() => {
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => {
+      setLikesSheetVisible(false);
+      setLikedUsers([]);
+    });
+  }, [slideAnim]);
 
   const handleSend = useCallback(async () => {
     if (!currentUser || !postId || !comment.trim()) return;
@@ -168,7 +187,7 @@ export default function PostDetailScreen() {
               </View>
               <Text style={styles.postContent}>{post.content}</Text>
               <View style={styles.statsRow}>
-                <TouchableOpacity onPress={handleLikesPress} disabled={!post.likesCount}>
+                <TouchableOpacity onPress={openLikesSheet} disabled={!post.likesCount}>
                   <Text style={[styles.stat, post.likesCount > 0 && styles.statTappable]}>
                     {post.likesCount}件のいいね
                   </Text>
@@ -221,41 +240,84 @@ export default function PostDetailScreen() {
         />
       </View>
 
-      <Portal>
-        <Modal
-          visible={likesModalVisible}
-          onDismiss={() => setLikesModalVisible(false)}
-          contentContainerStyle={styles.likesModal}
+      <Modal
+        visible={likesSheetVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeLikesSheet}
+      >
+        <TouchableOpacity
+          style={styles.sheetBackdrop}
+          activeOpacity={1}
+          onPress={closeLikesSheet}
+        />
+        <Animated.View
+          style={[
+            styles.bottomSheet,
+            {
+              transform: [{
+                translateY: slideAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [500, 0],
+                }),
+              }],
+            },
+          ]}
         >
-          <Text style={styles.likesModalTitle}>{post?.likesCount}件のいいね</Text>
+          {/* ドラッグハンドル */}
+          <View style={styles.sheetHandle} />
+
+          {/* タイトル行 */}
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>
+              ❤️  {post?.likesCount}件のいいね
+            </Text>
+            <TouchableOpacity onPress={closeLikesSheet} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <MaterialCommunityIcons name="close" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <Divider />
+
           {likesLoading ? (
-            <ActivityIndicator color={Colors.primary} style={styles.likesLoader} />
+            <View style={styles.sheetLoader}>
+              <ActivityIndicator color={Colors.primary} />
+            </View>
           ) : (
             <FlatList
               data={likedUsers}
               keyExtractor={(item) => item.uid}
-              style={styles.likeUserList}
+              style={styles.sheetList}
               renderItem={({ item }) => (
-                <View style={styles.likeUserRow}>
+                <TouchableOpacity
+                  style={styles.likeUserRow}
+                  onPress={() => {
+                    closeLikesSheet();
+                    router.push(`/user/${item.uid}` as any);
+                  }}
+                  activeOpacity={0.7}
+                >
                   {item.photoURL ? (
-                    <Avatar.Image size={36} source={{ uri: item.photoURL }} />
+                    <Avatar.Image size={40} source={{ uri: item.photoURL }} />
                   ) : (
                     <Avatar.Text
-                      size={36}
+                      size={40}
                       label={(item.displayName ?? 'U').charAt(0).toUpperCase()}
                       style={styles.likeUserAvatar}
                     />
                   )}
                   <Text style={styles.likeUserName}>{item.displayName ?? 'ユーザー'}</Text>
-                </View>
+                  <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textDisabled} />
+                </TouchableOpacity>
               )}
               ListEmptyComponent={
-                <Text style={styles.likesEmpty}>まだいいねはありません</Text>
+                <Text style={styles.sheetEmpty}>まだいいねはありません</Text>
               }
+              contentContainerStyle={styles.sheetListContent}
             />
           )}
-        </Modal>
-      </Portal>
+        </Animated.View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -291,23 +353,57 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.border,
   },
   commentInput: { flex: 1, backgroundColor: Colors.card },
-  likesModal: {
-    backgroundColor: Colors.card,
-    margin: Spacing.lg,
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    maxHeight: '70%',
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
-  likesModalTitle: { fontSize: Typography.h4, fontWeight: '600', color: Colors.text, marginBottom: Spacing.md },
-  likesLoader: { marginVertical: Spacing.xl },
-  likeUserList: { maxHeight: 400 },
+  bottomSheet: {
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 32,
+    maxHeight: '70%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 16,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.border,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  sheetTitle: {
+    fontSize: Typography.h4,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  sheetLoader: {
+    paddingVertical: Spacing.xxl,
+    alignItems: 'center',
+  },
+  sheetList: { maxHeight: 400 },
+  sheetListContent: { paddingBottom: Spacing.lg },
   likeUserRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     gap: Spacing.sm,
   },
   likeUserAvatar: { backgroundColor: Colors.primary },
-  likeUserName: { fontSize: Typography.body, color: Colors.text },
-  likesEmpty: { textAlign: 'center', color: Colors.textSecondary, marginVertical: Spacing.xl },
+  likeUserName: { flex: 1, fontSize: Typography.body, color: Colors.text, fontWeight: '500' },
+  sheetEmpty: { textAlign: 'center', color: Colors.textSecondary, marginVertical: Spacing.xl },
 });
