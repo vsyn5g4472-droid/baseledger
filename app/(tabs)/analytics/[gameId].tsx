@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,14 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
+  Alert,
+  Modal,
+  TextInput,
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, router } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { db } from '../../../src/db';
 import type { GameState } from '../../../src/types/game';
 import {
@@ -21,6 +27,11 @@ import PitchHeatmap from '../../../src/components/analytics/PitchHeatmap';
 import SprayChart from '../../../src/components/analytics/SprayChart';
 import { formatBattingAvg } from '../../../src/utils/statsCalculator';
 import { useI18n } from '../../../src/i18n';
+import { usePlanGate, useUserPlan } from '../../../src/hooks/usePlanGate';
+import { generateGameReportHtml } from '../../../src/utils/gameReportGenerator';
+import { generateAIReport, type AIReport } from '../../../src/services/aiReportService';
+import { usePostActions } from '../../../src/hooks/usePosts';
+import type { PostVisibility } from '../../../src/models/types';
 
 type TabKey = 'batting' | 'pitching' | 'heatmap' | 'spray';
 
@@ -166,6 +177,18 @@ export default function GameAnalyticsScreen() {
   const [activeTab, setActiveTab] = useState<TabKey>('batting');
   const [heatmapTeam, setHeatmapTeam] = useState<'away' | 'home'>('home');
   const [sprayTeam, setSprayTeam] = useState<'away' | 'home'>('away');
+  const [sharing, setSharing] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showFeedModal, setShowFeedModal] = useState(false);
+  const [feedContent, setFeedContent] = useState('');
+  const [feedVisibility, setFeedVisibility] = useState<PostVisibility>('public');
+  const [feedPosting, setFeedPosting] = useState(false);
+  const [feedGenerating, setFeedGenerating] = useState(false);
+
+  const shareGate = usePlanGate('share_report');
+  const aiReportGate = usePlanGate('ai_report');
+  const userPlan = useUserPlan();
+  const { createPost } = usePostActions();
 
   useEffect(() => {
     if (!gameId) return;
@@ -175,10 +198,116 @@ export default function GameAnalyticsScreen() {
       .finally(() => setLoading(false));
   }, [gameId]);
 
-  const analytics: GameAnalytics | null = useMemo(
-    () => (game ? computeGameAnalytics(game) : null),
-    [game],
-  );
+  const analytics: GameAnalytics | null = useMemo(() => {
+    if (!game) return null;
+    try {
+      return computeGameAnalytics(game);
+    } catch (e) {
+      console.error('computeGameAnalytics error:', e);
+      return null;
+    }
+  }, [game]);
+
+  const handleShare = useCallback(async () => {
+    if (!shareGate.allowed) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    if (!game || !analytics) return;
+
+    setSharing(true);
+    try {
+      // AI チームレポートを生成（失敗してもPDF生成は続行）
+      let aiReport: AIReport | null = null;
+      try {
+        aiReport = await generateAIReport({
+          game,
+          role: 'team',
+          batters: [],
+          userPlan,
+        });
+        if (aiReport.isMock) aiReport = null;
+      } catch {
+        // AI失敗は無視してPDF生成を続行
+      }
+
+      const html = generateGameReportHtml(game, analytics, aiReport);
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: '試合レポートを共有',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert('共有できません', 'このデバイスでは共有機能が利用できません。');
+      }
+    } catch (e) {
+      Alert.alert('エラー', 'レポートの生成に失敗しました。もう一度お試しください。');
+    } finally {
+      setSharing(false);
+    }
+  }, [shareGate.allowed, game, analytics, userPlan]);
+
+  const handleOpenFeedShare = useCallback(async () => {
+    if (!game || !analytics) return;
+    setShowFeedModal(true);
+
+    // AI サマリーを事前生成
+    setFeedGenerating(true);
+    const scoreText = `⚾ ${game.awayTeam.name} ${analytics.finalScore.away} - ${analytics.finalScore.home} ${game.homeTeam.name}`;
+    let draft = scoreText + '\n\n';
+
+    if (aiReportGate.allowed) {
+      try {
+        const report = await generateAIReport({ game, role: 'team', batters: [], userPlan });
+        if (!report.isMock && report.overall) {
+          draft += `【AI総合評価】\n${report.overall}`;
+          if (report.nextAdvice) {
+            draft += `\n\n【次戦へのアドバイス】\n${report.nextAdvice}`;
+          }
+        }
+      } catch (e) {
+        console.error('generateAIReport error:', e);
+      } finally {
+        setFeedGenerating(false);
+      }
+    } else {
+      setFeedGenerating(false);
+    }
+
+    setFeedContent(draft);
+  }, [game, analytics, aiReportGate.allowed, userPlan]);
+
+  const handlePostToFeed = useCallback(async () => {
+    if (!game || !analytics || !feedContent.trim()) return;
+    setFeedPosting(true);
+    try {
+      await createPost({
+        type: 'stats',
+        content: feedContent.trim(),
+        mediaURIs: [],
+        externalVideoUrl: null,
+        statsData: {
+          gameId: game.id,
+          awayTeam: game.awayTeam.name,
+          homeTeam: game.homeTeam.name,
+          awayScore: analytics.finalScore.away,
+          homeScore: analytics.finalScore.home,
+        },
+        visibility: feedVisibility,
+        teamId: null,
+      });
+      setShowFeedModal(false);
+      Alert.alert('投稿しました', 'AI分析サマリーをフィードに共有しました。');
+    } catch {
+      Alert.alert('エラー', '投稿に失敗しました。もう一度お試しください。');
+    } finally {
+      setFeedPosting(false);
+    }
+  }, [game, analytics, feedContent, feedVisibility, createPost]);
 
   if (loading) {
     return (
@@ -203,13 +332,164 @@ export default function GameAnalyticsScreen() {
     { key: 'spray',    label: t.analytics.spray },
   ];
 
-  // Pitch logs split by defending team
-  const homePitchLogs = game.pitchLogs.filter((p) => p.inning.half === 'top');
-  const awayPitchLogs = game.pitchLogs.filter((p) => p.inning.half === 'bottom');
+  // Pitch logs split by defending team (null-safe for legacy data)
+  const homePitchLogs = (game.pitchLogs ?? []).filter((p) => p.inning.half === 'top');
+  const awayPitchLogs = (game.pitchLogs ?? []).filter((p) => p.inning.half === 'bottom');
+  const safeAtBatLogs = game.atBatLogs ?? [];
 
   return (
     <>
-      <Stack.Screen options={{ title: '試合分析', headerBackTitle: '一覧' }} />
+      <Stack.Screen
+        options={{
+          title: '試合分析',
+          headerBackTitle: '一覧',
+          headerRight: () => (
+            <View style={styles.headerButtons}>
+              {/* フィード共有ボタン */}
+              <TouchableOpacity
+                onPress={handleOpenFeedShare}
+                style={styles.headerShareBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons
+                  name="robot-outline"
+                  size={22}
+                  color={Colors.primary}
+                />
+              </TouchableOpacity>
+              {/* PDF共有ボタン */}
+              <TouchableOpacity
+                onPress={handleShare}
+                disabled={sharing}
+                style={styles.headerShareBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                {sharing ? (
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                ) : (
+                  <MaterialCommunityIcons
+                    name="share-variant"
+                    size={22}
+                    color={shareGate.allowed ? Colors.primary : Colors.textSecondary}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+          ),
+        }}
+      />
+
+      {/* PRO アップグレードモーダル */}
+      <Modal
+        visible={showUpgradeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowUpgradeModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.upgradeBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowUpgradeModal(false)}
+        >
+          <View style={styles.upgradeCard}>
+            <Text style={styles.upgradeLock}>🔒</Text>
+            <Text style={styles.upgradeTitle}>PROプラン限定機能</Text>
+            <Text style={styles.upgradeDesc}>
+              試合結果・詳細・AI分析を{'\n'}PDFで共有できます。{'\n'}PROプランにアップグレードして{'\n'}ご利用ください。
+            </Text>
+            <TouchableOpacity
+              style={styles.upgradeBtn}
+              onPress={() => {
+                setShowUpgradeModal(false);
+                router.push('/(tabs)/profile/plan');
+              }}
+            >
+              <Text style={styles.upgradeBtnText}>プランをアップグレード</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowUpgradeModal(false)}>
+              <Text style={styles.upgradeCancel}>キャンセル</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* フィード共有モーダル */}
+      <Modal
+        visible={showFeedModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { if (!feedPosting) setShowFeedModal(false); }}
+      >
+        <TouchableOpacity
+          style={styles.feedModalBackdrop}
+          activeOpacity={1}
+          onPress={() => { if (!feedPosting) setShowFeedModal(false); }}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.feedModalSheet}>
+            {/* ハンドル */}
+            <View style={styles.feedModalHandle} />
+
+            <Text style={styles.feedModalTitle}>フィードに共有</Text>
+
+            {feedGenerating ? (
+              <View style={styles.feedGenerating}>
+                <ActivityIndicator color={Colors.primary} />
+                <Text style={styles.feedGeneratingText}>AI分析を生成中...</Text>
+              </View>
+            ) : (
+              <View
+                style={styles.feedTextArea}
+                // TextInput への onPress 伝播防止
+              >
+                <TextInput
+                  style={styles.feedTextInput}
+                  multiline
+                  value={feedContent}
+                  onChangeText={setFeedContent}
+                  placeholder="投稿内容を編集できます..."
+                  placeholderTextColor={Colors.textDisabled}
+                  maxLength={1000}
+                  textAlignVertical="top"
+                />
+                <Text style={styles.feedCharCount}>{feedContent.length}/1000</Text>
+              </View>
+            )}
+
+            {/* 公開範囲 */}
+            <View style={styles.feedVisRow}>
+              {(['public', 'followers'] as PostVisibility[]).map((v) => (
+                <TouchableOpacity
+                  key={v}
+                  style={[styles.feedVisBtn, feedVisibility === v && styles.feedVisBtnActive]}
+                  onPress={() => setFeedVisibility(v)}
+                >
+                  <MaterialCommunityIcons
+                    name={v === 'public' ? 'earth' : 'account-multiple'}
+                    size={14}
+                    color={feedVisibility === v ? Colors.white : Colors.textSecondary}
+                  />
+                  <Text style={[styles.feedVisBtnText, feedVisibility === v && styles.feedVisBtnTextActive]}>
+                    {v === 'public' ? '全体公開' : 'フォロワー'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.feedPostBtn, (feedPosting || feedGenerating || !feedContent.trim()) && styles.feedPostBtnDisabled]}
+              onPress={handlePostToFeed}
+              disabled={feedPosting || feedGenerating || !feedContent.trim()}
+            >
+              {feedPosting ? (
+                <ActivityIndicator color={Colors.white} size="small" />
+              ) : (
+                <Text style={styles.feedPostBtnText}>投稿する</Text>
+              )}
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <View style={styles.container}>
 
         {/* ── Score Header ─────────────────────────────── */}
@@ -375,7 +655,7 @@ export default function GameAnalyticsScreen() {
               </View>
               <View style={styles.chartCard}>
                 <SprayChart
-                  atBatLogs={game.atBatLogs.filter((log) =>
+                  atBatLogs={safeAtBatLogs.filter((log) =>
                     sprayTeam === 'away'
                       ? log.inning.half === 'top'
                       : log.inning.half === 'bottom'
@@ -390,10 +670,42 @@ export default function GameAnalyticsScreen() {
                 ]}
               />
               <Text style={styles.heatmapNote}>
-                記録された打球数: {game.atBatLogs.filter((l) => l.battedBall).length}
+                記録された打球数: {safeAtBatLogs.filter((l) => l.battedBall).length}
               </Text>
             </>
           )}
+
+          {/* 共有ボタン行 — 画面内に目立つ形で配置 */}
+          <View style={styles.shareRow}>
+            <TouchableOpacity
+              style={[styles.shareInlineBtn, styles.shareInlineFeed]}
+              onPress={handleOpenFeedShare}
+              activeOpacity={0.8}
+            >
+              <View style={styles.shareInlineBtnInner}>
+                <MaterialCommunityIcons name="robot-outline" size={18} color={Colors.primary} />
+                <Text style={styles.shareInlineFeedText}>AI分析をフィードに共有</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.shareInlineBtn, styles.shareInlinePdf]}
+              onPress={handleShare}
+              disabled={sharing}
+              activeOpacity={0.8}
+            >
+              {sharing ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <View style={styles.shareInlineBtnInner}>
+                  <MaterialCommunityIcons name="file-pdf-box" size={18} color={Colors.white} />
+                  <Text style={styles.shareInlinePdfText}>
+                    {shareGate.allowed ? 'PDF共有' : 'PDF共有（PRO）'}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
 
         </ScrollView>
       </View>
@@ -409,6 +721,215 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   container: { flex: 1, backgroundColor: Colors.background },
+
+  // Header buttons
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginRight: Spacing.xs,
+  },
+  headerShareBtn: {
+    padding: 4,
+  },
+
+  // 画面内共有ボタン行
+  shareRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  shareInlineBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareInlineBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  shareInlineFeed: {
+    backgroundColor: Colors.primaryLight,
+    borderWidth: 1,
+    borderColor: Colors.primary + '50',
+  },
+  shareInlineFeedText: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  shareInlinePdf: {
+    backgroundColor: Colors.primary,
+  },
+  shareInlinePdfText: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+
+  // Upgrade modal
+  upgradeBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  upgradeCard: {
+    backgroundColor: Colors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  upgradeLock: { fontSize: 40, marginBottom: Spacing.sm },
+  upgradeTitle: {
+    fontSize: Typography.h3,
+    fontWeight: '800',
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+    textAlign: 'center',
+  },
+  upgradeDesc: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.lg,
+  },
+  upgradeBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    marginBottom: Spacing.sm,
+    width: '100%',
+    alignItems: 'center',
+  },
+  upgradeBtnText: {
+    color: Colors.white,
+    fontWeight: '700',
+    fontSize: Typography.body,
+  },
+  upgradeCancel: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    paddingVertical: Spacing.xs,
+  },
+
+  // Feed share modal
+  feedModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  feedModalSheet: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    paddingBottom: 40,
+  },
+  feedModalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.border,
+    alignSelf: 'center',
+    marginBottom: Spacing.md,
+  },
+  feedModalTitle: {
+    fontSize: Typography.h3,
+    fontWeight: '800',
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  feedGenerating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    padding: Spacing.lg,
+    justifyContent: 'center',
+  },
+  feedGeneratingText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+  },
+  feedTextArea: {
+    backgroundColor: Colors.surfaceGray,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
+    minHeight: 140,
+  },
+  feedTextInput: {
+    fontSize: Typography.bodySmall,
+    color: Colors.text,
+    lineHeight: 22,
+    minHeight: 120,
+  },
+  feedCharCount: {
+    fontSize: Typography.caption,
+    color: Colors.textDisabled,
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  feedVisRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  feedVisBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  feedVisBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  feedVisBtnText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  feedVisBtnTextActive: {
+    color: Colors.white,
+  },
+  feedPostBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+  },
+  feedPostBtnDisabled: {
+    opacity: 0.4,
+  },
+  feedPostBtnText: {
+    color: Colors.white,
+    fontWeight: '700',
+    fontSize: Typography.body,
+  },
 
   // Score header
   scoreHeader: {
