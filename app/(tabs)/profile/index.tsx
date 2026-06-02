@@ -239,6 +239,17 @@ export default function ProfileScreen() {
       </Button>
 
       <Button
+        mode="contained"
+        onPress={() => router.push('/(tabs)/profile/plan' as any)}
+        icon="crown"
+        style={styles.planButton}
+        buttonColor={Colors.accent}
+        labelStyle={{ color: Colors.black, fontWeight: '700' }}
+      >
+        プランをアップグレード
+      </Button>
+
+      <Button
         mode="outlined"
         onPress={() => router.push('/(tabs)/profile/settings' as any)}
         icon="cog"
@@ -358,6 +369,7 @@ const styles = StyleSheet.create({
   statValue: { fontSize: Typography.h3, fontWeight: '700', color: Colors.primary },
   statLabel: { fontSize: Typography.tiny, color: Colors.textSecondary, marginTop: 2 },
   feedButton: { marginHorizontal: Spacing.md, marginBottom: Spacing.sm },
+  planButton: { marginHorizontal: Spacing.md, marginBottom: Spacing.sm, borderRadius: BorderRadius.lg },
   settingsButton: { marginHorizontal: Spacing.md, marginBottom: Spacing.sm },
   notifRow: {
     flexDirection: 'row',

@@ -53,6 +53,18 @@ export default function ProfileLayout() {
           headerShadowVisible: false,
         }}
       />
+      <Stack.Screen
+        name="plan"
+        options={{
+          headerShown: true,
+          title: 'プランを選択',
+          headerBackTitle: '戻る',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTintColor: Colors.primary,
+          headerTitleStyle: { fontWeight: '700', color: Colors.text },
+          headerShadowVisible: false,
+        }}
+      />
     </Stack>
   );
 }

@@ -4,7 +4,7 @@
  * SDK の初期化、プラン取得、ログイン/ログアウトを管理する。
  */
 
-import Purchases, { LOG_LEVEL } from 'react-native-purchases';
+import Purchases, { LOG_LEVEL, type PurchasesOfferings } from 'react-native-purchases';
 import Constants from 'expo-constants';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
@@ -33,6 +33,14 @@ export function configureRevenueCat(): void {
 const PRODUCT_TO_PLAN: Record<string, UserPlan> = {
   baseledger_pro_monthly:      UserPlan.PRO,
   baseledger_standard_monthly: UserPlan.STANDARD,
+  baseledger_light_monthly:    UserPlan.LIGHT,
+};
+
+// パッケージ識別子 → プラン（Offerings から購入する場合に使用）
+export const PACKAGE_TO_PLAN: Record<string, UserPlan> = {
+  pro_monthly:      UserPlan.PRO,
+  standard_monthly: UserPlan.STANDARD,
+  light_monthly:    UserPlan.LIGHT,
 };
 
 export function customerInfoToUserPlan(
@@ -84,6 +92,47 @@ export async function logoutRevenueCatUser(): Promise<void> {
 // =============================================================================
 // Firestore へのプラン同期
 // =============================================================================
+
+// =============================================================================
+// Offerings 取得
+// =============================================================================
+
+export async function fetchOfferings(): Promise<PurchasesOfferings | null> {
+  try {
+    return await Purchases.getOfferings();
+  } catch (err) {
+    if (__DEV__) console.warn('[RevenueCat] getOfferings failed:', err);
+    return null;
+  }
+}
+
+// =============================================================================
+// プラン購入
+// =============================================================================
+
+export async function purchasePlan(packageIdentifier: string): Promise<UserPlan> {
+  const offerings = await fetchOfferings();
+  const pkg = offerings?.current?.availablePackages.find(
+    (p) => p.identifier === packageIdentifier,
+  );
+  if (!pkg) throw new Error(`パッケージが見つかりません: ${packageIdentifier}`);
+  const { customerInfo } = await Purchases.purchasePackage(pkg);
+  return customerInfoToUserPlan([...customerInfo.activeSubscriptions]);
+}
+
+// =============================================================================
+// サブスクリプション復元
+// =============================================================================
+
+export async function restorePurchases(): Promise<UserPlan> {
+  try {
+    const info = await Purchases.restorePurchases();
+    return customerInfoToUserPlan([...info.activeSubscriptions]);
+  } catch (err) {
+    if (__DEV__) console.warn('[RevenueCat] restorePurchases failed:', err);
+    return UserPlan.FREE;
+  }
+}
 
 export async function syncPlanToFirestore(
   uid: string,
