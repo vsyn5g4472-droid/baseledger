@@ -83,8 +83,8 @@ export default function ProfileScreen() {
         ) : (
           <Avatar.Text size={80} label={u.displayName.charAt(0)} style={styles.avatar} />
         )}
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.name}>{u.displayName}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={[styles.name, { includeFontPadding: false }]}>{u.displayName}</Text>
           <PlanBadge plan={userPlan} size="md" variant="text" />
         </View>
         <View style={styles.roleRow}>

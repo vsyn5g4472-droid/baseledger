@@ -58,6 +58,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
+    alignSelf: 'center',
   },
   textBadgeSm: {
     paddingHorizontal: 5,
