@@ -22,12 +22,15 @@ async function uriToBlob(uri: string): Promise<Blob> {
  */
 export async function uploadImage(uri: string, path: string): Promise<string> {
   try {
-    const blob = await uriToBlob(uri);
+    const response = await fetch(uri);
+    const blob = await response.blob();
     const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
-    return fbGetDownloadURL(storageRef);
-  } catch (error) {
-    throw new AppError('NETWORK', `Failed to upload image: ${(error as Error).message}`);
+    const metadata = { contentType: 'image/jpeg' };
+    await uploadBytes(storageRef, blob, metadata);
+    return await fbGetDownloadURL(storageRef);
+  } catch (e: any) {
+    console.error('uploadImage error:', e);
+    throw new Error(`画像アップロード失敗: ${e?.message ?? e}`);
   }
 }
 

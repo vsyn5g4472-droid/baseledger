@@ -29,8 +29,9 @@ export default function EditProfileScreen() {
       const path = `users/${currentUser.uid}/avatar.jpg`;
       const url = await uploadImage(uri, path);
       setPhotoURL(url);
-    } catch {
-      Alert.alert('エラー', '写真のアップロードに失敗しました');
+    } catch (e: any) {
+      console.error('uploadPhoto error:', e);
+      Alert.alert('エラー', `写真のアップロードに失敗しました: ${e?.message ?? e}`);
     } finally {
       setUploadingPhoto(false);
     }
