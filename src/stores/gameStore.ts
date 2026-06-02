@@ -1525,6 +1525,30 @@ export const useGameStore = create<GameStore>()(
             }
           }
         }
+
+        // ポジション変更後、投手が P でなくなった場合は currentPitcherId を再解決する
+        for (const side of ['away', 'home'] as const) {
+          const team = side === 'away' ? g.awayTeam : g.homeTeam;
+          const currentPitcher = team.roster.starters.find((p) => p.id === g.currentPitcherId[side]);
+          if (currentPitcher && currentPitcher.position !== 'P') {
+            const newPitcher = team.roster.starters.find((p) => p.position === 'P');
+            if (newPitcher) g.currentPitcherId[side] = newPitcher.id;
+          }
+        }
+
+        // 塁上走者のスナップショットを最新の選手データで同期する
+        const allPlayers = [
+          ...g.awayTeam.roster.starters,
+          ...g.homeTeam.roster.starters,
+        ];
+        for (const base of ['first', 'second', 'third'] as const) {
+          const runner = g.runners[base];
+          if (runner) {
+            const updated = allPlayers.find((p) => p.id === runner.id);
+            if (updated) g.runners[base] = { ...updated };
+          }
+        }
+
         const allStarters = [...g.awayTeam.roster.starters, ...g.homeTeam.roster.starters];
         g.hasUnmappedPlayers = allStarters.some((p) => p.isPlaceholder);
         g.updatedAt = Date.now();
