@@ -171,6 +171,8 @@ interface GameActions {
   updatePlayerMapping: (mappings: { playerId: string; newName: string; newNumber: string; newPosition?: string; isPitcher?: boolean; side?: 'away' | 'home' }[]) => Promise<void>;
   /** 試合中にDH設定を変更する。ON時は投手プレースホルダーを作成し、OFF時は削除する */
   setGameDH: (side: 'away' | 'home', enabled: boolean) => void;
+  /** 指定選手の打席方向(bats)をGameStateに反映する */
+  updatePlayerBats: (playerId: string, bats: 'L' | 'R' | 'S') => void;
 
   // --- サインミス（選手個別） ---
   /**
@@ -1512,6 +1514,21 @@ export const useGameStore = create<GameStore>()(
             throws: 'R',
             isPlaceholder: true,
           };
+        }
+        g.updatedAt = Date.now();
+      });
+    },
+
+    updatePlayerBats: (playerId, bats) => {
+      set((state) => {
+        const g = state.game;
+        if (!g) return;
+        for (const team of [g.awayTeam, g.homeTeam]) {
+          const player = team.roster.starters.find((p) => p.id === playerId);
+          if (player) {
+            player.bats = bats;
+            break;
+          }
         }
         g.updatedAt = Date.now();
       });

@@ -119,6 +119,7 @@ export default function LiveScoreScreen() {
   const recordStolenBase = useGameStore((s) => s.recordStolenBase);
   const recordCaughtStealing = useGameStore((s) => s.recordCaughtStealing);
   const recordSignMiss = useGameStore((s) => s.recordSignMiss);
+  const updatePlayerBats = useGameStore((s) => s.updatePlayerBats);
 
   // ── バッターの打席（左右反転用） ────────────────────────────────────
   // game が null の場合もフックの呼び出し順を守るため早期に計算
@@ -245,8 +246,18 @@ export default function LiveScoreScreen() {
 
   const toggleBatterSide = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setIsLeftBatter((v) => !v);
-  }, []);
+    const newIsLeft = !isLeftBatter;
+    setIsLeftBatter(newIsLeft);
+    if (game) {
+      const offSide = game.inning.half === 'top' ? 'away' : 'home';
+      const offTeam = game.inning.half === 'top' ? game.awayTeam : game.homeTeam;
+      const currentBatter = offTeam.roster.starters[game.currentBatterIndex[offSide]];
+      if (currentBatter?.id) {
+        updatePlayerBats(currentBatter.id, newIsLeft ? 'L' : 'R');
+        persist();
+      }
+    }
+  }, [isLeftBatter, game, updatePlayerBats, persist]);
 
   // ── 下書き保存・戻るガード ────────────────────────────────────────
   // game / persist の最新値を ref で保持し beforeRemove クロージャ内で参照
