@@ -113,7 +113,7 @@ function calcBatterStats(
     if (r === 'double') doubles++;
     if (r === 'triple') triples++;
     if (r === 'home_run') homeRuns++;
-    rbi += log.rbiCount;
+    rbi += log.rbiCount ?? 0;
     if (r === 'walk') walks++;
     if (r === 'hit_by_pitch') hbp++;
     if (r === 'sacrifice_fly') sacFlies++;
@@ -181,7 +181,7 @@ function calcPitcherStats(
     if (STRIKE_PITCH_RESULTS.includes(p.result)) zs.strikes++;
     if (p.result === 'in_play') {
       zs.inPlay++;
-      const ab = atBatLogs.find((a) => a.pitches.some((pi) => pi.id === p.id));
+      const ab = atBatLogs.find((a) => (a.pitches ?? []).some((pi) => pi.id === p.id));
       if (ab?.result && HIT_RESULTS.includes(ab.result)) zs.hits++;
     }
   }
@@ -201,12 +201,16 @@ function calcPitcherStats(
 // ── Main Aggregation ───────────────────────────────────────────────────────────
 
 export function computeGameAnalytics(game: GameState): GameAnalytics {
-  const awayPlayers = game.awayTeam.roster.starters;
-  const homePlayers = game.homeTeam.roster.starters;
+  const awayPlayers = game.awayTeam?.roster?.starters ?? [];
+  const homePlayers = game.homeTeam?.roster?.starters ?? [];
+
+  // 古いゲームデータへの防御的チェック
+  const safeAtBatLogs = game.atBatLogs ?? [];
+  const safePitchLogs  = game.pitchLogs  ?? [];
 
   // 表回 = away bats, 裏回 = home bats
-  const awayBatLogs = game.atBatLogs.filter((l) => l.inning.half === 'top');
-  const homeBatLogs = game.atBatLogs.filter((l) => l.inning.half === 'bottom');
+  const awayBatLogs = safeAtBatLogs.filter((l) => l.inning.half === 'top');
+  const homeBatLogs = safeAtBatLogs.filter((l) => l.inning.half === 'bottom');
 
   const awayBatting = awayPlayers
     .map((p) => calcBatterStats(p.id, p.name, awayBatLogs))
@@ -218,21 +222,21 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
 
   // 表回投手 = home team (home defends in top)
   // 裏回投手 = away team (away defends in bottom)
-  const topPitches = game.pitchLogs.filter((p) => p.inning.half === 'top');
-  const bottomPitches = game.pitchLogs.filter((p) => p.inning.half === 'bottom');
+  const topPitches    = safePitchLogs.filter((p) => p.inning.half === 'top');
+  const bottomPitches = safePitchLogs.filter((p) => p.inning.half === 'bottom');
 
   const homePitcherId = topPitches[0]?.pitcherId;
   const awayPitcherId = bottomPitches[0]?.pitcherId;
 
   const homeAllPlayers = [
-    ...game.homeTeam.roster.starters,
-    ...game.homeTeam.roster.bench,
-    ...(game.homeTeam.roster.pitcher ? [game.homeTeam.roster.pitcher] : []),
+    ...(game.homeTeam?.roster?.starters ?? []),
+    ...(game.homeTeam?.roster?.bench    ?? []),
+    ...(game.homeTeam?.roster?.pitcher  ? [game.homeTeam.roster.pitcher] : []),
   ];
   const awayAllPlayers = [
-    ...game.awayTeam.roster.starters,
-    ...game.awayTeam.roster.bench,
-    ...(game.awayTeam.roster.pitcher ? [game.awayTeam.roster.pitcher] : []),
+    ...(game.awayTeam?.roster?.starters ?? []),
+    ...(game.awayTeam?.roster?.bench    ?? []),
+    ...(game.awayTeam?.roster?.pitcher  ? [game.awayTeam.roster.pitcher] : []),
   ];
 
   const homePitcherPlayer = homePitcherId
@@ -243,14 +247,14 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
     : null;
 
   const homePitcherStats = homePitcherPlayer
-    ? calcPitcherStats(homePitcherPlayer.id, homePitcherPlayer.name, game.pitchLogs, game.atBatLogs)
+    ? calcPitcherStats(homePitcherPlayer.id, homePitcherPlayer.name, safePitchLogs, safeAtBatLogs)
     : null;
   const awayPitcherStats = awayPitcherPlayer
-    ? calcPitcherStats(awayPitcherPlayer.id, awayPitcherPlayer.name, game.pitchLogs, game.atBatLogs)
+    ? calcPitcherStats(awayPitcherPlayer.id, awayPitcherPlayer.name, safePitchLogs, safeAtBatLogs)
     : null;
 
-  const inningNums = game.scoreboard.innings.map((i) => i.inning);
-  const totalInnings = Math.max(...inningNums, game.inning.number, 1);
+  const inningNums = (game.scoreboard?.innings ?? []).map((i) => i.inning);
+  const totalInnings = Math.max(...inningNums, game.inning?.number ?? 1, 1);
 
   return {
     gameId: game.id,
