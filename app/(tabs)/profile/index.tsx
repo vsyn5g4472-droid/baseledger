@@ -83,8 +83,8 @@ export default function ProfileScreen() {
         ) : (
           <Avatar.Text size={80} label={u.displayName.charAt(0)} style={styles.avatar} />
         )}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={[styles.name, { includeFontPadding: false }]}>{u.displayName}</Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{u.displayName}</Text>
           <PlanBadge plan={userPlan} size="md" variant="text" />
         </View>
         <View style={styles.roleRow}>
@@ -326,7 +326,14 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.border,
   },
   avatar: { backgroundColor: Colors.primary },
-  name: { fontSize: Typography.h2, fontWeight: '700', color: Colors.text, marginTop: Spacing.sm },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    marginTop: Spacing.sm,
+  },
+  name: { fontSize: Typography.h2, fontWeight: '700', color: Colors.text },
   roleRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
   roleBadge: {},
   roleBadgeText: { color: Colors.white, fontSize: Typography.caption },
