@@ -19,6 +19,7 @@ import {
   syncPlanToFirestore,
 } from '../../../src/services/revenueCatService';
 import { auth } from '../../../src/services/firebase';
+import PlanWelcomeModal from '../../../src/components/PlanWelcomeModal';
 
 // ─── プランカード定義 ─────────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ export default function PlanScreen() {
   const { currentUser, userPlan, refreshUser } = useAuth();
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [welcomePlan, setWelcomePlan] = useState<UserPlan | null>(null);
 
   const handlePurchase = useCallback(async (card: PlanCard) => {
     if (!currentUser) {
@@ -108,11 +110,7 @@ export default function PlanScreen() {
       const newPlan = await purchasePlan(card.packageId);
       await syncPlanToFirestore(auth.currentUser!.uid, newPlan);
       await refreshUser();
-      router.back();
-      Alert.alert(
-        `${USER_PLAN_META[newPlan].label} 適用完了！`,
-        '新しいプランが有効になりました。',
-      );
+      setWelcomePlan(newPlan);
     } catch (err: any) {
       if (err?.userCancelled) return;
       Alert.alert('購入に失敗しました', err?.message ?? 'しばらくしてから再度お試しください。');
@@ -142,6 +140,15 @@ export default function PlanScreen() {
   }, [currentUser, refreshUser]);
 
   return (
+    <>
+    <PlanWelcomeModal
+      visible={welcomePlan !== null}
+      plan={welcomePlan ?? UserPlan.FREE}
+      onClose={() => {
+        setWelcomePlan(null);
+        router.back();
+      }}
+    />
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -254,6 +261,7 @@ export default function PlanScreen() {
         )}
       </TouchableOpacity>
     </ScrollView>
+    </>
   );
 }
 
