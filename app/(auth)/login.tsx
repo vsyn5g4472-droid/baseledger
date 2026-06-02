@@ -43,6 +43,25 @@ async function sha256(str: string): Promise<string> {
   );
 }
 
+const getErrorMessage = (error: any): string => {
+  const code = error?.code ?? '';
+  switch (code) {
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'パスワードが異なります。';
+    case 'auth/user-not-found':
+      return 'このメールアドレスは登録されていません。';
+    case 'auth/invalid-email':
+      return 'メールアドレスの形式が正しくありません。';
+    case 'auth/too-many-requests':
+      return 'ログイン試行が多すぎます。しばらく待ってから再試行してください。';
+    case 'auth/network-request-failed':
+      return 'ネットワークエラーが発生しました。接続を確認してください。';
+    default:
+      return 'ログインに失敗しました。もう一度お試しください。';
+  }
+};
+
 // ── ログイン方式タブ ──────────────────────────────────────────────────────────
 type LoginMode = 'email' | 'username';
 
@@ -115,7 +134,7 @@ export default function LoginScreen() {
   const [identifier, setIdentifier] = useState(''); // メールまたはユーザーID
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
 
   // ── Google OAuth ─────────────────────────────────────────────────────────────
@@ -134,7 +153,7 @@ export default function LoginScreen() {
     if (!idToken && !accessToken) return;
     signInWithGoogle(idToken, accessToken)
       .then(() => router.replace('/'))
-      .catch((e: any) => setError(e.message || 'Google ログインに失敗しました'));
+      .catch((e: any) => setErrorMessage(getErrorMessage(e)));
   }, [response]);
 
   // パスキーが使えるか確認
@@ -147,11 +166,11 @@ export default function LoginScreen() {
   // ── メール/ユーザーIDログイン ─────────────────────────────────────────────────
   const handleLogin = async () => {
     if (!identifier.trim() || !password) {
-      setError('入力欄を埋めてください');
+      setErrorMessage('入力欄を埋めてください');
       return;
     }
     try {
-      setError('');
+      setErrorMessage('');
       if (loginMode === 'email') {
         await signIn(identifier.trim(), password);
       } else {
@@ -160,14 +179,14 @@ export default function LoginScreen() {
       // index が isNew / currentUser により feed か onboarding へ分岐
       router.replace('/' as any);
     } catch (e: any) {
-      setError(e.message || 'ログインに失敗しました');
+      setErrorMessage(getErrorMessage(e));
     }
   };
 
   // ── Apple ───────────────────────────────────────────────────────────────────
   const handleAppleSignIn = async () => {
     try {
-      setError('');
+      setErrorMessage('');
       const rawNonce = generateNonce();
       const hashedNonce = await sha256(rawNonce);
       const credential = await AppleAuthentication.signInAsync({
@@ -183,7 +202,7 @@ export default function LoginScreen() {
       }
     } catch (e: any) {
       if (e.code !== 'ERR_REQUEST_CANCELED') {
-        setError(e.message || 'Apple ログインに失敗しました');
+        setErrorMessage(getErrorMessage(e));
       }
     }
   };
@@ -191,11 +210,11 @@ export default function LoginScreen() {
   // ── パスキー ─────────────────────────────────────────────────────────────────
   const handlePasskey = async () => {
     try {
-      setError('');
+      setErrorMessage('');
       await signInWithPasskey();
       router.replace('/' as any);
     } catch (e: any) {
-      setError(e.message || 'パスキー認証に失敗しました');
+      setErrorMessage(getErrorMessage(e));
     }
   };
 
@@ -241,7 +260,7 @@ export default function LoginScreen() {
           {/* Google */}
           <TouchableOpacity
             style={styles.googleBtn}
-            onPress={() => { setError(''); promptAsync(); }}
+            onPress={() => { setErrorMessage(''); promptAsync(); }}
             disabled={!request || loading}
             activeOpacity={0.85}
           >
@@ -257,7 +276,7 @@ export default function LoginScreen() {
           </View>
 
           {/* メール / ユーザーID 切り替えタブ */}
-          <ModeTab mode={loginMode} onChange={(m) => { setLoginMode(m); setIdentifier(''); setError(''); }} />
+          <ModeTab mode={loginMode} onChange={(m) => { setLoginMode(m); setIdentifier(''); setErrorMessage(''); }} />
 
           <TextInput
             label={loginMode === 'email' ? 'メールアドレス' : 'ユーザーID（@なし）'}
@@ -287,7 +306,11 @@ export default function LoginScreen() {
             }
           />
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {errorMessage ? (
+            <Text style={{ color: 'red', fontSize: 13, marginTop: 4, marginBottom: 8 }}>
+              {errorMessage}
+            </Text>
+          ) : null}
 
           <Button
             mode="contained"
@@ -428,12 +451,6 @@ const styles = StyleSheet.create({
   input: {
     marginBottom: Spacing.sm,
     backgroundColor: Colors.card,
-  },
-  error: {
-    color: Colors.error,
-    fontSize: Typography.caption,
-    marginBottom: Spacing.sm,
-    textAlign: 'center',
   },
   loginBtn: {
     borderRadius: BorderRadius.lg,
