@@ -120,6 +120,7 @@ export default function LiveScoreScreen() {
   const recordCaughtStealing = useGameStore((s) => s.recordCaughtStealing);
   const recordSignMiss = useGameStore((s) => s.recordSignMiss);
   const updatePlayerBats = useGameStore((s) => s.updatePlayerBats);
+  const revertToPreAdvancement = useGameStore((s) => s.revertToPreAdvancement);
 
   // ── バッターの打席（左右反転用） ────────────────────────────────────
   // game が null の場合もフックの呼び出し順を守るため早期に計算
@@ -856,6 +857,20 @@ export default function LiveScoreScreen() {
             </View>
           </View>
         </View>
+
+        {/* ===== 直前の打席を修正ボタン ===== */}
+        {game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement && (
+          <TouchableOpacity
+            onPress={() => {
+              revertToPreAdvancement();
+              persist();
+            }}
+            style={styles.revertButton}
+          >
+            <MaterialCommunityIcons name="undo-variant" size={16} color="#FF9800" />
+            <Text style={styles.revertButtonText}>直前の打席を修正</Text>
+          </TouchableOpacity>
+        )}
 
         {/* ===== 球速入力ストリップ ===== */}
         {velocityEnabled && (
@@ -2614,6 +2629,25 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
   undoBtnText: { fontSize: Typography.tiny, color: Colors.white, fontWeight: '600' },
+
+  revertButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,152,0,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,152,0,0.4)',
+    marginTop: 4,
+  },
+  revertButtonText: {
+    fontSize: 12,
+    color: '#FF9800',
+    fontWeight: '600',
+  },
 
   advancementOverlay: {
     backgroundColor: 'rgba(13, 13, 26, 0.85)',

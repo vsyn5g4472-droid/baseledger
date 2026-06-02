@@ -467,6 +467,18 @@ export interface GameState {
 
   // DH制 (チームごとに独立)
   isDH?: { away: boolean; home: boolean };
+
+  // 直前の打席進塁確認前のスナップショット（やり直し用）
+  preAdvancementSnapshot?: {
+    runners: Runners;
+    count: Count;
+    scoreboard: Scoreboard;
+    inning: InningState;
+    currentBatterIndex: { away: number; home: number };
+    currentPitcherId: { away: string; home: string };
+    currentAtBat: AtBatLog | null;
+    pendingAdvancement: PendingAdvancement | null;
+  };
 }
 
 // ============================================================

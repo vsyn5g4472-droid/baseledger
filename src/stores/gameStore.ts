@@ -137,6 +137,8 @@ interface GameActions {
   ) => void;
   /** 進塁確認をキャンセルする */
   cancelAdvancement: () => void;
+  /** 直前の打席の進塁確認結果を取り消してやり直す */
+  revertToPreAdvancement: () => void;
 
   // --- カスタム球種 ---
   /** カスタム球種を追加する */
@@ -1102,6 +1104,18 @@ export const useGameStore = create<GameStore>()(
         const g = state.game;
         if (!g || !g.pendingAdvancement) return;
 
+        // スナップショット保存（やり直し用）
+        g.preAdvancementSnapshot = {
+          runners: JSON.parse(JSON.stringify(g.runners)),
+          count: { ...g.count },
+          scoreboard: JSON.parse(JSON.stringify(g.scoreboard)),
+          inning: { ...g.inning },
+          currentBatterIndex: { ...g.currentBatterIndex },
+          currentPitcherId: { ...g.currentPitcherId },
+          currentAtBat: g.currentAtBat ? JSON.parse(JSON.stringify(g.currentAtBat)) : null,
+          pendingAdvancement: JSON.parse(JSON.stringify(g.pendingAdvancement)),
+        };
+
         const { result, atBatExtra: pendingExtra } = g.pendingAdvancement;
         const mergedExtra = { ...pendingExtra, ...atBatExtra };
         if (mergedExtra.buntType && g.currentAtBat) {
@@ -1200,6 +1214,29 @@ export const useGameStore = create<GameStore>()(
         }
 
         g.pendingAdvancement = null;
+        g.updatedAt = Date.now();
+      });
+    },
+
+    revertToPreAdvancement: () => {
+      set((state) => {
+        const g = state.game;
+        if (!g?.preAdvancementSnapshot) return;
+        const snap = g.preAdvancementSnapshot;
+
+        // atBatLogsの末尾を削除（直前の打席を取り消す）
+        if (g.atBatLogs.length > 0) g.atBatLogs.pop();
+
+        // スナップショットから復元
+        g.runners = snap.runners;
+        g.count = snap.count;
+        g.scoreboard = snap.scoreboard;
+        g.inning = snap.inning;
+        g.currentBatterIndex = snap.currentBatterIndex;
+        g.currentPitcherId = snap.currentPitcherId;
+        g.currentAtBat = snap.currentAtBat;
+        g.pendingAdvancement = snap.pendingAdvancement;
+        g.preAdvancementSnapshot = undefined;
         g.updatedAt = Date.now();
       });
     },
