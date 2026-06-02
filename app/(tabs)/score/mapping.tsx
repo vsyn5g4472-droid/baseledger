@@ -104,7 +104,7 @@ export default function PlayerMappingScreen() {
     setGameDH('home', homeDH);
 
     const mappings = rows
-      .filter((r) => r.name.trim())
+      .filter((r) => r.name.trim() || r.position !== r.player.position)
       .map((r) => ({
         playerId: r.player.id,
         newName: r.name,
