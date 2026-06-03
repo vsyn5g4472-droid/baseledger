@@ -12,8 +12,6 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { db } from '../../../src/db';
 import type { GameState } from '../../../src/types/game';
 import {
@@ -27,9 +25,8 @@ import PitchHeatmap from '../../../src/components/analytics/PitchHeatmap';
 import SprayChart from '../../../src/components/analytics/SprayChart';
 import { formatBattingAvg } from '../../../src/utils/statsCalculator';
 import { useI18n } from '../../../src/i18n';
-import { usePlanGate, useUserPlan } from '../../../src/hooks/usePlanGate';
+import { usePlanGate } from '../../../src/hooks/usePlanGate';
 import { generateGameReportHtml } from '../../../src/utils/gameReportGenerator';
-import { generateAIReport, type AIReport } from '../../../src/services/aiReportService';
 import { usePostActions } from '../../../src/hooks/usePosts';
 import type { PostVisibility } from '../../../src/models/types';
 
@@ -179,15 +176,30 @@ export default function GameAnalyticsScreen() {
   const [sprayTeam, setSprayTeam] = useState<'away' | 'home'>('away');
   const [sharing, setSharing] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [showFeedModal, setShowFeedModal] = useState(false);
-  const [feedContent, setFeedContent] = useState('');
-  const [feedVisibility, setFeedVisibility] = useState<PostVisibility>('public');
-  const [feedPosting, setFeedPosting] = useState(false);
-  const [feedGenerating, setFeedGenerating] = useState(false);
+  // ── 試合サマリー共有 ──────────────────────────────────────────────────────────
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [summaryStep, setSummaryStep] = useState<'select' | 'preview'>('select');
+  const [summaryChecks, setSummaryChecks] = useState({
+    hits: true, homeRuns: true, homePitcher: true, awayPitcher: true, opponentName: false,
+  });
+  const [summaryText, setSummaryText] = useState('');
+  const [summaryVisibility, setSummaryVisibility] = useState<PostVisibility>('public');
+  const [summaryPosting, setSummaryPosting] = useState(false);
+  // ── 選手成績共有 ──────────────────────────────────────────────────────────────
+  const [showPlayerModal, setShowPlayerModal] = useState(false);
+  const [playerModalStep, setPlayerModalStep] = useState<'select' | 'fields' | 'preview'>('select');
+  const [playerListTab, setPlayerListTab] = useState<'batter' | 'pitcher'>('batter');
+  const [selectedPlayerInfo, setSelectedPlayerInfo] = useState<{
+    type: 'batter' | 'pitcher';
+    data: PlayerBattingStats | PlayerPitchingStats;
+    side: 'home' | 'away';
+  } | null>(null);
+  const [playerChecks, setPlayerChecks] = useState<Record<string, boolean>>({});
+  const [playerPreviewText, setPlayerPreviewText] = useState('');
+  const [playerVisibility, setPlayerVisibility] = useState<PostVisibility>('public');
+  const [playerPosting, setPlayerPosting] = useState(false);
 
   const shareGate = usePlanGate('share_report');
-  const aiReportGate = usePlanGate('ai_report');
-  const userPlan = useUserPlan();
   const { createPost } = usePostActions();
 
   useEffect(() => {
@@ -208,6 +220,29 @@ export default function GameAnalyticsScreen() {
     }
   }, [game]);
 
+  // 選手モーダル Step2 で投手の奪三振等を表示するために事前計算
+  const pitcherComputedStats = useMemo(() => {
+    if (!selectedPlayerInfo || selectedPlayerInfo.type !== 'pitcher') return null;
+    const pitcher = selectedPlayerInfo.data as PlayerPitchingStats;
+    const logs = (game?.atBatLogs ?? []).filter(
+      (l) => l.pitcherId === pitcher.playerId && l.result !== null,
+    );
+    const ks = logs.filter(
+      (l) => l.result === 'strikeout' || l.result === 'strikeout_looking',
+    ).length;
+    const allowedHits = logs.filter(
+      (l) => l.result != null && ['single', 'double', 'triple', 'home_run'].includes(l.result),
+    ).length;
+    let maxConsec = 0, cur = 0;
+    for (const log of logs) {
+      if (log.result === 'strikeout' || log.result === 'strikeout_looking') {
+        cur++;
+        if (cur > maxConsec) maxConsec = cur;
+      } else { cur = 0; }
+    }
+    return { ks, allowedHits, maxConsec };
+  }, [selectedPlayerInfo, game]);
+
   const handleShare = useCallback(async () => {
     if (!shareGate.allowed) {
       setShowUpgradeModal(true);
@@ -217,21 +252,25 @@ export default function GameAnalyticsScreen() {
 
     setSharing(true);
     try {
-      // AI チームレポートを生成（失敗してもPDF生成は続行）
-      let aiReport: AIReport | null = null;
+      // expo-print / expo-sharing を遅延ロード（ネイティブモジュール未登録時のクラッシュを防ぐ）
+      let Print: typeof import('expo-print');
+      let Sharing: typeof import('expo-sharing');
       try {
-        aiReport = await generateAIReport({
-          game,
-          role: 'team',
-          batters: [],
-          userPlan,
-        });
-        if (aiReport.isMock) aiReport = null;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        Print = require('expo-print');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        Sharing = require('expo-sharing');
       } catch {
-        // AI失敗は無視してPDF生成を続行
+        Alert.alert(
+          '共有機能が利用できません',
+          'PDF共有にはアプリの最新バージョンが必要です。App Storeからアップデートしてください。',
+        );
+        // finally ブロックで setSharing(false) が実行されるため、ここでは不要
+        return;
       }
 
-      const html = generateGameReportHtml(game, analytics, aiReport);
+      // PDF はデータのみ（AI分析はフィード投稿用）
+      const html = generateGameReportHtml(game, analytics);
       const { uri } = await Print.printToFileAsync({ html, base64: false });
 
       const canShare = await Sharing.isAvailableAsync();
@@ -244,50 +283,86 @@ export default function GameAnalyticsScreen() {
       } else {
         Alert.alert('共有できません', 'このデバイスでは共有機能が利用できません。');
       }
-    } catch (e) {
-      Alert.alert('エラー', 'レポートの生成に失敗しました。もう一度お試しください。');
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message;
+      console.error('PDF share error:', msg ?? e);
+      Alert.alert('エラー', `レポートの生成に失敗しました: ${msg ?? 'もう一度お試しください。'}`);
     } finally {
       setSharing(false);
     }
-  }, [shareGate.allowed, game, analytics, userPlan]);
+  }, [shareGate.allowed, game, analytics]);
 
-  const handleOpenFeedShare = useCallback(async () => {
-    if (!game || !analytics) return;
-    setShowFeedModal(true);
+  // ── 試合サマリー共有ハンドラ ────────────────────────────────────────────────────
 
-    // AI サマリーを事前生成
-    setFeedGenerating(true);
-    const scoreText = `⚾ ${game.awayTeam.name} ${analytics.finalScore.away} - ${analytics.finalScore.home} ${game.homeTeam.name}`;
-    let draft = scoreText + '\n\n';
-
-    if (aiReportGate.allowed) {
-      try {
-        const report = await generateAIReport({ game, role: 'team', batters: [], userPlan });
-        if (!report.isMock && report.overall) {
-          draft += `【AI総合評価】\n${report.overall}`;
-          if (report.nextAdvice) {
-            draft += `\n\n【次戦へのアドバイス】\n${report.nextAdvice}`;
-          }
-        }
-      } catch (e) {
-        console.error('generateAIReport error:', e);
-      } finally {
-        setFeedGenerating(false);
+  const buildSummaryText = useCallback(
+    (checks: typeof summaryChecks): string => {
+      if (!game || !analytics) return '';
+      const atBatLogs = game.atBatLogs ?? [];
+      const lines: string[] = [];
+      lines.push(
+        `⚾ ${game.awayTeam.name} ${analytics.finalScore.away} - ${analytics.finalScore.home} ${game.homeTeam.name}`,
+      );
+      if (checks.opponentName) {
+        lines.push(`対戦: ${game.awayTeam.name} vs ${game.homeTeam.name}`);
       }
-    } else {
-      setFeedGenerating(false);
-    }
+      if (checks.hits) {
+        const awayHits = analytics.batting.away.reduce((s, p) => s + p.hits, 0);
+        const homeHits = analytics.batting.home.reduce((s, p) => s + p.hits, 0);
+        lines.push(`安打: ${game.awayTeam.name} ${awayHits}本 / ${game.homeTeam.name} ${homeHits}本`);
+      }
+      if (checks.homeRuns) {
+        const hrLogs = atBatLogs.filter((l) => l.result === 'home_run');
+        if (hrLogs.length > 0) {
+          const parts = hrLogs.map((l) => {
+            const inAway = analytics.batting.away.some((b) => b.playerId === l.batterId);
+            const allBatters = [...analytics.batting.away, ...analytics.batting.home];
+            const p = allBatters.find((b) => b.playerId === l.batterId);
+            const name = p?.playerName ?? '不明';
+            const teamName = inAway ? game.awayTeam.name : game.homeTeam.name;
+            const dist = l.battedBall?.estimatedDistance
+              ? ` (推定${l.battedBall.estimatedDistance}m)` : '';
+            return `${name}/${teamName}${dist}`;
+          });
+          lines.push(`本塁打: ${parts.join('、')}`);
+        }
+      }
+      if (checks.homePitcher && analytics.pitching.homePitcher) {
+        const p = analytics.pitching.homePitcher;
+        lines.push(
+          `${game.homeTeam.name} 先発: ${p.playerName} (${p.totalPitches}球 ストライク率${Math.round(p.strikeRate * 100)}%)`,
+        );
+      }
+      if (checks.awayPitcher && analytics.pitching.awayPitcher) {
+        const p = analytics.pitching.awayPitcher;
+        lines.push(
+          `${game.awayTeam.name} 先発: ${p.playerName} (${p.totalPitches}球 ストライク率${Math.round(p.strikeRate * 100)}%)`,
+        );
+      }
+      return lines.join('\n');
+    },
+    [game, analytics],
+  );
 
-    setFeedContent(draft);
-  }, [game, analytics, aiReportGate.allowed, userPlan]);
+  const handleOpenSummaryModal = useCallback(() => {
+    if (!game || !analytics) return;
+    setSummaryStep('select');
+    setSummaryChecks({ hits: true, homeRuns: true, homePitcher: true, awayPitcher: true, opponentName: false });
+    setSummaryText('');
+    setShowSummaryModal(true);
+  }, [game, analytics]);
 
-  const handlePostToFeed = useCallback(async () => {
-    if (!game || !analytics || !feedContent.trim()) return;
-    setFeedPosting(true);
+  const handleSummaryPreview = useCallback(() => {
+    setSummaryText(buildSummaryText(summaryChecks));
+    setSummaryStep('preview');
+  }, [buildSummaryText, summaryChecks]);
+
+  const handlePostSummary = useCallback(async () => {
+    if (!game || !analytics || !summaryText.trim()) return;
+    setSummaryPosting(true);
     try {
       await createPost({
         type: 'stats',
-        content: feedContent.trim(),
+        content: summaryText.trim(),
         mediaURIs: [],
         externalVideoUrl: null,
         statsData: {
@@ -297,17 +372,148 @@ export default function GameAnalyticsScreen() {
           awayScore: analytics.finalScore.away,
           homeScore: analytics.finalScore.home,
         },
-        visibility: feedVisibility,
+        visibility: summaryVisibility,
         teamId: null,
       });
-      setShowFeedModal(false);
-      Alert.alert('投稿しました', 'AI分析サマリーをフィードに共有しました。');
+      setShowSummaryModal(false);
+      Alert.alert('投稿しました', '試合サマリーをフィードに共有しました。');
     } catch {
       Alert.alert('エラー', '投稿に失敗しました。もう一度お試しください。');
     } finally {
-      setFeedPosting(false);
+      setSummaryPosting(false);
     }
-  }, [game, analytics, feedContent, feedVisibility, createPost]);
+  }, [game, analytics, summaryText, summaryVisibility, createPost]);
+
+  // ── 選手成績共有ハンドラ ──────────────────────────────────────────────────────
+
+  const buildPlayerText = useCallback(
+    (
+      info: { type: 'batter' | 'pitcher'; data: PlayerBattingStats | PlayerPitchingStats; side: 'home' | 'away' },
+      checks: Record<string, boolean>,
+    ): string => {
+      if (!game || !analytics) return '';
+      const atBatLogs = game.atBatLogs ?? [];
+      const teamName = info.side === 'away' ? game.awayTeam.name : game.homeTeam.name;
+      const lines: string[] = [];
+
+      if (info.type === 'batter') {
+        const batter = info.data as PlayerBattingStats;
+        lines.push(`⚾ ${batter.playerName}（${teamName}）の成績`);
+        if (checks.atBatsHits) {
+          lines.push(`${batter.atBats}打数${batter.hits}安打`);
+        }
+        if (checks.rbi && batter.rbi > 0) {
+          lines.push(`打点: ${batter.rbi}`);
+        }
+        if (checks.homeRun && batter.homeRuns > 0) {
+          const hrLog = atBatLogs.find(
+            (l) => l.batterId === batter.playerId && l.result === 'home_run',
+          );
+          const dist = hrLog?.battedBall?.estimatedDistance
+            ? ` (推定${hrLog.battedBall.estimatedDistance}m)` : '';
+          lines.push(`本塁打: ${batter.homeRuns}本${dist}`);
+        }
+        if (checks.ops && batter.atBats > 0) {
+          lines.push(`OPS: ${batter.ops.toFixed(3).replace(/^0/, '')}`);
+        }
+      } else {
+        const pitcher = info.data as PlayerPitchingStats;
+        const pitcherLogs = atBatLogs.filter(
+          (l) => l.pitcherId === pitcher.playerId && l.result !== null,
+        );
+        const ks = pitcherLogs.filter(
+          (l) => l.result === 'strikeout' || l.result === 'strikeout_looking',
+        ).length;
+        const allowedHits = pitcherLogs.filter(
+          (l) => l.result != null && ['single', 'double', 'triple', 'home_run'].includes(l.result),
+        ).length;
+        let maxConsec = 0, cur = 0;
+        for (const log of pitcherLogs) {
+          if (log.result === 'strikeout' || log.result === 'strikeout_looking') {
+            cur++; if (cur > maxConsec) maxConsec = cur;
+          } else { cur = 0; }
+        }
+
+        lines.push(`⚾ ${pitcher.playerName}（${teamName}）の成績`);
+        if (checks.pitchesKs) {
+          lines.push(`${pitcher.totalPitches}球 ${ks}奪三振`);
+        }
+        if (checks.allowedHits) {
+          lines.push(`被安打: ${allowedHits}本`);
+        }
+        if (checks.consecKs && maxConsec >= 3) {
+          lines.push(`最長連続三振: ${maxConsec}連続`);
+        }
+        if (checks.strikeRate) {
+          lines.push(`ストライク率: ${Math.round(pitcher.strikeRate * 100)}%`);
+        }
+      }
+      return lines.join('\n');
+    },
+    [game, analytics],
+  );
+
+  const handleOpenPlayerModal = useCallback(() => {
+    if (!game || !analytics) return;
+    setPlayerModalStep('select');
+    setPlayerListTab('batter');
+    setSelectedPlayerInfo(null);
+    setPlayerChecks({});
+    setPlayerPreviewText('');
+    setShowPlayerModal(true);
+  }, [game, analytics]);
+
+  const handleSelectBatter = useCallback(
+    (batter: PlayerBattingStats, side: 'home' | 'away') => {
+      setSelectedPlayerInfo({ type: 'batter', data: batter, side });
+      setPlayerChecks({ atBatsHits: true, rbi: true, homeRun: batter.homeRuns > 0, ops: true });
+      setPlayerModalStep('fields');
+    },
+    [],
+  );
+
+  const handleSelectPitcher = useCallback(
+    (pitcher: PlayerPitchingStats, side: 'home' | 'away') => {
+      setSelectedPlayerInfo({ type: 'pitcher', data: pitcher, side });
+      setPlayerChecks({ pitchesKs: true, allowedHits: true, consecKs: true, strikeRate: true });
+      setPlayerModalStep('fields');
+    },
+    [],
+  );
+
+  const handlePlayerFieldsNext = useCallback(() => {
+    if (!selectedPlayerInfo) return;
+    setPlayerPreviewText(buildPlayerText(selectedPlayerInfo, playerChecks));
+    setPlayerModalStep('preview');
+  }, [selectedPlayerInfo, playerChecks, buildPlayerText]);
+
+  const handlePostPlayer = useCallback(async () => {
+    if (!game || !analytics || !playerPreviewText.trim()) return;
+    setPlayerPosting(true);
+    try {
+      await createPost({
+        type: 'stats',
+        content: playerPreviewText.trim(),
+        mediaURIs: [],
+        externalVideoUrl: null,
+        statsData: {
+          gameId: game.id,
+          awayTeam: game.awayTeam.name,
+          homeTeam: game.homeTeam.name,
+          awayScore: analytics.finalScore.away,
+          homeScore: analytics.finalScore.home,
+        },
+        visibility: playerVisibility,
+        teamId: null,
+      });
+      setShowPlayerModal(false);
+      Alert.alert('投稿しました', '選手成績をフィードに共有しました。');
+    } catch {
+      Alert.alert('エラー', '投稿に失敗しました。もう一度お試しください。');
+    } finally {
+      setPlayerPosting(false);
+    }
+  }, [game, analytics, playerPreviewText, playerVisibility, createPost]);
 
   if (loading) {
     return (
@@ -345,14 +551,14 @@ export default function GameAnalyticsScreen() {
           headerBackTitle: '一覧',
           headerRight: () => (
             <View style={styles.headerButtons}>
-              {/* フィード共有ボタン */}
+              {/* 試合サマリー共有ボタン */}
               <TouchableOpacity
-                onPress={handleOpenFeedShare}
+                onPress={handleOpenSummaryModal}
                 style={styles.headerShareBtn}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <MaterialCommunityIcons
-                  name="robot-outline"
+                  name="text-box-plus-outline"
                   size={22}
                   color={Colors.primary}
                 />
@@ -413,79 +619,425 @@ export default function GameAnalyticsScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* フィード共有モーダル */}
+      {/* ── 試合サマリー投稿モーダル ─────────────────────────────────────────── */}
       <Modal
-        visible={showFeedModal}
+        visible={showSummaryModal}
         transparent
         animationType="slide"
-        onRequestClose={() => { if (!feedPosting) setShowFeedModal(false); }}
+        onRequestClose={() => { if (!summaryPosting) setShowSummaryModal(false); }}
       >
         <TouchableOpacity
           style={styles.feedModalBackdrop}
           activeOpacity={1}
-          onPress={() => { if (!feedPosting) setShowFeedModal(false); }}
+          onPress={() => { if (!summaryPosting) setShowSummaryModal(false); }}
         >
           <TouchableOpacity activeOpacity={1} style={styles.feedModalSheet}>
-            {/* ハンドル */}
             <View style={styles.feedModalHandle} />
 
-            <Text style={styles.feedModalTitle}>フィードに共有</Text>
+            {summaryStep === 'select' ? (
+              <>
+                <Text style={styles.feedModalTitle}>試合結果を投稿</Text>
 
-            {feedGenerating ? (
-              <View style={styles.feedGenerating}>
-                <ActivityIndicator color={Colors.primary} />
-                <Text style={styles.feedGeneratingText}>AI分析を生成中...</Text>
-              </View>
+                {/* 必須スコア行 */}
+                <View style={styles.summaryScoreRow}>
+                  <Text style={styles.summaryScoreText} numberOfLines={1}>
+                    ⚾ {game.awayTeam.name} {analytics.finalScore.away} - {analytics.finalScore.home} {game.homeTeam.name}
+                  </Text>
+                  <View style={styles.summaryRequiredBadge}>
+                    <Text style={styles.summaryRequiredText}>必須</Text>
+                  </View>
+                </View>
+
+                {/* チェックボックス一覧 */}
+                {(
+                  [
+                    { key: 'hits',        label: '総ヒット数',                      disabled: false },
+                    { key: 'homeRuns',    label: '本塁打者名',                      disabled: false },
+                    { key: 'homePitcher', label: `${game.homeTeam.name} 先発投手`,  disabled: !analytics.pitching.homePitcher },
+                    { key: 'awayPitcher', label: `${game.awayTeam.name} 先発投手`,  disabled: !analytics.pitching.awayPitcher },
+                    { key: 'opponentName',label: '相手チーム名（対戦メモ）',        disabled: false },
+                  ] as { key: keyof typeof summaryChecks; label: string; disabled: boolean }[]
+                ).map(({ key, label, disabled }) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.checkRow, disabled && styles.checkRowDisabled]}
+                    onPress={() => {
+                      if (!disabled) setSummaryChecks(prev => ({ ...prev, [key]: !prev[key] }));
+                    }}
+                    disabled={disabled}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name={summaryChecks[key] && !disabled ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                      size={22}
+                      color={disabled ? Colors.border : summaryChecks[key] ? Colors.primary : Colors.textSecondary}
+                    />
+                    <Text style={[styles.checkLabel, disabled && styles.checkLabelDisabled]}>
+                      {label}
+                    </Text>
+                    {disabled && (
+                      <Text style={styles.checkNoData}>データなし</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+
+                <TouchableOpacity style={styles.feedPostBtn} onPress={handleSummaryPreview}>
+                  <Text style={styles.feedPostBtnText}>プレビューを見る →</Text>
+                </TouchableOpacity>
+              </>
             ) : (
-              <View
-                style={styles.feedTextArea}
-                // TextInput への onPress 伝播防止
-              >
-                <TextInput
-                  style={styles.feedTextInput}
-                  multiline
-                  value={feedContent}
-                  onChangeText={setFeedContent}
-                  placeholder="投稿内容を編集できます..."
-                  placeholderTextColor={Colors.textDisabled}
-                  maxLength={1000}
-                  textAlignVertical="top"
-                />
-                <Text style={styles.feedCharCount}>{feedContent.length}/1000</Text>
-              </View>
+              <>
+                {/* Step2: プレビュー＋投稿 */}
+                <View style={styles.modalStepHeader}>
+                  <TouchableOpacity onPress={() => setSummaryStep('select')} style={styles.modalBackBtn}>
+                    <MaterialCommunityIcons name="arrow-left" size={20} color={Colors.primary} />
+                  </TouchableOpacity>
+                  <Text style={styles.feedModalTitle}>プレビュー・投稿</Text>
+                </View>
+
+                <View style={styles.feedTextArea}>
+                  <TextInput
+                    style={styles.feedTextInput}
+                    multiline
+                    value={summaryText}
+                    onChangeText={setSummaryText}
+                    placeholder="投稿内容を編集できます..."
+                    placeholderTextColor={Colors.textDisabled}
+                    maxLength={1000}
+                    textAlignVertical="top"
+                  />
+                  <Text style={styles.feedCharCount}>{summaryText.length}/1000</Text>
+                </View>
+
+                <View style={styles.feedVisRow}>
+                  {(['public', 'followers'] as PostVisibility[]).map((v) => (
+                    <TouchableOpacity
+                      key={v}
+                      style={[styles.feedVisBtn, summaryVisibility === v && styles.feedVisBtnActive]}
+                      onPress={() => setSummaryVisibility(v)}
+                    >
+                      <MaterialCommunityIcons
+                        name={v === 'public' ? 'earth' : 'account-multiple'}
+                        size={14}
+                        color={summaryVisibility === v ? Colors.white : Colors.textSecondary}
+                      />
+                      <Text style={[styles.feedVisBtnText, summaryVisibility === v && styles.feedVisBtnTextActive]}>
+                        {v === 'public' ? '全体公開' : 'フォロワー'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.feedPostBtn, (summaryPosting || !summaryText.trim()) && styles.feedPostBtnDisabled]}
+                  onPress={handlePostSummary}
+                  disabled={summaryPosting || !summaryText.trim()}
+                >
+                  {summaryPosting ? (
+                    <ActivityIndicator color={Colors.white} size="small" />
+                  ) : (
+                    <Text style={styles.feedPostBtnText}>投稿する</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── 選手成績投稿モーダル ──────────────────────────────────────────────── */}
+      <Modal
+        visible={showPlayerModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { if (!playerPosting) setShowPlayerModal(false); }}
+      >
+        <TouchableOpacity
+          style={styles.feedModalBackdrop}
+          activeOpacity={1}
+          onPress={() => { if (!playerPosting) setShowPlayerModal(false); }}
+        >
+          <TouchableOpacity activeOpacity={1} style={[styles.feedModalSheet, styles.playerModalSheet]}>
+            <View style={styles.feedModalHandle} />
+
+            {/* ── Step 1: 選手選択 ── */}
+            {playerModalStep === 'select' && (
+              <>
+                <Text style={styles.feedModalTitle}>選手を選択</Text>
+
+                {/* 打者 / 投手 セグメントタブ */}
+                <View style={styles.playerTabBar}>
+                  {(['batter', 'pitcher'] as const).map((tab) => (
+                    <TouchableOpacity
+                      key={tab}
+                      style={[styles.playerTabBtn, playerListTab === tab && styles.playerTabBtnActive]}
+                      onPress={() => setPlayerListTab(tab)}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialCommunityIcons
+                        name={tab === 'batter' ? 'baseball-bat' : 'baseball'}
+                        size={14}
+                        color={playerListTab === tab ? Colors.white : Colors.textSecondary}
+                      />
+                      <Text style={[styles.playerTabText, playerListTab === tab && styles.playerTabTextActive]}>
+                        {tab === 'batter' ? '打者' : '投手'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <ScrollView style={styles.playerList} showsVerticalScrollIndicator={false}>
+                  {playerListTab === 'batter' ? (
+                    <>
+                      {/* 先攻チーム 打者 */}
+                      {analytics.batting.away.filter((p) => p.atBats > 0).length > 0 && (
+                        <Text style={styles.playerListSection}>{game.awayTeam.name}（先攻）</Text>
+                      )}
+                      {analytics.batting.away.filter((p) => p.atBats > 0).map((batter) => (
+                        <TouchableOpacity
+                          key={batter.playerId}
+                          style={styles.playerListItem}
+                          onPress={() => handleSelectBatter(batter, 'away')}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.playerListNameRow}>
+                              <Text style={styles.playerListName}>{batter.playerName}</Text>
+                              <Text style={styles.playerListTeamBadge}>{game.awayTeam.name}</Text>
+                            </View>
+                            <Text style={styles.playerListSub}>
+                              {batter.atBats}打数{batter.hits}安打
+                              {batter.rbi > 0 ? ` / 打点${batter.rbi}` : ''}
+                              {batter.homeRuns > 0 ? ` / HR ${batter.homeRuns}本` : ''}
+                            </Text>
+                          </View>
+                          <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      ))}
+
+                      {/* 後攻チーム 打者 */}
+                      {analytics.batting.home.filter((p) => p.atBats > 0).length > 0 && (
+                        <Text style={styles.playerListSection}>{game.homeTeam.name}（後攻）</Text>
+                      )}
+                      {analytics.batting.home.filter((p) => p.atBats > 0).map((batter) => (
+                        <TouchableOpacity
+                          key={batter.playerId}
+                          style={styles.playerListItem}
+                          onPress={() => handleSelectBatter(batter, 'home')}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.playerListNameRow}>
+                              <Text style={styles.playerListName}>{batter.playerName}</Text>
+                              <Text style={styles.playerListTeamBadge}>{game.homeTeam.name}</Text>
+                            </View>
+                            <Text style={styles.playerListSub}>
+                              {batter.atBats}打数{batter.hits}安打
+                              {batter.rbi > 0 ? ` / 打点${batter.rbi}` : ''}
+                              {batter.homeRuns > 0 ? ` / HR ${batter.homeRuns}本` : ''}
+                            </Text>
+                          </View>
+                          <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      ))}
+
+                      {analytics.batting.away.filter((p) => p.atBats > 0).length === 0 &&
+                        analytics.batting.home.filter((p) => p.atBats > 0).length === 0 && (
+                        <Text style={styles.playerListEmpty}>打席データがありません</Text>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* 投手タブ */}
+                      {analytics.pitching.awayPitcher && (
+                        <TouchableOpacity
+                          style={styles.playerListItem}
+                          onPress={() => handleSelectPitcher(analytics.pitching.awayPitcher!, 'away')}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.playerListNameRow}>
+                              <Text style={styles.playerListName}>{analytics.pitching.awayPitcher.playerName}</Text>
+                              <Text style={styles.playerListTeamBadge}>{game.awayTeam.name}（先攻）</Text>
+                            </View>
+                            <Text style={styles.playerListSub}>
+                              {analytics.pitching.awayPitcher.totalPitches}球 / ストライク率{Math.round(analytics.pitching.awayPitcher.strikeRate * 100)}%
+                            </Text>
+                          </View>
+                          <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      )}
+                      {analytics.pitching.homePitcher && (
+                        <TouchableOpacity
+                          style={styles.playerListItem}
+                          onPress={() => handleSelectPitcher(analytics.pitching.homePitcher!, 'home')}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.playerListNameRow}>
+                              <Text style={styles.playerListName}>{analytics.pitching.homePitcher.playerName}</Text>
+                              <Text style={styles.playerListTeamBadge}>{game.homeTeam.name}（後攻）</Text>
+                            </View>
+                            <Text style={styles.playerListSub}>
+                              {analytics.pitching.homePitcher.totalPitches}球 / ストライク率{Math.round(analytics.pitching.homePitcher.strikeRate * 100)}%
+                            </Text>
+                          </View>
+                          <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      )}
+                      {!analytics.pitching.awayPitcher && !analytics.pitching.homePitcher && (
+                        <Text style={styles.playerListEmpty}>投球データがありません</Text>
+                      )}
+                    </>
+                  )}
+                </ScrollView>
+              </>
             )}
 
-            {/* 公開範囲 */}
-            <View style={styles.feedVisRow}>
-              {(['public', 'followers'] as PostVisibility[]).map((v) => (
-                <TouchableOpacity
-                  key={v}
-                  style={[styles.feedVisBtn, feedVisibility === v && styles.feedVisBtnActive]}
-                  onPress={() => setFeedVisibility(v)}
-                >
-                  <MaterialCommunityIcons
-                    name={v === 'public' ? 'earth' : 'account-multiple'}
-                    size={14}
-                    color={feedVisibility === v ? Colors.white : Colors.textSecondary}
-                  />
-                  <Text style={[styles.feedVisBtnText, feedVisibility === v && styles.feedVisBtnTextActive]}>
-                    {v === 'public' ? '全体公開' : 'フォロワー'}
+            {/* ── Step 2: 投稿内容選択 ── */}
+            {playerModalStep === 'fields' && selectedPlayerInfo && (
+              <>
+                <View style={styles.modalStepHeader}>
+                  <TouchableOpacity
+                    onPress={() => setPlayerModalStep('select')}
+                    style={styles.modalBackBtn}
+                  >
+                    <MaterialCommunityIcons name="arrow-left" size={20} color={Colors.primary} />
+                  </TouchableOpacity>
+                  <Text style={styles.feedModalTitle}>
+                    {(selectedPlayerInfo.data as PlayerBattingStats | PlayerPitchingStats).playerName}
                   </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                </View>
 
-            <TouchableOpacity
-              style={[styles.feedPostBtn, (feedPosting || feedGenerating || !feedContent.trim()) && styles.feedPostBtnDisabled]}
-              onPress={handlePostToFeed}
-              disabled={feedPosting || feedGenerating || !feedContent.trim()}
-            >
-              {feedPosting ? (
-                <ActivityIndicator color={Colors.white} size="small" />
-              ) : (
-                <Text style={styles.feedPostBtnText}>投稿する</Text>
-              )}
-            </TouchableOpacity>
+                {selectedPlayerInfo.type === 'batter' ? (
+                  /* 打者チェックボックス */
+                  (() => {
+                    const b = selectedPlayerInfo.data as PlayerBattingStats;
+                    return (
+                      <>
+                        {[
+                          { key: 'atBatsHits', label: `打数・安打数 (${b.atBats}打数${b.hits}安打)`, show: true },
+                          { key: 'rbi',        label: `打点 (${b.rbi})`,                             show: true },
+                          { key: 'homeRun',    label: `本塁打 (${b.homeRuns}本)`,                   show: b.homeRuns > 0 },
+                          { key: 'ops',        label: `OPS (${b.atBats > 0 ? b.ops.toFixed(3).replace(/^0/, '') : '-'})`, show: true },
+                        ].filter((o) => o.show).map(({ key, label }) => (
+                          <TouchableOpacity
+                            key={key}
+                            style={styles.checkRow}
+                            onPress={() => setPlayerChecks(prev => ({ ...prev, [key]: !prev[key] }))}
+                            activeOpacity={0.7}
+                          >
+                            <MaterialCommunityIcons
+                              name={playerChecks[key] ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                              size={22}
+                              color={playerChecks[key] ? Colors.primary : Colors.textSecondary}
+                            />
+                            <Text style={styles.checkLabel}>{label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </>
+                    );
+                  })()
+                ) : (
+                  /* 投手チェックボックス */
+                  (() => {
+                    const p = selectedPlayerInfo.data as PlayerPitchingStats;
+                    const cs = pitcherComputedStats;
+                    return (
+                      <>
+                        {[
+                          { key: 'pitchesKs',  label: `投球数・奪三振 (${p.totalPitches}球 ${cs?.ks ?? 0}奪三振)` },
+                          { key: 'allowedHits',label: `被安打数 (${cs?.allowedHits ?? 0}本)` },
+                          { key: 'consecKs',   label: `最長連続三振 (${cs?.maxConsec ?? 0}連続)${(cs?.maxConsec ?? 0) < 3 ? ' ※3以上の場合のみ記載' : ''}` },
+                          { key: 'strikeRate', label: `ストライク率 (${Math.round(p.strikeRate * 100)}%)` },
+                        ].map(({ key, label }) => (
+                          <TouchableOpacity
+                            key={key}
+                            style={styles.checkRow}
+                            onPress={() => setPlayerChecks(prev => ({ ...prev, [key]: !prev[key] }))}
+                            activeOpacity={0.7}
+                          >
+                            <MaterialCommunityIcons
+                              name={playerChecks[key] ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                              size={22}
+                              color={playerChecks[key] ? Colors.primary : Colors.textSecondary}
+                            />
+                            <Text style={styles.checkLabel}>{label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </>
+                    );
+                  })()
+                )}
+
+                <TouchableOpacity
+                  style={[styles.feedPostBtn, { marginTop: Spacing.md }]}
+                  onPress={handlePlayerFieldsNext}
+                >
+                  <Text style={styles.feedPostBtnText}>プレビューを見る →</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* ── Step 3: プレビュー＋投稿 ── */}
+            {playerModalStep === 'preview' && (
+              <>
+                <View style={styles.modalStepHeader}>
+                  <TouchableOpacity
+                    onPress={() => setPlayerModalStep('fields')}
+                    style={styles.modalBackBtn}
+                  >
+                    <MaterialCommunityIcons name="arrow-left" size={20} color={Colors.primary} />
+                  </TouchableOpacity>
+                  <Text style={styles.feedModalTitle}>プレビュー・投稿</Text>
+                </View>
+
+                <View style={styles.feedTextArea}>
+                  <TextInput
+                    style={styles.feedTextInput}
+                    multiline
+                    value={playerPreviewText}
+                    onChangeText={setPlayerPreviewText}
+                    placeholder="投稿内容を編集できます..."
+                    placeholderTextColor={Colors.textDisabled}
+                    maxLength={1000}
+                    textAlignVertical="top"
+                  />
+                  <Text style={styles.feedCharCount}>{playerPreviewText.length}/1000</Text>
+                </View>
+
+                <View style={styles.feedVisRow}>
+                  {(['public', 'followers'] as PostVisibility[]).map((v) => (
+                    <TouchableOpacity
+                      key={v}
+                      style={[styles.feedVisBtn, playerVisibility === v && styles.feedVisBtnActive]}
+                      onPress={() => setPlayerVisibility(v)}
+                    >
+                      <MaterialCommunityIcons
+                        name={v === 'public' ? 'earth' : 'account-multiple'}
+                        size={14}
+                        color={playerVisibility === v ? Colors.white : Colors.textSecondary}
+                      />
+                      <Text style={[styles.feedVisBtnText, playerVisibility === v && styles.feedVisBtnTextActive]}>
+                        {v === 'public' ? '全体公開' : 'フォロワー'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.feedPostBtn, (playerPosting || !playerPreviewText.trim()) && styles.feedPostBtnDisabled]}
+                  onPress={handlePostPlayer}
+                  disabled={playerPosting || !playerPreviewText.trim()}
+                >
+                  {playerPosting ? (
+                    <ActivityIndicator color={Colors.white} size="small" />
+                  ) : (
+                    <Text style={styles.feedPostBtnText}>投稿する</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -675,21 +1227,36 @@ export default function GameAnalyticsScreen() {
             </>
           )}
 
-          {/* 共有ボタン行 — 画面内に目立つ形で配置 */}
-          <View style={styles.shareRow}>
-            <TouchableOpacity
-              style={[styles.shareInlineBtn, styles.shareInlineFeed]}
-              onPress={handleOpenFeedShare}
-              activeOpacity={0.8}
-            >
-              <View style={styles.shareInlineBtnInner}>
-                <MaterialCommunityIcons name="robot-outline" size={18} color={Colors.primary} />
-                <Text style={styles.shareInlineFeedText}>AI分析をフィードに共有</Text>
-              </View>
-            </TouchableOpacity>
+          {/* 共有ボタン行 */}
+          <View style={styles.shareCol}>
+            {/* Row1: 試合サマリー＋選手成績 */}
+            <View style={styles.shareRow}>
+              <TouchableOpacity
+                style={[styles.shareInlineBtn, styles.shareInlineFeed]}
+                onPress={handleOpenSummaryModal}
+                activeOpacity={0.8}
+              >
+                <View style={styles.shareInlineBtnInner}>
+                  <MaterialCommunityIcons name="text-box-plus-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.shareInlineFeedText}>試合結果を投稿</Text>
+                </View>
+              </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.shareInlineBtn, styles.shareInlinePlayer]}
+                onPress={handleOpenPlayerModal}
+                activeOpacity={0.8}
+              >
+                <View style={styles.shareInlineBtnInner}>
+                  <MaterialCommunityIcons name="account-star-outline" size={16} color={Colors.accent} />
+                  <Text style={styles.shareInlinePlayerText}>選手成績を投稿</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Row2: PDF共有（幅広） */}
             <TouchableOpacity
-              style={[styles.shareInlineBtn, styles.shareInlinePdf]}
+              style={[styles.shareInlineFull, styles.shareInlinePdf]}
               onPress={handleShare}
               disabled={sharing}
               activeOpacity={0.8}
@@ -698,7 +1265,7 @@ export default function GameAnalyticsScreen() {
                 <ActivityIndicator size="small" color={Colors.white} />
               ) : (
                 <View style={styles.shareInlineBtnInner}>
-                  <MaterialCommunityIcons name="file-pdf-box" size={18} color={Colors.white} />
+                  <MaterialCommunityIcons name="file-pdf-box" size={16} color={Colors.white} />
                   <Text style={styles.shareInlinePdfText}>
                     {shareGate.allowed ? 'PDF共有' : 'PDF共有（PRO）'}
                   </Text>
@@ -733,15 +1300,18 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
-  // 画面内共有ボタン行
-  shareRow: {
-    flexDirection: 'row',
+  // 画面内共有ボタン列（2段）
+  shareCol: {
     gap: Spacing.sm,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
     backgroundColor: Colors.white,
+  },
+  shareRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
   },
   shareInlineBtn: {
     flex: 1,
@@ -750,10 +1320,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  shareInlineFull: {
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   shareInlineBtnInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
   },
   shareInlineFeed: {
     backgroundColor: Colors.primaryLight,
@@ -764,6 +1340,16 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption,
     fontWeight: '700',
     color: Colors.primary,
+  },
+  shareInlinePlayer: {
+    backgroundColor: '#FFF5EC',
+    borderWidth: 1,
+    borderColor: Colors.accent + '60',
+  },
+  shareInlinePlayerText: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.accent,
   },
   shareInlinePdf: {
     backgroundColor: Colors.primary,
@@ -929,6 +1515,157 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: '700',
     fontSize: Typography.body,
+  },
+
+  // サマリーモーダル: 必須スコア行
+  summaryScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primaryLight,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
+    gap: Spacing.xs,
+  },
+  summaryScoreText: {
+    flex: 1,
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  summaryRequiredBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  summaryRequiredText: {
+    fontSize: Typography.tiny,
+    color: Colors.white,
+    fontWeight: '700',
+  },
+
+  // チェックボックス行（共通）
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.surfaceGray,
+  },
+  checkLabel: {
+    flex: 1,
+    fontSize: Typography.bodySmall,
+    color: Colors.text,
+  },
+  checkNoData: {
+    fontSize: Typography.tiny,
+    color: Colors.textDisabled,
+  },
+  checkRowDisabled: { opacity: 0.4 },
+  checkLabelDisabled: { color: Colors.textDisabled },
+
+  // モーダル共通: ステップヘッダー（戻るボタン付き）
+  modalStepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  modalBackBtn: {
+    padding: 4,
+  },
+
+  // 選手モーダル
+  playerModalSheet: {
+    maxHeight: '82%',
+  },
+  playerList: {
+    flexGrow: 0,
+  },
+  // 打者/投手 セグメントタブ
+  playerTabBar: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surfaceGray,
+    borderRadius: BorderRadius.md,
+    padding: 3,
+    marginBottom: Spacing.sm,
+    gap: 3,
+  },
+  playerTabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+  },
+  playerTabBtnActive: {
+    backgroundColor: Colors.primary,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  playerTabText: {
+    fontSize: Typography.caption,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  playerTabTextActive: {
+    color: Colors.white,
+  },
+  playerListNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: 2,
+  },
+  playerListTeamBadge: {
+    fontSize: Typography.tiny,
+    color: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.sm,
+    fontWeight: '600',
+    overflow: 'hidden',
+  },
+  playerListEmpty: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    paddingVertical: Spacing.lg,
+  },
+
+  playerListSection: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  playerListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.surfaceGray,
+  },
+  playerListName: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  playerListSub: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
   },
 
   // Score header

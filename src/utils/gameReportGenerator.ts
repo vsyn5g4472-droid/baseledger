@@ -1,6 +1,5 @@
 import type { GameState } from '../types/game';
 import type { GameAnalytics } from './gameStatsCalculator';
-import type { AIReport } from '../services/aiReportService';
 import { formatBattingAvg } from './statsCalculator';
 
 function fmtDate(ts: number): string {
@@ -16,7 +15,6 @@ function pct(v: number): string {
 export function generateGameReportHtml(
   game: GameState,
   analytics: GameAnalytics,
-  aiReport?: AIReport | null,
 ): string {
   const date = fmtDate(game.createdAt ?? Date.now());
   const awayScore = analytics.finalScore.away;
@@ -28,17 +26,16 @@ export function generateGameReportHtml(
       ? game.homeTeam.name
       : '引き分け';
 
-  // イニング別スコア
+  // ── 1. スコアボード ──────────────────────────────────────────────────────────
   // innings は InningScore[] = { inning, away, home }[] 形式
-  // 古いデータや未定義を考慮して ?? [] でガード
   const safeInnings = (game.scoreboard?.innings ?? []) as Array<{ inning: number; away: number; home: number }>;
   const maxInning = safeInnings.length;
   const inningHeaders = Array.from({ length: maxInning }, (_, i) => `<th>${i + 1}</th>`).join('');
   const awayInnings = safeInnings.map((s) => `<td>${s.away ?? '-'}</td>`).join('');
   const homeInnings = safeInnings.map((s) => `<td>${s.home ?? '-'}</td>`).join('');
 
-  // 打撃成績テーブル生成
-  const battingTable = (teamName: string, players: GameAnalytics['batting']['away']) => {
+  // ── 2. 打撃成績テーブル ───────────────────────────────────────────────────────
+  const battingTable = (teamName: string, players: GameAnalytics['batting']['away']): string => {
     const safePlayers = players ?? [];
     if (safePlayers.length === 0) return '';
     const rows = safePlayers
@@ -54,8 +51,8 @@ export function generateGameReportHtml(
         <td>${p.rbi ?? 0}</td>
         <td>${p.strikeouts ?? 0}</td>
         <td>${p.walks ?? 0}</td>
-        <td class="highlight">${(p.atBats ?? 0) > 0 ? formatBattingAvg(p.avg ?? 0) : '-'}</td>
-        <td class="highlight">${(p.atBats ?? 0) > 0 ? ((p.ops ?? 0).toFixed(3).replace(/^0/, '')) : '-'}</td>
+        <td class="hl">${(p.atBats ?? 0) > 0 ? formatBattingAvg(p.avg ?? 0) : '-'}</td>
+        <td class="hl">${(p.atBats ?? 0) > 0 ? (p.ops ?? 0).toFixed(3).replace(/^0/, '') : '-'}</td>
       </tr>`,
       )
       .join('');
@@ -72,10 +69,9 @@ export function generateGameReportHtml(
     </table>`;
   };
 
-  // 投球成績
-  const pitchingSection = (teamName: string, stats: GameAnalytics['pitching']['homePitcher']) => {
+  // ── 3. 投球成績（合計）───────────────────────────────────────────────────────
+  const pitchingTotals = (teamName: string, stats: GameAnalytics['pitching']['homePitcher']): string => {
     if (!stats) return '';
-    const safePitchMix = stats.pitchMix ?? [];
     return `
     <h3>${teamName}</h3>
     <table>
@@ -83,55 +79,130 @@ export function generateGameReportHtml(
         <tr><th>投球数</th><td>${stats.totalPitches ?? 0}球</td></tr>
         <tr><th>ストライク率</th><td>${pct(stats.strikeRate ?? 0)}</td></tr>
         <tr><th>ボール率</th><td>${pct(stats.ballRate ?? 0)}</td></tr>
-        ${
-          safePitchMix.length > 0
-            ? `<tr><th>球種構成</th><td>${safePitchMix
-                .map((m) => `${m.pitchType ?? '-'} ${pct(m.pct ?? 0)}`)
-                .join(' / ')}</td></tr>`
-            : ''
-        }
       </tbody>
     </table>`;
   };
 
-  // AI分析セクション
-  const aiSection = aiReport && !aiReport.isMock
-    ? `
-    <div class="ai-section">
-      <h2>🤖 AI 総合分析</h2>
-      <div class="ai-block">
-        <h4>総合評価</h4>
-        <p>${(aiReport?.overall ?? '').replace(/\n/g, '<br>')}</p>
-      </div>
-      ${
-        (aiReport?.improvements ?? []).length > 0
-          ? `<div class="ai-block">
-          <h4>改善ポイント</h4>
-          ${(aiReport?.improvements ?? []).map((imp) => `<p><strong>${imp.aspect}:</strong> ${imp.detail}</p>`).join('')}
-        </div>`
-          : ''
-      }
-      ${
-        aiReport.nextAdvice
-          ? `<div class="ai-block">
-          <h4>次戦へのアドバイス</h4>
-          <p>${aiReport.nextAdvice.replace(/\n/g, '<br>')}</p>
-        </div>`
-          : ''
-      }
-      ${
-        aiReport.highlights
-          ? `<div class="ai-block">
-          <h4>ハイライト</h4>
-          <p>${aiReport.highlights.replace(/\n/g, '<br>')}</p>
-        </div>`
-          : ''
-      }
-    </div>`
-    : `<div class="ai-section ai-placeholder">
-        <p>📊 詳細AI分析はBaseLedgerアプリの「分析」タブでご確認ください。</p>
-      </div>`;
+  // ── 4. 配球分析 ──────────────────────────────────────────────────────────────
 
+  // 9分割ゾーングリッド
+  // ゾーン番号配置（打者視点）:
+  //  1 | 2 | 3
+  //  4 | 5 | 6
+  //  7 | 8 | 9
+  const zoneGrid = (stats: GameAnalytics['pitching']['homePitcher']): string => {
+    if (!stats) return '';
+    const safeZoneStats = stats.zoneStats ?? [];
+    const zoneMap = new Map(safeZoneStats.map((z) => [z.zone, z]));
+
+    const strikeZones = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const cells = strikeZones.map((z) => {
+      const zs = zoneMap.get(z);
+      if (!zs || zs.totalPitches === 0) {
+        return `<td class="zone-cell zone-empty"><span class="zn">${z}</span><span class="zc">-</span></td>`;
+      }
+      const sr = Math.round((zs.strikes / zs.totalPitches) * 100);
+      const alpha = ((Math.min(sr, 100) / 100) * 0.35 + 0.05).toFixed(2);
+      return `<td class="zone-cell" style="background:rgba(14,77,164,${alpha})">
+        <span class="zn">${z}</span>
+        <span class="zc">${zs.totalPitches}</span>
+        <span class="zr">${sr}%</span>
+      </td>`;
+    });
+
+    return `
+    <table class="zone-table">
+      <thead>
+        <tr><th colspan="3" style="text-align:center;font-size:10px;color:#888;background:#fff;border:none;">
+          ← 打者視点（三塁側 ／ 一塁側）→
+        </th></tr>
+      </thead>
+      <tbody>
+        <tr>${cells[0]}${cells[1]}${cells[2]}</tr>
+        <tr>${cells[3]}${cells[4]}${cells[5]}</tr>
+        <tr>${cells[6]}${cells[7]}${cells[8]}</tr>
+      </tbody>
+    </table>`;
+  };
+
+  // 球種割合
+  const pitchMixTable = (stats: GameAnalytics['pitching']['homePitcher']): string => {
+    if (!stats) return '';
+    const safePitchMix = stats.pitchMix ?? [];
+    if (safePitchMix.length === 0) return '';
+    const rows = safePitchMix
+      .map((m) => `<tr><td>${m.pitchType ?? '-'}</td><td>${pct(m.pct ?? 0)}</td><td>${m.avgVelocity != null ? `${m.avgVelocity}km/h` : '-'}</td></tr>`)
+      .join('');
+    return `
+    <table>
+      <thead><tr><th>球種</th><th>割合</th><th>平均球速</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  };
+
+  const pitchDistSection = (teamName: string, stats: GameAnalytics['pitching']['homePitcher']): string => {
+    if (!stats) return '';
+    return `
+    <h3>${teamName}</h3>
+    ${zoneGrid(stats)}
+    ${pitchMixTable(stats)}`;
+  };
+
+  // ── 5. 打球分析 ──────────────────────────────────────────────────────────────
+
+  const typeLabel: Record<string, string> = {
+    grounder: 'ゴロ',
+    liner:    'ライナー',
+    fly:      'フライ',
+    popup:    'ポップ',
+  };
+  const typeOrder = ['grounder', 'liner', 'fly', 'popup'];
+
+  const battedBallSection = (teamName: string, half: 'top' | 'bottom'): string => {
+    const logs = (game.atBatLogs ?? []).filter(
+      (l) => l.inning?.half === half && l.battedBall,
+    );
+    if (logs.length === 0) return '';
+
+    const counts: Record<string, number> = {};
+    const dists:  Record<string, number[]> = {};
+
+    for (const log of logs) {
+      const t = log.battedBall!.type as string;
+      counts[t] = (counts[t] ?? 0) + 1;
+      const d = log.battedBall!.estimatedDistance;
+      if (d > 0) {
+        if (!dists[t]) dists[t] = [];
+        dists[t].push(d);
+      }
+    }
+
+    const rows = typeOrder
+      .filter((t) => (counts[t] ?? 0) > 0)
+      .map((t) => {
+        const d = dists[t] ?? [];
+        const avg = d.length > 0
+          ? Math.round(d.reduce((a, b) => a + b, 0) / d.length)
+          : null;
+        return `<tr>
+          <td>${typeLabel[t] ?? t}</td>
+          <td>${counts[t] ?? 0}</td>
+          <td>${avg !== null ? `${avg}m` : '-'}</td>
+        </tr>`;
+      })
+      .join('');
+
+    if (!rows) return '';
+
+    return `
+    <h3>${teamName}の打球</h3>
+    <table>
+      <thead><tr><th>種別</th><th>本数</th><th>平均飛距離</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  };
+
+  // ── HTML ─────────────────────────────────────────────────────────────────────
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -153,23 +224,9 @@ export function generateGameReportHtml(
       border-bottom: 3px solid #0E4DA4;
       padding-bottom: 16px;
     }
-    .header .app-name {
-      font-size: 11px;
-      color: #666;
-      margin-bottom: 4px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-    }
-    .header h1 {
-      font-size: 22px;
-      font-weight: 900;
-      color: #0E4DA4;
-      margin-bottom: 6px;
-    }
-    .header .date {
-      font-size: 12px;
-      color: #666;
-    }
+    .header .app-name { font-size: 11px; color: #666; margin-bottom: 4px; letter-spacing: 1px; text-transform: uppercase; }
+    .header h1 { font-size: 22px; font-weight: 900; color: #0E4DA4; margin-bottom: 6px; }
+    .header .date { font-size: 12px; color: #666; }
     .score-box {
       display: flex;
       justify-content: center;
@@ -186,95 +243,34 @@ export function generateGameReportHtml(
     .score-team .team-name { font-size: 16px; font-weight: 800; margin: 4px 0; }
     .score-team .score-num { font-size: 48px; font-weight: 900; line-height: 1; }
     .score-sep { font-size: 32px; font-weight: 300; opacity: 0.6; }
-    .winner-badge {
-      text-align: center;
-      margin-bottom: 16px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #0E4DA4;
-    }
-    /* Inning scoreboard */
+    .winner-badge { text-align: center; margin-bottom: 16px; font-size: 14px; font-weight: 700; color: #0E4DA4; }
+    /* Scoreboard */
     .scoreboard { margin-bottom: 20px; overflow-x: auto; }
-    .scoreboard table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
-    .scoreboard th, .scoreboard td {
-      border: 1px solid #e0e0e0;
-      padding: 5px 8px;
-      text-align: center;
-    }
+    .scoreboard table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .scoreboard th, .scoreboard td { border: 1px solid #e0e0e0; padding: 5px 8px; text-align: center; }
     .scoreboard th { background: #f5f7fa; font-weight: 700; color: #555; }
     .scoreboard .team-col { text-align: left; font-weight: 700; min-width: 80px; }
     .scoreboard .total-col { font-weight: 800; color: #0E4DA4; }
-    /* Section */
-    h2 {
-      font-size: 16px;
-      font-weight: 800;
-      color: #0E4DA4;
-      border-left: 4px solid #0E4DA4;
-      padding-left: 10px;
-      margin: 20px 0 12px;
-    }
-    h3 {
-      font-size: 13px;
-      font-weight: 700;
-      color: #333;
-      margin: 12px 0 8px;
-    }
-    h4 {
-      font-size: 13px;
-      font-weight: 700;
-      color: #0E4DA4;
-      margin-bottom: 6px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 12px;
-    }
-    th, td {
-      border: 1px solid #e0e0e0;
-      padding: 5px 8px;
-      text-align: center;
-      font-size: 12px;
-    }
+    /* Headings */
+    h2 { font-size: 16px; font-weight: 800; color: #0E4DA4; border-left: 4px solid #0E4DA4; padding-left: 10px; margin: 20px 0 12px; }
+    h3 { font-size: 13px; font-weight: 700; color: #333; margin: 12px 0 8px; }
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    th, td { border: 1px solid #e0e0e0; padding: 5px 8px; text-align: center; font-size: 12px; }
     th { background: #f5f7fa; font-weight: 700; color: #555; }
     td:first-child { text-align: left; }
-    .highlight { color: #0E4DA4; font-weight: 700; }
-    .ai-section {
-      background: linear-gradient(135deg, #EEF4FF 0%, #F5F8FF 100%);
-      border: 1px solid #C7D9F8;
-      border-radius: 12px;
-      padding: 16px;
-      margin-top: 20px;
-    }
-    .ai-section h2 {
-      border-left: none;
-      padding-left: 0;
-      margin-top: 0;
-    }
-    .ai-block {
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 10px;
-    }
-    .ai-block p { font-size: 12px; line-height: 1.7; color: #333; margin-top: 4px; }
-    .ai-placeholder {
-      text-align: center;
-      padding: 24px;
-      color: #666;
-    }
-    .footer {
-      margin-top: 32px;
-      padding-top: 12px;
-      border-top: 1px solid #e0e0e0;
-      text-align: center;
-      font-size: 10px;
-      color: #aaa;
-    }
+    .hl { color: #0E4DA4; font-weight: 700; }
+    /* Zone grid */
+    .zone-table { width: auto; margin: 6px auto 12px; }
+    .zone-table td { width: 56px; height: 56px; padding: 4px; border: 2px solid #ccc; }
+    .zone-cell { vertical-align: middle; text-align: center; }
+    .zone-cell .zn { display: block; font-size: 9px; color: #888; }
+    .zone-cell .zc { display: block; font-size: 14px; font-weight: 800; color: #1a1a1a; }
+    .zone-cell .zr { display: block; font-size: 10px; color: #0E4DA4; }
+    .zone-empty { background: #f9f9f9; }
+    .zone-empty .zc { color: #bbb; font-size: 12px; font-weight: 400; }
+    /* Footer */
+    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 10px; color: #aaa; }
   </style>
 </head>
 <body>
@@ -300,7 +296,7 @@ export function generateGameReportHtml(
   </div>
   <div class="winner-badge">🏆 ${winner}${awayScore !== homeScore ? ' の勝利' : ''}</div>
 
-  <!-- イニング別スコア -->
+  <!-- 1. スコアボード -->
   <div class="scoreboard">
     <table>
       <thead>
@@ -325,18 +321,25 @@ export function generateGameReportHtml(
     </table>
   </div>
 
-  <!-- 打撃成績 -->
+  <!-- 2. 打撃成績 -->
   <h2>⚾ 打撃成績</h2>
   ${battingTable(`先攻 ${game.awayTeam.name}`, analytics.batting?.away ?? [])}
   ${battingTable(`後攻 ${game.homeTeam.name}`, analytics.batting?.home ?? [])}
 
-  <!-- 投球成績 -->
+  <!-- 3. 投球成績 -->
   <h2>⚡ 投球成績</h2>
-  ${pitchingSection(`後攻 ${game.homeTeam.name} 投手`, analytics.pitching?.homePitcher ?? null)}
-  ${pitchingSection(`先攻 ${game.awayTeam.name} 投手`, analytics.pitching?.awayPitcher ?? null)}
+  ${pitchingTotals(`後攻 ${game.homeTeam.name} 投手`, analytics.pitching?.homePitcher ?? null)}
+  ${pitchingTotals(`先攻 ${game.awayTeam.name} 投手`, analytics.pitching?.awayPitcher ?? null)}
 
-  <!-- AI分析 -->
-  ${aiSection}
+  <!-- 4. 配球分析 -->
+  <h2>📊 配球分析</h2>
+  ${pitchDistSection(`後攻 ${game.homeTeam.name} 投手`, analytics.pitching?.homePitcher ?? null)}
+  ${pitchDistSection(`先攻 ${game.awayTeam.name} 投手`, analytics.pitching?.awayPitcher ?? null)}
+
+  <!-- 5. 打球分析 -->
+  <h2>🏃 打球分析</h2>
+  ${battedBallSection(`先攻 ${game.awayTeam.name}`, 'top')}
+  ${battedBallSection(`後攻 ${game.homeTeam.name}`, 'bottom')}
 
   <div class="footer">
     Generated by BaseLedger &nbsp;|&nbsp; ${new Date().toLocaleString('ja-JP')}
