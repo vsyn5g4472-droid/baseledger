@@ -29,6 +29,7 @@ import { usePlanGate } from '../../../src/hooks/usePlanGate';
 import { generateGameReportHtml } from '../../../src/utils/gameReportGenerator';
 import { usePostActions } from '../../../src/hooks/usePosts';
 import type { PostVisibility } from '../../../src/models/types';
+import ShareToChatModal from '../../../src/components/ShareToChatModal';
 
 type TabKey = 'batting' | 'pitching' | 'heatmap' | 'spray';
 
@@ -199,6 +200,10 @@ export default function GameAnalyticsScreen() {
   const [playerVisibility, setPlayerVisibility] = useState<PostVisibility>('public');
   const [playerPosting, setPlayerPosting] = useState(false);
 
+  // チャット/DM 共有
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [chatSummary, setChatSummary]     = useState('');
+
   const shareGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
 
@@ -291,6 +296,22 @@ export default function GameAnalyticsScreen() {
       setSharing(false);
     }
   }, [shareGate.allowed, game, analytics]);
+
+  // ── チャット/DM 共有ハンドラ ────────────────────────────────────────────────────
+
+  const handleOpenChatShare = useCallback(() => {
+    if (!game || !analytics) return;
+    const awayHits = analytics.batting.away.reduce((s: number, p: PlayerBattingStats) => s + (p.hits ?? 0), 0);
+    const homeHits = analytics.batting.home.reduce((s: number, p: PlayerBattingStats) => s + (p.hits ?? 0), 0);
+    const text = [
+      `⚾ ${game.awayTeam.name} ${analytics.finalScore.away} - ${analytics.finalScore.home} ${game.homeTeam.name}`,
+      `安打: ${game.awayTeam.name} ${awayHits}本 / ${game.homeTeam.name} ${homeHits}本`,
+      '---',
+      'BaseLedgerで詳細を確認',
+    ].join('\n');
+    setChatSummary(text);
+    setShowChatModal(true);
+  }, [game, analytics]);
 
   // ── 試合サマリー共有ハンドラ ────────────────────────────────────────────────────
 
@@ -551,6 +572,14 @@ export default function GameAnalyticsScreen() {
           headerBackTitle: '一覧',
           headerRight: () => (
             <View style={styles.headerButtons}>
+              {/* チャット/DM 共有ボタン */}
+              <TouchableOpacity
+                onPress={handleOpenChatShare}
+                style={styles.headerShareBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="chat-plus-outline" size={22} color={Colors.primary} />
+              </TouchableOpacity>
               {/* 試合サマリー共有ボタン */}
               <TouchableOpacity
                 onPress={handleOpenSummaryModal}
@@ -583,6 +612,13 @@ export default function GameAnalyticsScreen() {
             </View>
           ),
         }}
+      />
+
+      {/* チャット/DM 共有モーダル */}
+      <ShareToChatModal
+        visible={showChatModal}
+        onClose={() => setShowChatModal(false)}
+        summary={chatSummary}
       />
 
       {/* PRO アップグレードモーダル */}

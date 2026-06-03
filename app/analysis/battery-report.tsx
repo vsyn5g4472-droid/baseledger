@@ -16,6 +16,10 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Modal,
+  TextInput,
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -25,7 +29,11 @@ import ZoneHeatmap from '../../src/components/analysis/ZoneHeatmap';
 import { generateBatteryAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
 import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan } from '../../src/hooks/usePlanGate';
+import { usePostActions } from '../../src/hooks/usePosts';
+import type { PostVisibility } from '../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
+import { generateBatteryReportHtml, buildBatterySummaryText } from '../../src/utils/batteryReportGenerator';
+import ShareToChatModal from '../../src/components/ShareToChatModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -138,12 +146,24 @@ export default function BatteryReportScreen() {
     }>();
 
   const userPlan = useUserPlan();
+  const { createPost } = usePostActions();
 
   const [profile, setProfile] = useState<BatteryProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const gamesRef = useRef<import('../../src/types/game').GameState[]>([]);
+
+  // フィード共有モーダル
+  const [showShareModal, setShowShareModal]   = useState(false);
+  const [shareContent, setShareContent]       = useState('');
+  const [sharePosting, setSharePosting]       = useState(false);
+  const [shareVisibility, setShareVisibility] = useState<PostVisibility>('public');
+
+  // PDF / チャット共有
+  const [pdfSharing, setPdfSharing]       = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [chatSummary, setChatSummary]     = useState('');
 
   const loadAIReport = useCallback(async (p: BatteryProfile) => {
     setAiLoading(true);
@@ -154,6 +174,81 @@ export default function BatteryReportScreen() {
       setAiLoading(false);
     }
   }, [userPlan, pitcherId, catcherId]);
+
+  const handleOpenShare = useCallback(() => {
+    if (!profile) return;
+    const header = `⚾ 捕手分析: ${pitcherName ?? '投手'} × ${catcherName ?? '捕手'}`;
+    const statsLine = `投球数: ${profile.totalPitches}球 / ストライク率: ${Math.round(profile.strikeRate * 100)}%`;
+    let text = `${header}\n${statsLine}`;
+    if (aiReport && !aiReport.isMock && aiReport.overall) {
+      text += `\n\n【AI 総合評価】\n${aiReport.overall}`;
+      if (aiReport.nextAdvice) {
+        text += `\n\n【次戦へのアドバイス】\n${aiReport.nextAdvice}`;
+      }
+    }
+    setShareContent(text);
+    setShowShareModal(true);
+  }, [profile, pitcherName, catcherName, aiReport]);
+
+  const handlePostToFeed = useCallback(async () => {
+    if (!shareContent.trim()) return;
+    setSharePosting(true);
+    try {
+      await createPost({
+        type:             'stats',
+        content:          shareContent.trim(),
+        mediaURIs:        [],
+        externalVideoUrl: null,
+        statsData:        {
+          pitcherName: pitcherName ?? '',
+          catcherName: catcherName ?? '',
+          totalPitches: profile?.totalPitches ?? 0,
+          strikeRate:   profile ? Math.round(profile.strikeRate * 100) : 0,
+        },
+        visibility: shareVisibility,
+        teamId:     null,
+      });
+      setShowShareModal(false);
+      Alert.alert('投稿しました', '捕手分析をフィードに共有しました。');
+    } catch {
+      Alert.alert('エラー', '投稿に失敗しました。もう一度お試しください。');
+    } finally {
+      setSharePosting(false);
+    }
+  }, [shareContent, shareVisibility, pitcherName, catcherName, profile, createPost]);
+
+  const handleSharePDF = useCallback(async () => {
+    if (!profile) return;
+    setPdfSharing(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const Print = require('expo-print');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const Sharing = require('expo-sharing');
+      const html = generateBatteryReportHtml(profile);
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: '捕手分析レポートを共有',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert('共有できません', 'このデバイスでは共有機能が利用できません。');
+      }
+    } catch (e: unknown) {
+      Alert.alert('エラー', (e as { message?: string })?.message ?? 'PDF生成に失敗しました');
+    } finally {
+      setPdfSharing(false);
+    }
+  }, [profile]);
+
+  const handleOpenChatShare = useCallback(() => {
+    if (!profile) return;
+    setChatSummary(buildBatterySummaryText(profile));
+    setShowChatModal(true);
+  }, [profile]);
 
   useEffect(() => {
     setAiReport(null);
@@ -171,7 +266,7 @@ export default function BatteryReportScreen() {
 
   const title = pitcherName && catcherName
     ? `${pitcherName} × ${catcherName}`
-    : 'バッテリー分析';
+    : '捕手分析';
 
   if (loading) {
     return (
@@ -194,7 +289,113 @@ export default function BatteryReportScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title }} />
+      <Stack.Screen
+        options={{
+          title,
+          headerRight: () => (
+            <View style={{ flexDirection: 'row', gap: 4, marginRight: 4 }}>
+              {/* チャット共有 */}
+              <TouchableOpacity
+                onPress={handleOpenChatShare}
+                style={{ padding: 4 }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="chat-plus-outline" size={22} color={Colors.primary} />
+              </TouchableOpacity>
+              {/* PDF 共有 */}
+              <TouchableOpacity
+                onPress={handleSharePDF}
+                disabled={pdfSharing}
+                style={{ padding: 4 }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                {pdfSharing
+                  ? <ActivityIndicator size="small" color={Colors.primary} />
+                  : <MaterialCommunityIcons name="file-pdf-box" size={22} color={Colors.primary} />
+                }
+              </TouchableOpacity>
+              {/* フィード共有 */}
+              <TouchableOpacity
+                onPress={handleOpenShare}
+                style={{ padding: 4 }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="share-variant" size={22} color={Colors.primary} />
+              </TouchableOpacity>
+            </View>
+          ),
+        }}
+      />
+
+      {/* チャット/DM 共有モーダル */}
+      <ShareToChatModal
+        visible={showChatModal}
+        onClose={() => setShowChatModal(false)}
+        summary={chatSummary}
+      />
+
+      {/* フィード共有モーダル */}
+      <Modal
+        visible={showShareModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { if (!sharePosting) setShowShareModal(false); }}
+      >
+        <TouchableOpacity
+          style={shareStyles.backdrop}
+          activeOpacity={1}
+          onPress={() => { if (!sharePosting) setShowShareModal(false); }}
+        >
+          <TouchableOpacity activeOpacity={1} style={shareStyles.sheet}>
+            <View style={shareStyles.handle} />
+            <Text style={shareStyles.title}>フィードに共有</Text>
+
+            <TextInput
+              style={shareStyles.textArea}
+              multiline
+              value={shareContent}
+              onChangeText={setShareContent}
+              placeholder="投稿内容を編集できます..."
+              placeholderTextColor={Colors.textSecondary}
+              maxLength={1000}
+              textAlignVertical="top"
+            />
+            <Text style={shareStyles.charCount}>{shareContent.length}/1000</Text>
+
+            {/* 公開範囲 */}
+            <View style={shareStyles.visRow}>
+              {(['public', 'followers'] as PostVisibility[]).map((v) => (
+                <TouchableOpacity
+                  key={v}
+                  style={[shareStyles.visBtn, shareVisibility === v && shareStyles.visBtnActive]}
+                  onPress={() => setShareVisibility(v)}
+                >
+                  <MaterialCommunityIcons
+                    name={v === 'public' ? 'earth' : 'account-multiple'}
+                    size={14}
+                    color={shareVisibility === v ? Colors.white : Colors.textSecondary}
+                  />
+                  <Text style={[shareStyles.visBtnText, shareVisibility === v && shareStyles.visBtnTextActive]}>
+                    {v === 'public' ? '全体公開' : 'フォロワー'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[shareStyles.postBtn, (sharePosting || !shareContent.trim()) && shareStyles.postBtnDisabled]}
+              onPress={handlePostToFeed}
+              disabled={sharePosting || !shareContent.trim()}
+            >
+              {sharePosting
+                ? <ActivityIndicator color={Colors.white} size="small" />
+                : <Text style={shareStyles.postBtnText}>フィードに投稿する</Text>
+              }
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
         {/* ── ① サマリ ── */}
@@ -441,4 +642,86 @@ const secStyles = StyleSheet.create({
   row:   { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   icon:  { width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: Typography.bodySmall, fontWeight: '800', color: Colors.text },
+});
+
+const shareStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    paddingBottom: 40,
+  },
+  handle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: Colors.border,
+    alignSelf: 'center',
+    marginBottom: Spacing.md,
+  },
+  title: {
+    fontSize: Typography.h3,
+    fontWeight: '800',
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  textArea: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.sm,
+    minHeight: 120,
+    fontSize: Typography.bodySmall,
+    color: Colors.text,
+    lineHeight: 20,
+    backgroundColor: Colors.background,
+  },
+  charCount: {
+    fontSize: Typography.tiny,
+    color: Colors.textSecondary,
+    textAlign: 'right',
+    marginTop: 4,
+    marginBottom: Spacing.sm,
+  },
+  visRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  visBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  visBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  visBtnText: {
+    fontSize: Typography.tiny,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  visBtnTextActive: { color: Colors.white },
+  postBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+  },
+  postBtnDisabled: { backgroundColor: Colors.border },
+  postBtnText: {
+    color: Colors.white,
+    fontWeight: '700',
+    fontSize: Typography.body,
+  },
 });
