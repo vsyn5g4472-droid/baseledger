@@ -62,6 +62,7 @@ export async function createPost(authorId: string, input: CreatePostInput): Prom
       authorId,
       authorName: author.displayName,
       authorPhotoURL: author.photoURL,
+      authorPlan: author.plan ?? 'free',
       type: input.type,
       content: input.content,
       mediaURLs,
@@ -357,13 +358,14 @@ export async function isLiked(postId: string, userId: string): Promise<boolean> 
  */
 export async function addComment(
   postId: string,
-  comment: { authorId: string; authorName: string; authorPhotoURL: string | null; content: string },
+  comment: { authorId: string; authorName: string; authorPhotoURL: string | null; authorPlan?: string; content: string },
 ): Promise<Comment> {
   try {
     const commentData = {
       authorId: comment.authorId,
       authorName: comment.authorName,
       authorPhotoURL: comment.authorPhotoURL,
+      authorPlan: comment.authorPlan ?? 'free',
       content: comment.content,
       createdAt: Timestamp.now(),
     };
@@ -521,9 +523,11 @@ export async function updateAuthorNameInPosts(
   userId: string,
   newName: string,
   newPhotoURL: string | null,
+  newPlan?: string,
 ): Promise<void> {
   const BATCH_SIZE = 500;
-  const update = { authorName: newName, authorPhotoURL: newPhotoURL };
+  const update: Record<string, unknown> = { authorName: newName, authorPhotoURL: newPhotoURL };
+  if (newPlan !== undefined) update.authorPlan = newPlan;
 
   try {
     // ── 投稿の更新 ──────────────────────────────────────────────

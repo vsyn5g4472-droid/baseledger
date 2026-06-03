@@ -3,12 +3,14 @@ import { View, StyleSheet, TouchableOpacity, Image, Linking } from 'react-native
 import { Text, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Typography, CardShadow } from '../constants/theme';
+import PlanBadge from './PlanBadge';
 
 interface PostCardProps {
   authorName: string;
   authorPhotoURL: string | null;
+  authorPlan?: string;
   content: string;
-  type: 'highlight' | 'stats' | 'text' | 'video';
+  type: 'highlight' | 'stats' | 'text' | 'video' | 'analysis';
   mediaURLs?: string[];
   externalVideoUrl?: string | null;
   likesCount: number;
@@ -29,11 +31,13 @@ const typeAccentColor: Record<string, string> = {
   stats:     Colors.action,     // アクションブルー: データ・数字
   video:     Colors.statusLive, // 赤: 動画（注意を引く）
   text:      Colors.border,     // グレー: 通常テキスト（装飾なし）
+  analysis:  '#7C3AED',         // パープル: AI分析
 };
 
 export default function PostCard({
   authorName,
   authorPhotoURL,
+  authorPlan,
   content,
   type,
   mediaURLs = [],
@@ -67,6 +71,13 @@ export default function PostCard({
       <View style={[styles.typeAccent, { backgroundColor: accentColor }]} />
 
       <View style={styles.inner}>
+        {/* AI分析バッジ */}
+        {type === 'analysis' && (
+          <View style={styles.analysisBadge}>
+            <Text style={styles.analysisBadgeText}>🤖 AI 試合分析</Text>
+          </View>
+        )}
+
         {/* 1. コンテンツ — 最初に目が行く主役 */}
         <Text style={styles.content} numberOfLines={5}>
           {content || '(本文なし)'}
@@ -114,6 +125,7 @@ export default function PostCard({
               />
             )}
             <Text style={styles.authorName} numberOfLines={1}>{authorName || '不明なユーザー'}</Text>
+            <PlanBadge plan={authorPlan} variant="badge" size="sm" />
             <Text style={styles.timeAgo}>{timeAgo}</Text>
           </TouchableOpacity>
 
@@ -166,6 +178,20 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
     paddingHorizontal: Spacing.md,
+  },
+  // AI分析バッジ
+  analysisBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EDE9FE',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: Spacing.xs,
+  },
+  analysisBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#7C3AED',
   },
   // 1. コンテンツ — 最大フォントで最初に視認
   content: {

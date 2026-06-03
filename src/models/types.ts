@@ -111,7 +111,7 @@ export interface Follow {
 // Post
 // ============================================================
 
-export type PostType = 'highlight' | 'stats' | 'text' | 'video';
+export type PostType = 'highlight' | 'stats' | 'text' | 'video' | 'analysis';
 export type PostVisibility = 'public' | 'followers' | 'team';
 
 export interface Post {
@@ -119,6 +119,8 @@ export interface Post {
   authorId: string;
   authorName: string;
   authorPhotoURL: string | null;
+  /** 投稿者のサブスクプラン（バッジ表示用） */
+  authorPlan?: string;
   type: PostType;
   content: string;
   mediaURLs: string[];
@@ -138,6 +140,8 @@ export interface Comment {
   authorId: string;
   authorName: string;
   authorPhotoURL: string | null;
+  /** 投稿者のサブスクプラン（バッジ表示用） */
+  authorPlan?: string;
   content: string;
   createdAt: Timestamp;
 }

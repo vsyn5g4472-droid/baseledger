@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FlatList, StyleSheet, View, TouchableOpacity } from 'react-native';
-import { FAB, Text, Button, SegmentedButtons } from 'react-native-paper';
+import { FAB, Text, Button } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import PostCard from '../../../src/components/PostCard';
@@ -58,21 +58,33 @@ export default function FeedScreen() {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <>
-            <SegmentedButtons
-              value={feedTab}
-              onValueChange={(v) => setFeedTab(v as 'recommend' | 'following')}
-              buttons={[
-                { value: 'recommend', label: 'おすすめ' },
-                { value: 'following', label: 'フォロー中' },
-              ]}
-              style={{ marginHorizontal: 16, marginBottom: 8 }}
-            />
             <FeaturedPlayers
               onPlayerPress={(_player: FeaturedPlayer) => {
                 // 将来: router.push(`/player/${_player.id}`)
               }}
               onViewMore={() => router.push('/ranking/details' as any)}
             />
+
+            {/* フィード切り替えタブ — 透明背景・テキストのみ */}
+            <View style={styles.feedTabRow}>
+              {(['recommend', 'following'] as const).map((tab) => {
+                const active = feedTab === tab;
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    style={styles.feedTab}
+                    onPress={() => setFeedTab(tab)}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={[styles.feedTabText, active && styles.feedTabTextActive]}>
+                      {tab === 'recommend' ? 'おすすめ' : 'フォロー中'}
+                    </Text>
+                    {active && <View style={styles.feedTabUnderline} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             <AdBanner />
           </>
         }
@@ -80,6 +92,7 @@ export default function FeedScreen() {
           <PostCard
             authorName={item.authorName}
             authorPhotoURL={item.authorPhotoURL}
+            authorPlan={item.authorPlan}
             content={item.content}
             type={item.type}
             mediaURLs={item.mediaURLs}
@@ -166,5 +179,37 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
     textAlign: 'center',
+  },
+
+  // フィード切り替えタブ
+  feedTabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+    paddingBottom: 2,
+    gap: Spacing.lg,
+  },
+  feedTab: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+  },
+  feedTabText: {
+    fontSize: Typography.body,
+    fontWeight: '500',
+    color: Colors.textSecondary,
+  },
+  feedTabTextActive: {
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  feedTabUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    left: Spacing.md,
+    right: Spacing.md,
+    height: 2.5,
+    borderRadius: 2,
+    backgroundColor: Colors.primary,
   },
 });

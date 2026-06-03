@@ -5,6 +5,7 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
+import PlanBadge from '../../../src/components/PlanBadge';
 import { getPost, getComments, addComment, getLikes, deletePost, deleteComment } from '../../../src/services/postService';
 import type { Post, Comment, User } from '../../../src/models/types';
 
@@ -133,6 +134,7 @@ export default function PostDetailScreen() {
         authorId: currentUser.uid,
         authorName: currentUser.displayName,
         authorPhotoURL: currentUser.photoURL,
+        authorPlan: currentUser.plan ?? 'free',
         content: comment.trim(),
       });
       setComments((prev) => [newComment, ...prev]);
@@ -181,7 +183,10 @@ export default function PostDetailScreen() {
                   <Avatar.Text size={44} label={post.authorName.charAt(0).toUpperCase()} style={styles.avatar} />
                 )}
                 <View style={styles.authorInfo}>
-                  <Text style={styles.authorName}>{post.authorName}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={styles.authorName}>{post.authorName}</Text>
+                    <PlanBadge plan={post.authorPlan} variant="badge" size="sm" />
+                  </View>
                   <Text style={styles.timeAgo}>{formatTimeAgo(post.createdAt)}</Text>
                 </View>
               </View>
@@ -207,7 +212,10 @@ export default function PostDetailScreen() {
               <Avatar.Text size={32} label={item.authorName.charAt(0).toUpperCase()} style={styles.commentAvatar} />
             )}
             <View style={styles.commentContent}>
-              <Text style={styles.commentAuthor}>{item.authorName}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles.commentAuthor}>{item.authorName}</Text>
+                <PlanBadge plan={item.authorPlan} variant="badge" size="sm" />
+              </View>
               <Text style={styles.commentText}>{item.content}</Text>
               <Text style={styles.commentTime}>{formatTimeAgo(item.createdAt)}</Text>
             </View>
