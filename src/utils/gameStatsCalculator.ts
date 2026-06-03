@@ -261,8 +261,8 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
     awayTeamName: game.awayTeam.name,
     homeTeamName: game.homeTeam.name,
     finalScore: {
-      away: game.scoreboard.awayTotal,
-      home: game.scoreboard.homeTotal,
+      away: game.scoreboard?.awayTotal ?? 0,
+      home: game.scoreboard?.homeTotal ?? 0,
     },
     createdAt: game.createdAt,
     totalInnings,

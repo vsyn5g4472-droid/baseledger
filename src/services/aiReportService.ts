@@ -448,7 +448,7 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
     }
   }
 
-  const score = { away: game.scoreboard.awayTotal, home: game.scoreboard.homeTotal };
+  const score = { away: game.scoreboard?.awayTotal ?? 0, home: game.scoreboard?.homeTotal ?? 0 };
   const teamNames = { away: game.awayTeam.name, home: game.homeTeam.name };
 
   try {
