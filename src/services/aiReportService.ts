@@ -21,7 +21,13 @@ import type { BatteryProfile, BatterProfile } from '../utils/analysisEngine';
 import { aggregateBuntSignStats } from '../utils/buntSignAggregate';
 import { aggregateSignMisses } from '../utils/signMissAggregate';
 import { auth, db, functions, COLLECTIONS } from './firebase';
-import { UserPlan, USER_PLAN_META, checkFeatureAccess } from './planService';
+import {
+  UserPlan,
+  USER_PLAN_META,
+  checkFeatureAccess,
+  checkAIReportUsage,
+  incrementAIReportUsage,
+} from './planService';
 import {
   mapAIReportError,
   type AIReportErrorReason,
@@ -265,6 +271,36 @@ function earlyPlanGate(plan: UserPlan): AIReport | null {
   };
 }
 
+/** 月間 AI 分析回数上限に達している場合の擬似レポート */
+function toMonthlyLimitReport(limit: number): AIReport {
+  return {
+    overall: '',
+    improvements: [],
+    nextAdvice: '',
+    highlights: '',
+    generatedAt: Date.now(),
+    isMock: true,
+    errorReason: 'monthly_limit_exceeded',
+    actionHint: 'upgrade',
+    errorTitle: 'AI分析の上限に達しました',
+    usage: { used: limit, limit, remaining: 0 },
+  };
+}
+
+/**
+ * キャッシュミス後・API 呼び出し前に月間利用枠を確認する。
+ * 上限超過時は擬似レポートを返す（null = 続行可）。
+ */
+async function assertMonthlyAIQuota(plan: UserPlan): Promise<AIReport | null> {
+  const usage = await checkAIReportUsage(plan);
+  if (!usage.allowed) {
+    return toMonthlyLimitReport(
+      usage.limit === Infinity ? 0 : usage.limit,
+    );
+  }
+  return null;
+}
+
 // =============================================================================
 // 5. データシェイプ（クライアント型 → サーバー型）
 // =============================================================================
@@ -448,6 +484,9 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
     }
   }
 
+  const quotaBlock = await assertMonthlyAIQuota(userPlan);
+  if (quotaBlock) return quotaBlock;
+
   const score = { away: game.scoreboard?.awayTotal ?? 0, home: game.scoreboard?.homeTotal ?? 0 };
   const teamNames = { away: game.awayTeam.name, home: game.homeTeam.name };
 
@@ -467,6 +506,7 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
         shapeTeam(batters, pitcher ?? null, score, teamNames),
       );
     }
+    await incrementAIReportUsage();
     await writeCache(cacheKey, report, userPlan);                              // L1
     if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
     return report;
@@ -502,8 +542,12 @@ export async function generateBatteryAIReport(
     }
   }
 
+  const quotaBlock = await assertMonthlyAIQuota(userPlan);
+  if (quotaBlock) return quotaBlock;
+
   try {
     const report = await callAIReportFunction('battery-profile', shapeBatteryProfile(profile, games));
+    await incrementAIReportUsage();
     await writeCache(cacheKey, report, userPlan);                              // L1
     if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
     return report;
@@ -538,8 +582,12 @@ export async function generateBatterAIReport(
     }
   }
 
+  const quotaBlock = await assertMonthlyAIQuota(userPlan);
+  if (quotaBlock) return quotaBlock;
+
   try {
     const report = await callAIReportFunction('batter-profile', shapeBatterProfile(profile));
+    await incrementAIReportUsage();
     await writeCache(cacheKey, report, userPlan);                              // L1
     if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
     return report;

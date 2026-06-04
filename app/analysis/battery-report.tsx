@@ -29,6 +29,7 @@ import ZoneHeatmap from '../../src/components/analysis/ZoneHeatmap';
 import { generateBatteryAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
 import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan } from '../../src/hooks/usePlanGate';
+import { checkAIReportUsage } from '../../src/services/planService';
 import { usePostActions } from '../../src/hooks/usePosts';
 import type { PostVisibility } from '../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
@@ -169,6 +170,15 @@ export default function BatteryReportScreen() {
     setAiLoading(true);
     try {
       const report = await generateBatteryAIReport(p, gamesRef.current, userPlan);
+      if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
+        const usage = await checkAIReportUsage(userPlan);
+        Alert.alert(
+          'AI分析の上限に達しました',
+          `今月のAI分析回数（${usage.limit}回）を使い切りました。プランをアップグレードすると回数が増えます。`,
+          [{ text: 'OK' }],
+        );
+        return;
+      }
       setAiReport(report);
     } finally {
       setAiLoading(false);

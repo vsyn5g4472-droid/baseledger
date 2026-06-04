@@ -23,6 +23,7 @@ import {
   Modal,
   FlatList,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -32,6 +33,7 @@ import ZoneHeatmap from '../../src/components/analysis/ZoneHeatmap';
 import { generateBatteryAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
 import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan } from '../../src/hooks/usePlanGate';
+import { checkAIReportUsage } from '../../src/services/planService';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -180,6 +182,15 @@ export default function PitcherReportScreen() {
         summary:          p.summary,
       };
       const report = await generateBatteryAIReport(fakeBatteryProfile, gamesRef.current, userPlan);
+      if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
+        const usage = await checkAIReportUsage(userPlan);
+        Alert.alert(
+          'AI分析の上限に達しました',
+          `今月のAI分析回数（${usage.limit}回）を使い切りました。プランをアップグレードすると回数が増えます。`,
+          [{ text: 'OK' }],
+        );
+        return;
+      }
       setAiReport(report);
     } finally {
       setAiLoading(false);

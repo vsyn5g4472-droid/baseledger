@@ -31,6 +31,7 @@ interface Visual {
 
 function visualFor(reason: AIReportErrorReason): Visual {
   switch (reason) {
+    case 'monthly_limit_exceeded':
     case 'daily_limit_exceeded':
       return { icon: 'timer-sand', tint: Colors.caution, bgTint: Colors.cautionBg };
     case 'network_error':

@@ -50,7 +50,8 @@ export type Feature =
   | 'scout_ai'
   | 'group_chat_send'
   | 'ad_free'
-  | 'ai_prediction';
+  | 'ai_prediction'
+  | 'share_report';
 
 interface FeatureMeta {
   label: string;
@@ -72,6 +73,7 @@ const FEATURE_REGISTRY: Record<Feature, FeatureMeta> = {
   group_chat_send:  { label: 'グループチャット送信',   minPlan: UserPlan.LIGHT },
   ad_free:          { label: '広告非表示',             minPlan: UserPlan.LIGHT },
   ai_prediction:    { label: 'AI 試合予測',             minPlan: UserPlan.PRO },
+  share_report:     { label: 'PDF共有',                minPlan: UserPlan.PRO },
 };
 
 // =============================================================================
@@ -115,8 +117,8 @@ interface UsageLimits {
 
 const PLAN_USAGE_LIMITS: Record<UserPlan, UsageLimits> = {
   [UserPlan.FREE]:     { aiReportsPerMonth: 0,  gamesPerMonth: 3 },
-  [UserPlan.LIGHT]:    { aiReportsPerMonth: 3,  gamesPerMonth: 10 },
-  [UserPlan.STANDARD]: { aiReportsPerMonth: 15, gamesPerMonth: Infinity },
+  [UserPlan.LIGHT]:    { aiReportsPerMonth: 10, gamesPerMonth: 5 },
+  [UserPlan.STANDARD]: { aiReportsPerMonth: 20, gamesPerMonth: 10 },
   [UserPlan.PRO]:      { aiReportsPerMonth: Infinity, gamesPerMonth: Infinity },
 };
 
@@ -215,7 +217,7 @@ export interface PlanFeatureRow {
 }
 
 export const PLAN_COMPARISON: PlanFeatureRow[] = [
-  { feature: 'ai_report',       label: 'AI 分析レポート',        free: '-',      light: '3回/月',  standard: '15回/月', pro: '無制限' },
+  { feature: 'ai_report',       label: 'AI 分析レポート',        free: '-',      light: '10回/月', standard: '20回/月', pro: '無制限' },
   { feature: 'spray_chart',     label: 'スプレーチャート',       free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'zone_heatmap',    label: 'ゾーンヒートマップ',     free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'leaderboard',     label: 'リーダーボード',         free: '-',      light: '○',       standard: '○',       pro: '○' },

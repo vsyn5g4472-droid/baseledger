@@ -14,6 +14,7 @@ import type { FunctionsError } from 'firebase/functions';
 export type AIReportErrorReason =
   | 'unauthenticated'
   | 'plan_required'
+  | 'monthly_limit_exceeded'
   | 'daily_limit_exceeded'
   | 'invalid_report_type'
   | 'invalid_data'
@@ -107,6 +108,15 @@ export function mapAIReportError(err: unknown): AIReportErrorInfo {
         title: 'プランのアップグレードが必要です',
         message: 'AI 分析レポートはライトプラン以上でご利用いただけます。',
         subtext: 'お得なプランを下記からご確認ください。',
+        actionHint: 'upgrade',
+      };
+
+    case 'monthly_limit_exceeded':
+      return {
+        reason,
+        title: 'AI分析の上限に達しました',
+        message: '今月の AI 分析回数の上限に達しました。',
+        subtext: 'プランをアップグレードすると回数が増えます。',
         actionHint: 'upgrade',
       };
 
