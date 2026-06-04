@@ -27,7 +27,7 @@ export function usePlayerSearch(): {
     const fetchRecommendations = async () => {
       setLoadingRecommendations(true);
       try {
-        const users = await getRecentUsers(20);
+        const users = await getRecentUsers(5);
         setAiRecommendations(
           currentUser ? users.filter((u) => u.uid !== currentUser.uid) : users,
         );
