@@ -130,6 +130,7 @@ export default function AnalyticsIndexScreen() {
   const { t } = useI18n();
   const loadGame = useGameStore((s) => s.loadGame);
   const setPhase = useGameStore((s) => s.setPhase);
+  const persist = useGameStore((s) => s.persist);
   const [games, setGames] = useState<GameState[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -166,6 +167,7 @@ export default function AnalyticsIndexScreen() {
             try {
               await loadGame(gameId);
               setPhase('live');
+              await persist();
               router.push('/(tabs)/score/main');
             } catch {
               Alert.alert('エラー', '試合の再開に失敗しました');
@@ -174,7 +176,7 @@ export default function AnalyticsIndexScreen() {
         },
       ],
     );
-  }, [loadGame, setPhase]);
+  }, [loadGame, setPhase, persist]);
 
   const handleDelete = useCallback((gameId: string) => {
     Alert.alert(
@@ -231,7 +233,7 @@ export default function AnalyticsIndexScreen() {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons name="chart-scatter-plot" size={14} color={Colors.action} />
-          <Text style={styles.toolLinkText}>選手・バッテリー分析</Text>
+          <Text style={styles.toolLinkText}>選手・捕手分析</Text>
         </TouchableOpacity>
       </View>
 
