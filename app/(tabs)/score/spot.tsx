@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, PanResponder, Dimensions, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, PanResponder, Dimensions, KeyboardAvoidingView, Platform, FlatList, Modal as RNModal } from 'react-native';
 import { Text, TextInput, Button, Portal, Modal } from 'react-native-paper';
 import { router, Stack } from 'expo-router';
 import { Timestamp } from 'firebase/firestore';
@@ -8,7 +8,7 @@ import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanima
 import Svg, { Rect, Line, Circle, Text as SvgText } from 'react-native-svg';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
-import { createSpotAtBat } from '../../../src/services/spotAtBatService';
+import { createSpotAtBat, getUserSpotAtBats } from '../../../src/services/spotAtBatService';
 import { PITCH_TYPES, DEFAULT_BALLPARK } from '../../../src/types/game';
 import FieldView from '../../../src/components/score/FieldView';
 import type { AtBatResult, PitchResult, StrikeZone, PitchType, BattedBall } from '../../../src/types/game';
@@ -88,9 +88,9 @@ const AT_BAT_RESULTS: { result: AtBatResult; label: string; color: string }[] = 
 
 export default function SpotAtBatScreen() {
   const { currentUser } = useAuth();
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2>(2);
 
-  // Step 1: 状況入力
+  // 状況入力 (編集モーダルで管理)
   const [playerName, setPlayerName]   = useState('');
   const [pitcherName, setPitcherName] = useState('');
   const [opponent, setOpponent]       = useState('');
@@ -132,8 +132,54 @@ export default function SpotAtBatScreen() {
   const [memo, setMemo]                 = useState('');
   const [saving, setSaving]             = useState(false);
 
-  const toggleRunner = (base: 'first' | 'second' | 'third') =>
-    setRunners((prev) => ({ ...prev, [base]: !prev[base] }));
+  // 選手情報編集モーダル
+  const [showEditInfo, setShowEditInfo]         = useState(false);
+  const [pastOpponents, setPastOpponents]       = useState<string[]>([]);
+  const [editPlayerName, setEditPlayerName]     = useState('');
+  const [editPitcherName, setEditPitcherName]   = useState('');
+  const [editOpponent, setEditOpponent]         = useState('');
+  const [editOuts, setEditOuts]                 = useState(0);
+  const [editRunners, setEditRunners]           = useState({ first: false, second: false, third: false });
+  const [showSuggestions, setShowSuggestions]   = useState(false);
+
+  // 過去の対戦相手を取得
+  useEffect(() => {
+    if (!currentUser) return;
+    getUserSpotAtBats(currentUser.uid)
+      .then((spots) => {
+        const unique = [...new Set(spots.map((s) => s.opponent).filter((o): o is string => !!o))];
+        setPastOpponents(unique);
+      })
+      .catch(() => {});
+  }, [currentUser]);
+
+  // 初回マウント時に編集モーダルを開く
+  useEffect(() => {
+    setShowEditInfo(true);
+  }, []);
+
+  const handleOpenEditModal = useCallback(() => {
+    setEditPlayerName(playerName);
+    setEditPitcherName(pitcherName);
+    setEditOpponent(opponent);
+    setEditOuts(outs);
+    setEditRunners({ ...runners });
+    setShowSuggestions(false);
+    setShowEditInfo(true);
+  }, [playerName, pitcherName, opponent, outs, runners]);
+
+  const handleSaveEditInfo = useCallback(() => {
+    if (!editPlayerName.trim()) {
+      Alert.alert('エラー', '打者名を入力してください');
+      return;
+    }
+    setPlayerName(editPlayerName.trim());
+    setPitcherName(editPitcherName.trim());
+    setOpponent(editOpponent.trim());
+    setOuts(editOuts);
+    setRunners(editRunners);
+    setShowEditInfo(false);
+  }, [editPlayerName, editPitcherName, editOpponent, editOuts, editRunners]);
 
   const handleSave = async () => {
     if (!currentUser || !atBatResult) return;
@@ -257,92 +303,6 @@ export default function SpotAtBatScreen() {
     );
   }
 
-  // ── Step 1: 状況入力 ─────────────────────────────────────────
-  if (step === 1) {
-    return (
-      <>
-        <Stack.Screen options={{ title: 'スポット打席', headerShown: true }} />
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-          <Text style={styles.stepLabel}>STEP 1 / 状況入力</Text>
-
-          <TextInput
-            mode="outlined"
-            label="打者名 *"
-            value={playerName}
-            onChangeText={setPlayerName}
-            style={styles.input}
-          />
-          <TextInput
-            mode="outlined"
-            label="投手名"
-            value={pitcherName}
-            onChangeText={setPitcherName}
-            style={styles.input}
-          />
-          <TextInput
-            mode="outlined"
-            label="対戦相手チーム"
-            value={opponent}
-            onChangeText={setOpponent}
-            style={styles.input}
-          />
-
-          {/* アウトカウント */}
-          <Text style={styles.sectionLabel}>アウトカウント</Text>
-          <View style={styles.outsRow}>
-            {([0, 1, 2] as const).map((n) => (
-              <TouchableOpacity
-                key={n}
-                style={[styles.outBtn, outs === n && styles.outBtnActive]}
-                onPress={() => setOuts(n)}
-              >
-                <Text style={[styles.outBtnText, outs === n && styles.outBtnTextActive]}>
-                  {n}アウト
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* ランナー */}
-          <Text style={styles.sectionLabel}>ランナー</Text>
-          <View style={styles.runnerRow}>
-            {([
-              { key: 'first',  label: '1塁' },
-              { key: 'second', label: '2塁' },
-              { key: 'third',  label: '3塁' },
-            ] as const).map(({ key, label }) => (
-              <TouchableOpacity
-                key={key}
-                style={[styles.runnerBtn, runners[key] && styles.runnerBtnOn]}
-                onPress={() => toggleRunner(key)}
-              >
-                <Text style={[styles.runnerBtnText, runners[key] && styles.runnerBtnTextOn]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Button
-            mode="contained"
-            onPress={() => {
-              if (!playerName.trim()) {
-                Alert.alert('エラー', '打者名を入力してください');
-                return;
-              }
-              setStep(2);
-            }}
-            style={styles.nextBtn}
-            buttonColor={Colors.primary}
-            icon="baseball"
-          >
-            次へ: 投球記録
-          </Button>
-        </ScrollView>
-      </>
-    );
-  }
-
   // ── 確認・メモ・保存画面 (旧 Step 3 に相当) ────────────────────
   if (showConfirm) {
     const resultLabel = AT_BAT_RESULTS.find((r) => r.result === atBatResult)?.label ?? '—';
@@ -450,6 +410,19 @@ export default function SpotAtBatScreen() {
       <>
         <Stack.Screen options={{ title: 'スポット打席 — 投球記録', headerShown: true }} />
         <View style={styles.container}>
+
+          {/* 選手情報ヘッダー */}
+          <TouchableOpacity
+            style={styles.editInfoHeader}
+            onPress={handleOpenEditModal}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.editInfoText} numberOfLines={1}>
+              {playerName || '打者名未入力'} vs {pitcherName || '投手'} | {opponent || 'チーム未入力'} | {outs}アウト
+              {runners.first ? ' ・1塁' : ''}{runners.second ? ' ・2塁' : ''}{runners.third ? ' ・3塁' : ''}
+            </Text>
+            <MaterialCommunityIcons name="pencil" size={16} color="#fff" />
+          </TouchableOpacity>
 
           {/* カウント + マッチアップ行 */}
           <View style={styles.s2CountRow}>
@@ -591,8 +564,8 @@ export default function SpotAtBatScreen() {
 
           {/* フッター */}
           <View style={styles.step2Footer}>
-            <Button mode="outlined" onPress={() => setStep(1)} style={styles.footerBtn}>
-              戻る
+            <Button mode="outlined" onPress={handleOpenEditModal} style={styles.footerBtn}>
+              編集
             </Button>
             <Button
               mode="outlined"
@@ -651,6 +624,119 @@ export default function SpotAtBatScreen() {
             </Modal>
           </Portal>
         </View>
+
+        {/* 選手情報編集モーダル */}
+        <RNModal
+          visible={showEditInfo}
+          animationType="slide"
+          onRequestClose={() => setShowEditInfo(false)}
+        >
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={0}
+          >
+            <ScrollView
+              style={styles.editModal}
+              contentContainerStyle={styles.editModalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.stepLabel}>選手情報の入力</Text>
+
+              <TextInput
+                mode="outlined"
+                label="打者名 *"
+                value={editPlayerName}
+                onChangeText={setEditPlayerName}
+                style={styles.input}
+              />
+              <TextInput
+                mode="outlined"
+                label="投手名"
+                value={editPitcherName}
+                onChangeText={setEditPitcherName}
+                style={styles.input}
+              />
+              <TextInput
+                mode="outlined"
+                label="対戦相手チーム"
+                value={editOpponent}
+                onChangeText={(t) => { setEditOpponent(t); setShowSuggestions(true); }}
+                onFocus={() => setShowSuggestions(true)}
+                style={styles.input}
+              />
+              {showSuggestions && pastOpponents.filter((o) => !editOpponent || o.toLowerCase().includes(editOpponent.toLowerCase())).length > 0 && (
+                <FlatList
+                  data={pastOpponents.filter((o) => !editOpponent || o.toLowerCase().includes(editOpponent.toLowerCase()))}
+                  keyExtractor={(item, idx) => `${item}-${idx}`}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.suggestionItem}
+                      onPress={() => { setEditOpponent(item); setShowSuggestions(false); }}
+                    >
+                      <Text style={styles.suggestionText}>{item}</Text>
+                    </TouchableOpacity>
+                  )}
+                  style={styles.suggestionList}
+                  scrollEnabled={false}
+                />
+              )}
+
+              <Text style={styles.sectionLabel}>アウトカウント</Text>
+              <View style={styles.outsRow}>
+                {([0, 1, 2] as const).map((n) => (
+                  <TouchableOpacity
+                    key={n}
+                    style={[styles.outBtn, editOuts === n && styles.outBtnActive]}
+                    onPress={() => setEditOuts(n)}
+                  >
+                    <Text style={[styles.outBtnText, editOuts === n && styles.outBtnTextActive]}>
+                      {n}アウト
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.sectionLabel}>ランナー</Text>
+              <View style={styles.runnerRow}>
+                {([
+                  { key: 'first' as const, label: '1塁' },
+                  { key: 'second' as const, label: '2塁' },
+                  { key: 'third' as const, label: '3塁' },
+                ]).map(({ key, label }) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.runnerBtn, editRunners[key] && styles.runnerBtnOn]}
+                    onPress={() => setEditRunners((prev) => ({ ...prev, [key]: !prev[key] }))}
+                  >
+                    <Text style={[styles.runnerBtnText, editRunners[key] && styles.runnerBtnTextOn]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.footerRow}>
+                <Button
+                  mode="outlined"
+                  onPress={() => setShowEditInfo(false)}
+                  style={styles.footerBtn}
+                >
+                  キャンセル
+                </Button>
+                <Button
+                  mode="contained"
+                  onPress={handleSaveEditInfo}
+                  style={styles.footerBtn}
+                  buttonColor={Colors.primary}
+                  icon="content-save"
+                >
+                  保存
+                </Button>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </RNModal>
       </>
     );
   }
@@ -797,7 +883,51 @@ const styles = StyleSheet.create({
   runnerBtnText:    { fontSize: Typography.bodySmall, color: Colors.text, fontWeight: '600' },
   runnerBtnTextOn:  { color: Colors.white },
 
-  nextBtn: { marginTop: Spacing.lg, borderRadius: BorderRadius.lg },
+  // 選手情報ヘッダー
+  editInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    gap: 8,
+  },
+  editInfoText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: Typography.bodySmall,
+    fontWeight: '600',
+  },
+
+  // 編集モーダル
+  editModal: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  editModalContent: {
+    padding: Spacing.md,
+    paddingBottom: 80,
+  },
+
+  // サジェスト
+  suggestionList: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+    maxHeight: 160,
+  },
+  suggestionItem: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.border,
+  },
+  suggestionText: {
+    fontSize: Typography.body,
+    color: Colors.text,
+  },
 
   // Step 2 共通
   step2Sub:    { fontSize: Typography.body, color: Colors.text, fontWeight: '600', marginTop: 2 },
