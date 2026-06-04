@@ -171,7 +171,7 @@ export default function BatteryReportScreen() {
   const loadAIReport = useCallback(async (p: BatteryProfile) => {
     setAiLoading(true);
     try {
-      const report = await generateBatteryAIReport(p, gamesRef.current, userPlan);
+      const report = await generateBatteryAIReport(p, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
         const usage = await checkAIReportUsage(userPlan);
         Alert.alert(

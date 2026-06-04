@@ -181,7 +181,7 @@ export default function PitcherReportScreen() {
         countTendencies:  p.countTendencies,
         summary:          p.summary,
       };
-      const report = await generateBatteryAIReport(fakeBatteryProfile, gamesRef.current, userPlan);
+      const report = await generateBatteryAIReport(fakeBatteryProfile, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
         const usage = await checkAIReportUsage(userPlan);
         Alert.alert(

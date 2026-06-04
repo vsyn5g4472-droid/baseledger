@@ -18,8 +18,6 @@ import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import type { GameState } from '../types/game';
 import type { AggregatedPitchingStats, AggregatedBattingStats } from '../utils/multiGameStats';
 import type { BatteryProfile, BatterProfile } from '../utils/analysisEngine';
-import { aggregateBuntSignStats } from '../utils/buntSignAggregate';
-import { aggregateSignMisses } from '../utils/signMissAggregate';
 import { auth, db, functions, COLLECTIONS } from './firebase';
 import {
   UserPlan,
@@ -374,7 +372,7 @@ function shapeTeam(
   return { topBatters, pitcherSummary, teamNames, score };
 }
 
-function shapeBatteryProfile(profile: BatteryProfile, games: GameState[]) {
+function shapeBatteryProfile(profile: BatteryProfile) {
   const top2SPitches = profile.pitchType2Strike.slice(0, 3)
     .map((p) => ({ type: p.type, pct: p.pct }));
   const top2SZones = Object.entries(profile.zone2Strike)
@@ -389,8 +387,6 @@ function shapeBatteryProfile(profile: BatteryProfile, games: GameState[]) {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 3)
     .map(([zone, count]) => ({ zone, count }));
-  const buntSign = aggregateBuntSignStats(games);
-  const signMiss = aggregateSignMisses(games);
 
   return {
     pitcherName:  profile.pitcherName,
@@ -404,9 +400,6 @@ function shapeBatteryProfile(profile: BatteryProfile, games: GameState[]) {
     top2SZones,
     zone2StrikeR,
     zone2StrikeL,
-    buntSuccessRate: buntSign.bunt.attempts > 0 ? buntSign.bunt.rate : null,
-    signSuccessRate: buntSign.sign.attempts > 0 ? buntSign.sign.rate : null,
-    signMissTotal:   signMiss.totalEvents,
     finishingPitches: profile.finishingPitches.slice(0, 3).map((f) => ({
       pitchType: f.pitchType,
       zone:      f.zone,
@@ -520,7 +513,6 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
  */
 export async function generateBatteryAIReport(
   profile: BatteryProfile,
-  games: GameState[],
   userPlan: UserPlan,
 ): Promise<AIReport> {
   const early = earlyPlanGate(userPlan);
@@ -546,7 +538,7 @@ export async function generateBatteryAIReport(
   if (quotaBlock) return quotaBlock;
 
   try {
-    const report = await callAIReportFunction('battery-profile', shapeBatteryProfile(profile, games));
+    const report = await callAIReportFunction('battery-profile', shapeBatteryProfile(profile));
     await incrementAIReportUsage();
     await writeCache(cacheKey, report, userPlan);                              // L1
     if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
