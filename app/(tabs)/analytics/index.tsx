@@ -165,11 +165,16 @@ export default function AnalyticsIndexScreen() {
           text: '再開',
           onPress: async () => {
             try {
+              console.log('[RESUME] 1. loadGame start:', gameId);
               await loadGame(gameId);
+              console.log('[RESUME] 2. loadGame done, game phase:', useGameStore.getState().game?.phase);
               setPhase('live');
+              console.log('[RESUME] 3. setPhase done, phase:', useGameStore.getState().game?.phase);
               await persist();
+              console.log('[RESUME] 4. persist done');
               router.push('/(tabs)/score/main');
-            } catch {
+            } catch (e) {
+              console.error('[RESUME] error:', e);
               Alert.alert('エラー', '試合の再開に失敗しました');
             }
           },
