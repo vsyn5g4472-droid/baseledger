@@ -225,16 +225,6 @@ export default function AnalyticsIndexScreen() {
           <Text style={styles.toolLinkText}>チーム内ランキング</Text>
         </TouchableOpacity>
 
-        <View style={styles.toolDivider} />
-
-        <TouchableOpacity
-          style={styles.toolLink}
-          onPress={() => router.push('/analysis' as any)}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons name="chart-scatter-plot" size={14} color={Colors.action} />
-          <Text style={styles.toolLinkText}>選手・捕手分析</Text>
-        </TouchableOpacity>
       </View>
 
       {/* タブ: 通常 / 偵察データ */}
@@ -257,6 +247,26 @@ export default function AnalyticsIndexScreen() {
         data={displayGames}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <GameCard game={item} onDelete={handleDelete} onResume={handleResume} />}
+        ListHeaderComponent={activeTab === 'scout' ? (
+          <View style={{ flexDirection: 'row', padding: 8, gap: 8 }}>
+            <TouchableOpacity
+              style={[styles.toolLink, { flex: 1, backgroundColor: Colors.card, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }]}
+              onPress={() => router.push('/analysis' as any)}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="chart-scatter-plot" size={14} color={Colors.action} />
+              <Text style={styles.toolLinkText}>選手・捕手分析</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toolLink, { flex: 1, backgroundColor: Colors.card, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }]}
+              onPress={() => router.push('/analysis' as any)}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="baseball-bat" size={14} color={Colors.action} />
+              <Text style={styles.toolLinkText}>スポット打席分析</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         contentContainerStyle={
           games.length === 0 ? styles.emptyContainer : styles.listContent
         }

@@ -166,8 +166,9 @@ export default function SpotAtBatScreen() {
       Alert.alert('保存完了', 'スポット打席を記録しました', [
         { text: 'OK', onPress: () => router.back() },
       ]);
-    } catch {
-      Alert.alert('エラー', '保存に失敗しました');
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message ?? '不明なエラー';
+      Alert.alert('エラー', `保存に失敗しました: ${msg}`);
     } finally {
       setSaving(false);
     }
