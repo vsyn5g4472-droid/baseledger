@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { View, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Avatar, Button, Card, Chip, Divider } from 'react-native-paper';
@@ -13,6 +13,7 @@ import PostCard from '../../../src/components/PostCard';
 import PlanBadge from '../../../src/components/PlanBadge';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { getOrCreateConversation } from '../../../src/services/messageService';
+import { isLiked, likePost, unlikePost } from '../../../src/services/postService';
 import type { Post } from '../../../src/models/types';
 
 const ROLE_COLORS: Record<string, string> = {
@@ -30,7 +31,18 @@ export default function UserProfileScreen() {
   const { posts, loading: postsLoading } = useUserPosts(userId ?? '');
   const { isFollowing, isMutual, toggleFollow, loading: followLoading } = useFollow(userId ?? '');
   const [messagingLoading, setMessagingLoading] = useState(false);
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const isOwnProfile = currentUser?.uid === userId;
+
+  useEffect(() => {
+    if (!currentUser || posts.length === 0) return;
+    Promise.all(
+      posts.map(p => isLiked(p.id, currentUser.uid).then(liked => ({ id: p.id, liked })))
+    ).then(results => {
+      const ids = new Set(results.filter(r => r.liked).map(r => r.id));
+      setLikedPostIds(ids);
+    }).catch(() => {});
+  }, [posts, currentUser]);
 
   const handleMessage = useCallback(async () => {
     if (!currentUser || !userId) return;
@@ -81,11 +93,14 @@ export default function UserProfileScreen() {
             />
           )}
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={[styles.displayName, { includeFontPadding: false }]}>{user.displayName}</Text>
-            <View style={{ position: 'absolute', right: -40 }}>
-              <PlanBadge plan={user.plan ?? 'free'} size="md" variant="text" />
-            </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 }}>
+            <Text
+              style={[styles.displayName, { includeFontPadding: false, textAlign: 'center', flex: 1 }]}
+              numberOfLines={1}
+            >
+              {user.displayName}
+            </Text>
+            <PlanBadge plan={user.plan ?? 'free'} size="md" variant="text" />
           </View>
 
           <View style={styles.badgeRow}>
@@ -206,9 +221,20 @@ export default function UserProfileScreen() {
       likesCount={item.likesCount}
       commentsCount={item.commentsCount}
       timeAgo={formatTimeAgo(item.createdAt)}
+      initialLiked={likedPostIds.has(item.id)}
+      onLike={(newLiked) => {
+        if (!currentUser) return;
+        if (newLiked) {
+          likePost(item.id, currentUser.uid);
+          setLikedPostIds(prev => new Set(prev).add(item.id));
+        } else {
+          unlikePost(item.id, currentUser.uid);
+          setLikedPostIds(prev => { const s = new Set(prev); s.delete(item.id); return s; });
+        }
+      }}
       onPress={() => router.push(`/(tabs)/feed/${item.id}` as any)}
     />
-  ), [formatTimeAgo]);
+  ), [formatTimeAgo, likedPostIds, currentUser]);
 
   const ListEmpty = useCallback(() => {
     if (postsLoading) {
