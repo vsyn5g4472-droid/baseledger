@@ -105,7 +105,7 @@ export default function LoadingScreen() {
 
         {/* 名言 */}
         <View style={styles.quoteSection}>
-          <Text style={styles.quoteText}>「{quote.text}」</Text>
+          <Text style={styles.quoteText}>{quote.text}</Text>
           <Text style={styles.quoteAuthor}>{quote.author}</Text>
         </View>
       </Animated.View>
