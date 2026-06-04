@@ -20,6 +20,8 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -351,6 +353,11 @@ export default function BatteryReportScreen() {
         animationType="slide"
         onRequestClose={() => { if (!sharePosting) setShowShareModal(false); }}
       >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+          style={{ flex: 1 }}
+        >
         <TouchableOpacity
           style={shareStyles.backdrop}
           activeOpacity={1}
@@ -404,6 +411,7 @@ export default function BatteryReportScreen() {
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>

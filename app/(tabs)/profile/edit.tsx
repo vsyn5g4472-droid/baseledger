@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, ScrollView, Alert, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { StyleSheet, ScrollView, Alert, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text, TextInput, Button, Avatar } from 'react-native-paper';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -96,6 +96,11 @@ export default function EditProfileScreen() {
   };
 
   return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={88}
+    >
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>プロフィール編集</Text>
 
@@ -162,6 +167,7 @@ export default function EditProfileScreen() {
         変更を保存
       </Button>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

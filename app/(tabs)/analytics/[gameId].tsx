@@ -9,6 +9,8 @@ import {
   Alert,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -662,6 +664,11 @@ export default function GameAnalyticsScreen() {
         animationType="slide"
         onRequestClose={() => { if (!summaryPosting) setShowSummaryModal(false); }}
       >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+          style={{ flex: 1 }}
+        >
         <TouchableOpacity
           style={styles.feedModalBackdrop}
           activeOpacity={1}
@@ -779,6 +786,7 @@ export default function GameAnalyticsScreen() {
             )}
           </TouchableOpacity>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── 選手成績投稿モーダル ──────────────────────────────────────────────── */}
@@ -788,6 +796,11 @@ export default function GameAnalyticsScreen() {
         animationType="slide"
         onRequestClose={() => { if (!playerPosting) setShowPlayerModal(false); }}
       >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+          style={{ flex: 1 }}
+        >
         <TouchableOpacity
           style={styles.feedModalBackdrop}
           activeOpacity={1}
@@ -1076,6 +1089,7 @@ export default function GameAnalyticsScreen() {
             )}
           </TouchableOpacity>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       <View style={styles.container}>

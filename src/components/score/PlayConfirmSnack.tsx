@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, TextInput, Keyboard } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Typography } from '../../constants/theme';
@@ -32,7 +32,12 @@ export default function PlayConfirmSnack({
   if (!visible) return null;
 
   return (
-    <View style={styles.bar} pointerEvents="box-none">
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={88}
+      style={styles.bar}
+      pointerEvents="box-none"
+    >
       <View style={styles.textCol}>
         <Text style={styles.line} numberOfLines={1}>
           ✓ {batterLabel} {resultLabel}
@@ -72,7 +77,7 @@ export default function PlayConfirmSnack({
           <MaterialCommunityIcons name="close" size={20} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
