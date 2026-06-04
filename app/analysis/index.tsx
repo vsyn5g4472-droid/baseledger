@@ -26,14 +26,11 @@ import {
   type BatteryPair,
   type PitcherInfo,
 } from '../../src/utils/analysisEngine';
-import { getUserSpotAtBats } from '../../src/services/spotAtBatService';
-import type { SpotAtBat } from '../../src/models/types';
-import { useAuth } from '../../src/contexts/AuthContext';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 
 // ── Tab type ──────────────────────────────────────────────────────────────────
 
-type TabKey = 'batter' | 'pitcher' | 'battery' | 'spot';
+type TabKey = 'batter' | 'pitcher' | 'battery';
 
 // ── Picker Modal ──────────────────────────────────────────────────────────────
 
@@ -96,16 +93,9 @@ function PickerModal<T>({
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function AnalysisIndexScreen() {
-  const { currentUser } = useAuth();
   const [tab, setTab]       = useState<TabKey>('batter');
   const [games, setGames]   = useState<GameState[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Spot tab state
-  const [spotAtBats, setSpotAtBats]             = useState<SpotAtBat[]>([]);
-  const [selectedSpotTeam, setSelectedSpotTeam] = useState<string | null>(null);
-  const [selectedSpotPlayer, setSelectedSpotPlayer] = useState<string | null>(null);
-  const [spotPlayerPickerOpen, setSpotPlayerPickerOpen] = useState(false);
 
   // Batter tab state
   const [batters, setBatters]                 = useState<BatterInfo[]>([]);
@@ -138,14 +128,6 @@ export default function AnalysisIndexScreen() {
   useEffect(() => {
     loadData().finally(() => setLoading(false));
   }, [loadData]);
-
-  // Spot tab: load all SpotAtBats for current user
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-    getUserSpotAtBats(currentUser.uid)
-      .then(setSpotAtBats)
-      .catch(() => {});
-  }, [currentUser?.uid]);
 
   // チーム名 → 打者リスト
   const teamBattersMap = useMemo(() => {
@@ -225,21 +207,6 @@ export default function AnalysisIndexScreen() {
   const filteredPitchers  = selectedPitcherTeam ? (teamPitchersMap.get(selectedPitcherTeam) ?? []) : [];
   const filteredBatteries = selectedBatteryTeam ? (teamBatteryMap.get(selectedBatteryTeam)  ?? []) : [];
 
-  // Spot: チーム一覧（opponent フィールド）
-  const spotTeamNames = useMemo(() => {
-    const named = [...new Set(spotAtBats.map((s) => s.opponent).filter((o): o is string => !!o))].sort();
-    return [...named, '未設定'];
-  }, [spotAtBats]);
-
-  // Spot: 選択チームの選手一覧
-  const spotPlayersForTeam = useMemo(() => {
-    if (!selectedSpotTeam) return [];
-    const filtered = selectedSpotTeam === '未設定'
-      ? spotAtBats.filter((s) => !s.opponent)
-      : spotAtBats.filter((s) => s.opponent === selectedSpotTeam);
-    return [...new Set(filtered.map((s) => s.playerName))].sort();
-  }, [spotAtBats, selectedSpotTeam]);
-
   const handleBatterTeamSelect = (name: string) => {
     setSelectedBatterTeam(name === selectedBatterTeam ? null : name);
     setSelectedBatter(null);
@@ -252,16 +219,10 @@ export default function AnalysisIndexScreen() {
     setSelectedBatteryTeam(name === selectedBatteryTeam ? null : name);
     setSelectedBattery(null);
   };
-  const handleSpotTeamSelect = (name: string) => {
-    setSelectedSpotTeam(name === selectedSpotTeam ? null : name);
-    setSelectedSpotPlayer(null);
-  };
-
   const canStart =
     tab === 'batter' ? !!selectedBatter
     : tab === 'pitcher' ? !!selectedPitcher
-    : tab === 'battery' ? !!selectedBattery
-    : !!selectedSpotPlayer;
+    : !!selectedBattery;
 
   const handleStart = useCallback(() => {
     if (tab === 'batter' && selectedBatter) {
@@ -278,14 +239,6 @@ export default function AnalysisIndexScreen() {
         params: {
           pitcherId:   selectedPitcher.pitcherId,
           pitcherName: selectedPitcher.pitcherName,
-        },
-      });
-    } else if (tab === 'spot' && selectedSpotPlayer && selectedSpotTeam) {
-      router.push({
-        pathname: '/analysis/spot-report' as any,
-        params: {
-          playerName: selectedSpotPlayer,
-          opponent:   selectedSpotTeam,
         },
       });
     } else if (tab === 'battery' && selectedBattery) {
@@ -336,10 +289,10 @@ export default function AnalysisIndexScreen() {
 
         {/* ── タブ ── */}
         <View style={styles.tabBar}>
-          {(['batter', 'pitcher', 'battery', 'spot'] as const).map((key) => {
+          {(['batter', 'pitcher', 'battery'] as const).map((key) => {
             const isActive = tab === key;
-            const icon  = key === 'batter' ? 'baseball-bat' : key === 'pitcher' ? 'baseball' : key === 'battery' ? 'account-group' : 'baseball-bat';
-            const label = key === 'batter' ? '打者分析' : key === 'pitcher' ? '投手分析' : key === 'battery' ? '捕手分析' : 'スポット';
+            const icon  = key === 'batter' ? 'baseball-bat' : key === 'pitcher' ? 'baseball' : 'account-group';
+            const label = key === 'batter' ? '打者分析' : key === 'pitcher' ? '投手分析' : '捕手分析';
             return (
               <TouchableOpacity
                 key={key}
@@ -585,92 +538,7 @@ export default function AnalysisIndexScreen() {
               </View>
             )}
           </View>
-        ) : (
-          // ── スポット打席タブ ──────────────────────────────────────────────
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>スポット打席を選択</Text>
-            <Text style={styles.cardDesc}>
-              スポット打席記録から選手ごとの傾向を分析します。
-            </Text>
-
-            {spotAtBats.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <MaterialCommunityIcons name="database-off-outline" size={40} color={Colors.border} />
-                <Text style={styles.emptyText}>スポット打席データがありません</Text>
-              </View>
-            ) : (
-              <>
-                {/* Step 1: チーム選択 */}
-                <Text style={styles.stepLabel}>① 対戦チームを選ぶ</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teamChipScroll}>
-                  <View style={styles.teamChipRow}>
-                    {spotTeamNames.map((name) => (
-                      <TouchableOpacity
-                        key={name}
-                        style={[styles.teamChip, selectedSpotTeam === name && styles.teamChipActive]}
-                        onPress={() => handleSpotTeamSelect(name)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.teamChipText, selectedSpotTeam === name && styles.teamChipTextActive]}>
-                          {name}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-
-                {/* Step 2: 選手選択 */}
-                <Text style={[styles.stepLabel, !selectedSpotTeam && styles.stepLabelDim]}>② 選手を選ぶ</Text>
-                <TouchableOpacity
-                  style={[
-                    styles.selector,
-                    !selectedSpotPlayer && styles.selectorEmpty,
-                    !selectedSpotTeam && styles.selectorDisabled,
-                  ]}
-                  onPress={() => { if (selectedSpotTeam) setSpotPlayerPickerOpen(true); }}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons
-                    name="account-outline"
-                    size={20}
-                    color={selectedSpotPlayer ? Colors.primary : Colors.textSecondary}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.selectorText, !selectedSpotPlayer && styles.selectorPlaceholder]}>
-                      {selectedSpotPlayer ?? (selectedSpotTeam ? '選手を選ぶ…' : 'まずチームを選択')}
-                    </Text>
-                    {selectedSpotPlayer && (
-                      <Text style={styles.selectorSub}>
-                        {spotAtBats.filter((s) =>
-                          s.playerName === selectedSpotPlayer &&
-                          (selectedSpotTeam === '未設定' ? !s.opponent : s.opponent === selectedSpotTeam)
-                        ).length}打席のデータあり
-                      </Text>
-                    )}
-                  </View>
-                  <MaterialCommunityIcons name="chevron-down" size={20} color={Colors.textSecondary} />
-                </TouchableOpacity>
-
-                {selectedSpotPlayer && (
-                  <View style={styles.infoChips}>
-                    <View style={styles.chip}>
-                      <MaterialCommunityIcons name="chart-bar" size={12} color={Colors.primary} />
-                      <Text style={styles.chipText}>打席結果サマリ</Text>
-                    </View>
-                    <View style={styles.chip}>
-                      <MaterialCommunityIcons name="target" size={12} color={Colors.primary} />
-                      <Text style={styles.chipText}>コース分布</Text>
-                    </View>
-                    <View style={styles.chip}>
-                      <MaterialCommunityIcons name="baseball" size={12} color={Colors.primary} />
-                      <Text style={styles.chipText}>球種別集計</Text>
-                    </View>
-                  </View>
-                )}
-              </>
-            )}
-          </View>
-        )}
+        ) : null}
 
         {/* ── 分析開始ボタン ── */}
         <TouchableOpacity
@@ -727,13 +595,6 @@ export default function AnalysisIndexScreen() {
         subFn={(b) => `投手: ${b.pitcherName} / 捕手: ${b.catcherName} — ${b.gameCount}試合`}
       />
 
-      <PickerModal<string>
-        visible={spotPlayerPickerOpen}
-        items={spotPlayersForTeam}
-        onSelect={setSelectedSpotPlayer}
-        onClose={() => setSpotPlayerPickerOpen(false)}
-        labelFn={(p) => p}
-      />
     </>
   );
 }

@@ -230,6 +230,17 @@ export default function AnalyticsIndexScreen() {
           <Text style={styles.toolLinkText}>チーム内ランキング</Text>
         </TouchableOpacity>
 
+        <View style={styles.toolDivider} />
+
+        <TouchableOpacity
+          style={styles.toolLink}
+          onPress={() => router.push('/analysis' as any)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="chart-scatter-plot" size={14} color={Colors.action} />
+          <Text style={styles.toolLinkText}>選手・捕手分析</Text>
+        </TouchableOpacity>
+
       </View>
 
       {/* タブ: 通常 / 偵察データ */}
