@@ -321,8 +321,12 @@ export async function sendDirectMessage(
     const messagesRef = collection(db, CONVERSATIONS_COLLECTION, conversationId, MESSAGES_SUBCOLLECTION);
     const msgRef = await addDoc(messagesRef, messageData);
 
-    // setDoc with merge so this works even if the conversation doc is missing
+    // setDoc with merge so this works even if the conversation doc is missing.
+    // participants is derived from conversationId ("{uid1}_{uid2}" alphabetically sorted)
+    // so that onConversationsUpdate's array-contains query can find this conversation.
+    const participants = conversationId.split('_');
     await setDoc(doc(db, CONVERSATIONS_COLLECTION, conversationId), {
+      participants,
       lastMessage: content,
       lastMessageAt: Timestamp.now(),
     }, { merge: true });
