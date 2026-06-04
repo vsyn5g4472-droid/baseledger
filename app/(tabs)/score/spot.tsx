@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, PanResponder, Dimensions, KeyboardAvoidingView, Platform, FlatList, Modal as RNModal } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, PanResponder, Dimensions, KeyboardAvoidingView, Platform, FlatList } from 'react-native';
 import { Text, TextInput, Button, Portal, Modal } from 'react-native-paper';
 import { router, Stack } from 'expo-router';
 import { Timestamp } from 'firebase/firestore';
@@ -132,15 +132,9 @@ export default function SpotAtBatScreen() {
   const [memo, setMemo]                 = useState('');
   const [saving, setSaving]             = useState(false);
 
-  // 選手情報編集モーダル
-  const [showEditInfo, setShowEditInfo]         = useState(false);
-  const [pastOpponents, setPastOpponents]       = useState<string[]>([]);
-  const [editPlayerName, setEditPlayerName]     = useState('');
-  const [editPitcherName, setEditPitcherName]   = useState('');
-  const [editOpponent, setEditOpponent]         = useState('');
-  const [editOuts, setEditOuts]                 = useState(0);
-  const [editRunners, setEditRunners]           = useState({ first: false, second: false, third: false });
-  const [showSuggestions, setShowSuggestions]   = useState(false);
+  // サジェスト
+  const [pastOpponents, setPastOpponents] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // 過去の対戦相手を取得
   useEffect(() => {
@@ -152,34 +146,6 @@ export default function SpotAtBatScreen() {
       })
       .catch(() => {});
   }, [currentUser]);
-
-  // 初回マウント時に編集モーダルを開く
-  useEffect(() => {
-    setShowEditInfo(true);
-  }, []);
-
-  const handleOpenEditModal = useCallback(() => {
-    setEditPlayerName(playerName);
-    setEditPitcherName(pitcherName);
-    setEditOpponent(opponent);
-    setEditOuts(outs);
-    setEditRunners({ ...runners });
-    setShowSuggestions(false);
-    setShowEditInfo(true);
-  }, [playerName, pitcherName, opponent, outs, runners]);
-
-  const handleSaveEditInfo = useCallback(() => {
-    if (!editPlayerName.trim()) {
-      Alert.alert('エラー', '打者名を入力してください');
-      return;
-    }
-    setPlayerName(editPlayerName.trim());
-    setPitcherName(editPitcherName.trim());
-    setOpponent(editOpponent.trim());
-    setOuts(editOuts);
-    setRunners(editRunners);
-    setShowEditInfo(false);
-  }, [editPlayerName, editPitcherName, editOpponent, editOuts, editRunners]);
 
   const handleSave = async () => {
     if (!currentUser || !atBatResult) return;
@@ -412,17 +378,12 @@ export default function SpotAtBatScreen() {
         <View style={styles.container}>
 
           {/* 選手情報ヘッダー */}
-          <TouchableOpacity
-            style={styles.editInfoHeader}
-            onPress={handleOpenEditModal}
-            activeOpacity={0.8}
-          >
+          <View style={styles.editInfoHeader}>
             <Text style={styles.editInfoText} numberOfLines={1}>
               {playerName || '打者名未入力'} vs {pitcherName || '投手'} | {opponent || 'チーム未入力'} | {outs}アウト
               {runners.first ? ' ・1塁' : ''}{runners.second ? ' ・2塁' : ''}{runners.third ? ' ・3塁' : ''}
             </Text>
-            <MaterialCommunityIcons name="pencil" size={16} color="#fff" />
-          </TouchableOpacity>
+          </View>
 
           {/* カウント + マッチアップ行 */}
           <View style={styles.s2CountRow}>
@@ -562,11 +523,87 @@ export default function SpotAtBatScreen() {
             </View>
           </View>
 
+          {/* 選手情報インライン入力エリア */}
+          <View style={styles.inlineInfoArea}>
+            {/* 上段: アウトカウント + 対戦相手チーム */}
+            <View style={styles.inlineTopRow}>
+              <TouchableOpacity
+                style={styles.inlineOutBtn}
+                onPress={() => setOuts((prev) => (prev >= 2 ? 0 : prev + 1))}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.inlineOutText}>{outs}アウト</Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <TextInput
+                  mode="flat"
+                  placeholder="対戦相手チーム"
+                  value={opponent}
+                  onChangeText={(t) => { setOpponent(t); setShowSuggestions(true); }}
+                  onFocus={() => setShowSuggestions(true)}
+                  style={styles.inlineInput}
+                  dense
+                />
+                {showSuggestions && pastOpponents.filter((o) => !opponent || o.toLowerCase().includes(opponent.toLowerCase())).length > 0 && (
+                  <FlatList
+                    data={pastOpponents.filter((o) => !opponent || o.toLowerCase().includes(opponent.toLowerCase()))}
+                    keyExtractor={(item, idx) => `${item}-${idx}`}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.suggestionItem}
+                        onPress={() => { setOpponent(item); setShowSuggestions(false); }}
+                      >
+                        <Text style={styles.suggestionText}>{item}</Text>
+                      </TouchableOpacity>
+                    )}
+                    style={styles.suggestionList}
+                    scrollEnabled={false}
+                  />
+                )}
+              </View>
+            </View>
+            {/* 下段: ランナー + 打者名・投手名 */}
+            <View style={styles.inlineBottomRow}>
+              <View style={styles.inlineRunnerCol}>
+                {([
+                  { key: 'first' as const, label: '1塁' },
+                  { key: 'second' as const, label: '2塁' },
+                  { key: 'third' as const, label: '3塁' },
+                ]).map(({ key, label }) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.inlineRunnerBtn, runners[key] && styles.inlineRunnerBtnOn]}
+                    onPress={() => setRunners((prev) => ({ ...prev, [key]: !prev[key] }))}
+                  >
+                    <Text style={[styles.inlineRunnerBtnText, runners[key] && styles.inlineRunnerBtnTextOn]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={styles.inlinePlayerCol}>
+                <TextInput
+                  mode="flat"
+                  placeholder="打者名 *"
+                  value={playerName}
+                  onChangeText={setPlayerName}
+                  style={styles.inlineInput}
+                  dense
+                />
+                <TextInput
+                  mode="flat"
+                  placeholder="投手名"
+                  value={pitcherName}
+                  onChangeText={setPitcherName}
+                  style={styles.inlineInput}
+                  dense
+                />
+              </View>
+            </View>
+          </View>
+
           {/* フッター */}
           <View style={styles.step2Footer}>
-            <Button mode="outlined" onPress={handleOpenEditModal} style={styles.footerBtn}>
-              編集
-            </Button>
             <Button
               mode="outlined"
               onPress={() => {
@@ -625,118 +662,6 @@ export default function SpotAtBatScreen() {
           </Portal>
         </View>
 
-        {/* 選手情報編集モーダル */}
-        <RNModal
-          visible={showEditInfo}
-          animationType="slide"
-          onRequestClose={() => setShowEditInfo(false)}
-        >
-          <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={0}
-          >
-            <ScrollView
-              style={styles.editModal}
-              contentContainerStyle={styles.editModalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={styles.stepLabel}>選手情報の入力</Text>
-
-              <TextInput
-                mode="outlined"
-                label="打者名 *"
-                value={editPlayerName}
-                onChangeText={setEditPlayerName}
-                style={styles.input}
-              />
-              <TextInput
-                mode="outlined"
-                label="投手名"
-                value={editPitcherName}
-                onChangeText={setEditPitcherName}
-                style={styles.input}
-              />
-              <TextInput
-                mode="outlined"
-                label="対戦相手チーム"
-                value={editOpponent}
-                onChangeText={(t) => { setEditOpponent(t); setShowSuggestions(true); }}
-                onFocus={() => setShowSuggestions(true)}
-                style={styles.input}
-              />
-              {showSuggestions && pastOpponents.filter((o) => !editOpponent || o.toLowerCase().includes(editOpponent.toLowerCase())).length > 0 && (
-                <FlatList
-                  data={pastOpponents.filter((o) => !editOpponent || o.toLowerCase().includes(editOpponent.toLowerCase()))}
-                  keyExtractor={(item, idx) => `${item}-${idx}`}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={styles.suggestionItem}
-                      onPress={() => { setEditOpponent(item); setShowSuggestions(false); }}
-                    >
-                      <Text style={styles.suggestionText}>{item}</Text>
-                    </TouchableOpacity>
-                  )}
-                  style={styles.suggestionList}
-                  scrollEnabled={false}
-                />
-              )}
-
-              <Text style={styles.sectionLabel}>アウトカウント</Text>
-              <View style={styles.outsRow}>
-                {([0, 1, 2] as const).map((n) => (
-                  <TouchableOpacity
-                    key={n}
-                    style={[styles.outBtn, editOuts === n && styles.outBtnActive]}
-                    onPress={() => setEditOuts(n)}
-                  >
-                    <Text style={[styles.outBtnText, editOuts === n && styles.outBtnTextActive]}>
-                      {n}アウト
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.sectionLabel}>ランナー</Text>
-              <View style={styles.runnerRow}>
-                {([
-                  { key: 'first' as const, label: '1塁' },
-                  { key: 'second' as const, label: '2塁' },
-                  { key: 'third' as const, label: '3塁' },
-                ]).map(({ key, label }) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[styles.runnerBtn, editRunners[key] && styles.runnerBtnOn]}
-                    onPress={() => setEditRunners((prev) => ({ ...prev, [key]: !prev[key] }))}
-                  >
-                    <Text style={[styles.runnerBtnText, editRunners[key] && styles.runnerBtnTextOn]}>
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={styles.footerRow}>
-                <Button
-                  mode="outlined"
-                  onPress={() => setShowEditInfo(false)}
-                  style={styles.footerBtn}
-                >
-                  キャンセル
-                </Button>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveEditInfo}
-                  style={styles.footerBtn}
-                  buttonColor={Colors.primary}
-                  icon="content-save"
-                >
-                  保存
-                </Button>
-              </View>
-            </ScrollView>
-          </KeyboardAvoidingView>
-        </RNModal>
       </>
     );
   }
@@ -1101,6 +1026,68 @@ const styles = StyleSheet.create({
     fontSize: Typography.bodySmall,
     color: Colors.text,
     lineHeight: 20,
+  },
+
+  // インライン選手情報入力エリア
+  inlineInfoArea: {
+    margin: 8,
+    padding: 12,
+    backgroundColor: Colors.card,
+    borderRadius: 8,
+  },
+  inlineTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  inlineOutBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineOutText: {
+    color: Colors.white,
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+  },
+  inlineInput: {
+    backgroundColor: Colors.surfaceGray,
+    marginBottom: 4,
+  },
+  inlineBottomRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  inlineRunnerCol: {
+    width: 100,
+    gap: 4,
+  },
+  inlineRunnerBtn: {
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  inlineRunnerBtnOn: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  inlineRunnerBtnText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  inlineRunnerBtnTextOn: {
+    color: Colors.white,
+  },
+  inlinePlayerCol: {
+    flex: 1,
   },
 });
 
