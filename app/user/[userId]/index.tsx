@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Avatar, Button, Card, Chip, Divider } from 'react-native-paper';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -21,6 +22,7 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 export default function UserProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { t } = useI18n();
   const { currentUser } = useAuth();
@@ -67,7 +69,7 @@ export default function UserProfileScreen() {
     return (
       <>
         {/* Hero section */}
-        <View style={styles.heroSection}>
+        <View style={[styles.heroSection, { paddingTop: Spacing.xl + insets.top }]}>
           {user.photoURL ? (
             <Avatar.Image size={88} source={{ uri: user.photoURL }} style={styles.avatar} />
           ) : (
@@ -81,7 +83,9 @@ export default function UserProfileScreen() {
 
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
             <Text style={[styles.displayName, { includeFontPadding: false }]}>{user.displayName}</Text>
-            <PlanBadge plan={user.plan ?? 'free'} size="md" variant="text" />
+            <View style={{ position: 'absolute', right: -40 }}>
+              <PlanBadge plan={user.plan ?? 'free'} size="md" variant="text" />
+            </View>
           </View>
 
           <View style={styles.badgeRow}>
