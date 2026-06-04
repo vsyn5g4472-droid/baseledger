@@ -379,10 +379,15 @@ export default function SpotAtBatScreen() {
 
           {/* 選手情報ヘッダー */}
           <View style={styles.editInfoHeader}>
-            <Text style={styles.editInfoText} numberOfLines={1}>
-              {playerName || '打者名未入力'} vs {pitcherName || '投手'} | {opponent || 'チーム未入力'} | {outs}アウト
-              {runners.first ? ' ・1塁' : ''}{runners.second ? ' ・2塁' : ''}{runners.third ? ' ・3塁' : ''}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.editInfoText, { flex: 0 }]} numberOfLines={1}>
+                {playerName || '打者名未入力'} vs {pitcherName || '投手'} | {opponent || 'チーム未入力'} | {outs}アウト
+                {runners.first ? ' ・1塁' : ''}{runners.second ? ' ・2塁' : ''}{runners.third ? ' ・3塁' : ''}
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 2 }}>
+                Oをタップしてアウトカウントを設定
+              </Text>
+            </View>
           </View>
 
           {/* カウント + マッチアップ行 */}
@@ -564,23 +569,10 @@ export default function SpotAtBatScreen() {
             </View>
             {/* 下段: ランナー + 打者名・投手名 */}
             <View style={styles.inlineBottomRow}>
-              <View style={styles.inlineRunnerCol}>
-                {([
-                  { key: 'first' as const, label: '1塁' },
-                  { key: 'second' as const, label: '2塁' },
-                  { key: 'third' as const, label: '3塁' },
-                ]).map(({ key, label }) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[styles.inlineRunnerBtn, runners[key] && styles.inlineRunnerBtnOn]}
-                    onPress={() => setRunners((prev) => ({ ...prev, [key]: !prev[key] }))}
-                  >
-                    <Text style={[styles.inlineRunnerBtnText, runners[key] && styles.inlineRunnerBtnTextOn]}>
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <SpotDiamond
+                runners={runners}
+                onToggle={(base) => setRunners(prev => ({ ...prev, [base]: !prev[base] }))}
+              />
               <View style={styles.inlinePlayerCol}>
                 <TextInput
                   mode="flat"
@@ -668,6 +660,45 @@ export default function SpotAtBatScreen() {
 
   // ── Step 2 に戻る (デフォルト) ──────────────────────────────
   return null;
+}
+
+function SpotDiamond({
+  runners,
+  onToggle,
+}: {
+  runners: { first: boolean; second: boolean; third: boolean };
+  onToggle: (base: 'first' | 'second' | 'third') => void;
+}) {
+  return (
+    <Svg width={100} height={100} viewBox="0 0 100 100">
+      <Line x1={50} y1={85} x2={80} y2={55} stroke="#ccc" strokeWidth={2} />
+      <Line x1={80} y1={55} x2={50} y2={25} stroke="#ccc" strokeWidth={2} />
+      <Line x1={50} y1={25} x2={20} y2={55} stroke="#ccc" strokeWidth={2} />
+      <Line x1={20} y1={55} x2={50} y2={85} stroke="#ccc" strokeWidth={2} />
+      <Circle cx={50} cy={85} r={12} fill="white" stroke="#ccc" strokeWidth={2} />
+      <Circle
+        cx={80} cy={55} r={12}
+        fill={runners.first ? '#C0392B' : 'white'}
+        stroke={runners.first ? '#C0392B' : '#ccc'}
+        strokeWidth={2}
+        onPress={() => onToggle('first')}
+      />
+      <Circle
+        cx={50} cy={25} r={12}
+        fill={runners.second ? '#C0392B' : 'white'}
+        stroke={runners.second ? '#C0392B' : '#ccc'}
+        strokeWidth={2}
+        onPress={() => onToggle('second')}
+      />
+      <Circle
+        cx={20} cy={55} r={12}
+        fill={runners.third ? '#C0392B' : 'white'}
+        stroke={runners.third ? '#C0392B' : '#ccc'}
+        strokeWidth={2}
+        onPress={() => onToggle('third')}
+      />
+    </Svg>
+  );
 }
 
 function CountDots({ label, count, max, color }: {
