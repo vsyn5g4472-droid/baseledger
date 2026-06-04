@@ -5,7 +5,7 @@ import { router, Stack } from 'expo-router';
 import { Timestamp } from 'firebase/firestore';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
-import Svg, { Rect, Line, Circle, Text as SvgText } from 'react-native-svg';
+import Svg, { Rect, Line, Circle, Polygon, Text as SvgText } from 'react-native-svg';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { createSpotAtBat, getUserSpotAtBats } from '../../../src/services/spotAtBatService';
@@ -676,23 +676,28 @@ function SpotDiamond({
       <Line x1={80} y1={55} x2={50} y2={25} stroke="#ccc" strokeWidth={2} />
       <Line x1={50} y1={25} x2={20} y2={55} stroke="#ccc" strokeWidth={2} />
       <Line x1={20} y1={55} x2={50} y2={85} stroke="#ccc" strokeWidth={2} />
-      <Circle cx={50} cy={85} r={12} fill="white" stroke="#ccc" strokeWidth={2} />
-      <Circle
-        cx={80} cy={55} r={12}
+      <Polygon
+        points="50,75 60,85 50,95 40,85"
+        fill="white"
+        stroke="#ccc"
+        strokeWidth={2}
+      />
+      <Polygon
+        points="80,45 90,55 80,65 70,55"
         fill={runners.first ? '#C0392B' : 'white'}
         stroke={runners.first ? '#C0392B' : '#ccc'}
         strokeWidth={2}
         onPress={() => onToggle('first')}
       />
-      <Circle
-        cx={50} cy={25} r={12}
+      <Polygon
+        points="50,15 60,25 50,35 40,25"
         fill={runners.second ? '#C0392B' : 'white'}
         stroke={runners.second ? '#C0392B' : '#ccc'}
         strokeWidth={2}
         onPress={() => onToggle('second')}
       />
-      <Circle
-        cx={20} cy={55} r={12}
+      <Polygon
+        points="20,45 30,55 20,65 10,55"
         fill={runners.third ? '#C0392B' : 'white'}
         stroke={runners.third ? '#C0392B' : '#ccc'}
         strokeWidth={2}
