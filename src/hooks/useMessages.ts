@@ -108,7 +108,7 @@ export function useConversations(): {
  * Real-time messages for a DM conversation, plus send helper.
  * The conversationId format is "{uid1}_{uid2}" (alphabetically sorted).
  */
-export function useChat(conversationId: string): {
+export function useChat(conversationId: string, recipientId: string): {
   messages: Message[];
   loading: boolean;
   sendMessage: (content: string) => Promise<void>;
@@ -138,8 +138,8 @@ export function useChat(conversationId: string): {
 
   const sendMessage = useCallback(async (content: string) => {
     if (!currentUser?.uid || !conversationId || conversationId === '__none__') return;
-    await sendDirectMessage(conversationId, currentUser.uid, content);
-  }, [conversationId, currentUser?.uid]);
+    await sendDirectMessage(conversationId, currentUser.uid, recipientId, content);
+  }, [conversationId, currentUser?.uid, recipientId]);
 
   return { messages, loading, sendMessage, canMessage: true };
 }

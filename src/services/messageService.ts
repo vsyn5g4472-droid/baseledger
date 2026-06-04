@@ -309,6 +309,7 @@ export function onConversationsUpdate(
 export async function sendDirectMessage(
   conversationId: string,
   senderId: string,
+  recipientId: string,
   content: string,
 ): Promise<Message> {
   try {
@@ -322,14 +323,16 @@ export async function sendDirectMessage(
     const msgRef = await addDoc(messagesRef, messageData);
 
     // setDoc with merge so this works even if the conversation doc is missing.
-    // participants is derived from conversationId ("{uid1}_{uid2}" alphabetically sorted)
-    // so that onConversationsUpdate's array-contains query can find this conversation.
-    const participants = conversationId.split('_');
-    await setDoc(doc(db, CONVERSATIONS_COLLECTION, conversationId), {
-      participants,
+    // participants is derived from senderId + recipientId so that
+    // onConversationsUpdate's array-contains query can find this conversation.
+    const convoUpdate: Record<string, unknown> = {
       lastMessage: content,
       lastMessageAt: Timestamp.now(),
-    }, { merge: true });
+    };
+    if (recipientId) {
+      convoUpdate.participants = [senderId, recipientId].sort();
+    }
+    await setDoc(doc(db, CONVERSATIONS_COLLECTION, conversationId), convoUpdate, { merge: true });
 
     return { id: msgRef.id, ...messageData } as Message;
   } catch (error) {

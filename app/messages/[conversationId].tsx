@@ -8,9 +8,9 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { Colors, Spacing } from '../../src/constants/theme';
 
 export default function ChatScreen() {
-  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const { conversationId, recipientId } = useLocalSearchParams<{ conversationId: string; recipientId: string }>();
   const { currentUser } = useAuth();
-  const { messages, sendMessage } = useChat(conversationId ?? '');
+  const { messages, sendMessage } = useChat(conversationId ?? '', recipientId ?? '');
   const [text, setText] = useState('');
 
   const handleSend = async () => {

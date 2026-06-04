@@ -17,7 +17,7 @@ export default function MessagesScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.conversationItem}
-            onPress={() => router.push(`/messages/${item.id}` as any)}
+            onPress={() => router.push(`/messages/${item.id}?recipientId=${item.otherUser.uid}` as any)}
           >
             <Avatar.Text
               size={48}
