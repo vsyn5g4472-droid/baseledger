@@ -42,13 +42,14 @@ const PLAN_CARDS: PlanCard[] = [
     color: '#5B9BD5',
     gradientTop: '#E8F2FB',
     recommended: false,
-    limit: '10試合/月・AIレポート3回/月',
+    limit: '5試合/月・AIレポート10回/月',
     features: [
-      'AI 分析レポート（3回/月）',
+      'AI 分析レポート（10回/月）',
       'スプレーチャート',
       'ゾーンヒートマップ',
       'リーダーボード',
       'グループチャット送信',
+      'PDF共有',
       '広告非表示',
     ],
   },
@@ -59,14 +60,15 @@ const PLAN_CARDS: PlanCard[] = [
     color: '#1A6BB5',
     gradientTop: '#1A6BB5',
     recommended: true,
-    limit: '試合数無制限・AIレポート15回/月',
+    limit: '10試合/月・AIレポート20回/月',
     features: [
       'ライトプランの全機能',
       'セイバーメトリクス（高度統計）',
       '成績エクスポート',
-      'チーム作成（1チーム）',
+      'PDF共有',
+      'チーム作成',
       'クラウドバックアップ',
-      'AIレポート 15回/月',
+      'AIレポート 20回/月',
     ],
   },
   {
@@ -84,6 +86,7 @@ const PLAN_CARDS: PlanCard[] = [
       'AI スカウトレポート',
       'AI 試合予測',
       'AIレポート 無制限',
+      '試合中 相手データ参照',
     ],
   },
 ];
@@ -241,6 +244,7 @@ export default function PlanScreen() {
 
       {/* 注意事項 */}
       <View style={styles.notes}>
+        <Text style={styles.noteText}>• スポット打席は全プラン無制限でご利用いただけます</Text>
         <Text style={styles.noteText}>• サブスクリプションは毎月自動更新されます</Text>
         <Text style={styles.noteText}>• 更新の24時間前までにキャンセルしないと自動更新されます</Text>
         <Text style={styles.noteText}>• App Store アカウントに課金されます</Text>
