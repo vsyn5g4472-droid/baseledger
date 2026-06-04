@@ -67,18 +67,30 @@ export default function ShareToChatModal({ visible, onClose, summary }: Props) {
     }
   }, [currentUser, summary, onClose]);
 
-  const handleSendToDM = useCallback(async (conversationId: string, otherName: string) => {
+  const handleSendToDM = useCallback((conversationId: string, otherName: string, recipientId: string) => {
     if (!currentUser) return;
-    setSending(conversationId);
-    try {
-      await sendDirectMessage(conversationId, currentUser.uid, summary);
-      Alert.alert('送信しました', `${otherName} にDMで共有しました。`);
-      onClose();
-    } catch (e: unknown) {
-      Alert.alert('エラー', (e as Error)?.message ?? '送信に失敗しました。');
-    } finally {
-      setSending(null);
-    }
+    Alert.alert(
+      '共有の確認',
+      `${otherName} にDMで分析を共有しますか？`,
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '送信',
+          onPress: async () => {
+            setSending(conversationId);
+            try {
+              await sendDirectMessage(conversationId, currentUser.uid, recipientId, summary);
+              Alert.alert('送信しました', `${otherName} にDMで共有しました。`);
+              onClose();
+            } catch (e: unknown) {
+              Alert.alert('エラー', (e as Error)?.message ?? '送信に失敗しました。');
+            } finally {
+              setSending(null);
+            }
+          },
+        },
+      ],
+    );
   }, [currentUser, summary, onClose]);
 
   return (
@@ -154,7 +166,7 @@ export default function ShareToChatModal({ visible, onClose, summary }: Props) {
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={s.listItem}
-                    onPress={() => handleSendToDM(item.id, item.otherUser?.displayName ?? 'ユーザー')}
+                    onPress={() => handleSendToDM(item.id, item.otherUser?.displayName ?? 'ユーザー', item.otherUser?.uid ?? '')}
                     disabled={sending !== null}
                   >
                     <MaterialCommunityIcons name="chat" size={20} color={Colors.primary} />
