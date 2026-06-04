@@ -97,21 +97,26 @@ function AppShell() {
 
   useEffect(() => {
     if (!loading && minTimeElapsed && showLoading) {
+      // 元のシンプルなフェードアウトのみ
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 2000,
+        duration: 600,
         useNativeDriver: true,
-      }).start(() => {
-        setShowLoading(false);
-      });
+      }).start(() => setShowLoading(false));
     }
   }, [loading, minTimeElapsed]);
 
   return (
     <View style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(auth)" options={{ animation: 'none' }} />
+        <Stack.Screen
+          name="(tabs)"
+          options={{
+            animation: 'slide_from_right',
+            animationTypeForReplace: 'push',
+          }}
+        />
         <Stack.Screen
           name="user/[userId]"
           options={{
@@ -189,7 +194,7 @@ function AppShell() {
           name="analysis/battery-report"
           options={{
             headerShown: true,
-            title: 'バッテリー分析',
+            title: '捕手分析',
             headerBackTitle: '戻る',
             headerStyle: { backgroundColor: Colors.white },
             headerTintColor: Colors.primary,
@@ -202,6 +207,18 @@ function AppShell() {
           options={{
             headerShown: true,
             title: '投手分析',
+            headerBackTitle: '戻る',
+            headerStyle: { backgroundColor: Colors.white },
+            headerTintColor: Colors.primary,
+            headerTitleStyle: { fontWeight: '700', color: Colors.text },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="analysis/spot-report"
+          options={{
+            headerShown: true,
+            title: 'スポット打席分析',
             headerBackTitle: '戻る',
             headerStyle: { backgroundColor: Colors.white },
             headerTintColor: Colors.primary,
