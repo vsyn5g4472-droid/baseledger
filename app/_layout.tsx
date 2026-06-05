@@ -227,7 +227,7 @@ function AppShell() {
           }}
         />
         <Stack.Screen
-          name="(tabs)/score/spot-history"
+          name="analysis/spot-history"
           options={{
             headerShown: true,
             title: 'スポット打席履歴',

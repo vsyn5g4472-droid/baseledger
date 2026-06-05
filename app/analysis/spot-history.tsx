@@ -8,10 +8,10 @@ import {
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
-import { useAuth } from '../../../src/contexts/AuthContext';
-import { getUserSpotAtBats } from '../../../src/services/spotAtBatService';
-import type { SpotAtBat } from '../../../src/models/types';
+import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/theme';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { getUserSpotAtBats } from '../../src/services/spotAtBatService';
+import type { SpotAtBat } from '../../src/models/types';
 
 const RESULT_LABELS: Partial<Record<string, string>> = {
   single: '単打', double: '二塁打', triple: '三塁打', home_run: '本塁打',

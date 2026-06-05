@@ -267,7 +267,7 @@ export default function AnalyticsIndexScreen() {
           <View style={{ padding: 8 }}>
             <TouchableOpacity
               style={[styles.toolLink, { backgroundColor: Colors.card, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }]}
-              onPress={() => router.push('/(tabs)/score/spot-history' as any)}
+              onPress={() => router.push('/analysis/spot-history' as any)}
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons name="baseball-bat" size={14} color={Colors.action} />
