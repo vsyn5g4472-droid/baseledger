@@ -61,6 +61,7 @@ const QUOTES = [
   { text: 'キャッチャーはグラウンド上の監督だ。', author: '— 城島健司' },
   { text: '苦しまずして勝ちあがれるほど甘い世界ではない。', author: '— 黒田博樹' },
   { text: 'グラウンドに出たら、年齢は関係ない。', author: '— 鳥谷敬' },
+  { text: '名刀は飾られることなく使われ続ける。英雄は退くことなく戦い続ける。', author: '' },
 ];
 
 export default function LoadingScreen() {
@@ -99,7 +100,7 @@ export default function LoadingScreen() {
         {/* 名言 */}
         <View style={styles.quoteSection}>
           <Text style={styles.quoteText}>{quote.text}</Text>
-          <Text style={styles.quoteAuthor}>{quote.author}</Text>
+          {quote.author ? <Text style={styles.quoteAuthor}>{quote.author}</Text> : null}
         </View>
       </Animated.View>
     </ImageBackground>
