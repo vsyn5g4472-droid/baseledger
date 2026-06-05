@@ -228,7 +228,15 @@ function AppShell() {
         />
         <Stack.Screen
           name="(tabs)/score/spot-history"
-          options={{ headerShown: false }}
+          options={{
+            headerShown: true,
+            title: 'スポット打席履歴',
+            headerBackTitle: '戻る',
+            headerStyle: { backgroundColor: Colors.white },
+            headerTintColor: Colors.primary,
+            headerTitleStyle: { fontWeight: '700', color: Colors.text },
+            headerShadowVisible: false,
+          }}
         />
       </Stack>
       <AuthModal />

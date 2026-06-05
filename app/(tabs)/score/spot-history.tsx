@@ -7,7 +7,6 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Text } from 'react-native-paper';
-import { Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
@@ -67,7 +66,10 @@ export default function SpotHistoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
     const data = await getUserSpotAtBats(currentUser.uid);
     setRecords(data);
   }, [currentUser]);
@@ -92,7 +94,6 @@ export default function SpotHistoryScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'スポット打席履歴' }} />
       <FlatList
         data={records}
         keyExtractor={(item) => item.id}
