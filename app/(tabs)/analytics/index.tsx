@@ -238,7 +238,7 @@ export default function AnalyticsIndexScreen() {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons name="chart-scatter-plot" size={14} color={Colors.action} />
-          <Text style={styles.toolLinkText}>選手・捕手分析</Text>
+          <Text style={styles.toolLinkText}>選手・個人分析</Text>
         </TouchableOpacity>
 
       </View>
@@ -264,18 +264,10 @@ export default function AnalyticsIndexScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <GameCard game={item} onDelete={handleDelete} onResume={handleResume} />}
         ListHeaderComponent={activeTab === 'scout' ? (
-          <View style={{ flexDirection: 'row', padding: 8, gap: 8 }}>
+          <View style={{ padding: 8 }}>
             <TouchableOpacity
-              style={[styles.toolLink, { flex: 1, backgroundColor: Colors.card, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }]}
-              onPress={() => router.push('/analysis' as any)}
-              activeOpacity={0.7}
-            >
-              <MaterialCommunityIcons name="chart-scatter-plot" size={14} color={Colors.action} />
-              <Text style={styles.toolLinkText}>選手・捕手分析</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.toolLink, { flex: 1, backgroundColor: Colors.card, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }]}
-              onPress={() => router.push('/analysis' as any)}
+              style={[styles.toolLink, { backgroundColor: Colors.card, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border }]}
+              onPress={() => router.push('/(tabs)/score/spot-history' as any)}
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons name="baseball-bat" size={14} color={Colors.action} />

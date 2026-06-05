@@ -226,6 +226,10 @@ function AppShell() {
             headerShadowVisible: false,
           }}
         />
+        <Stack.Screen
+          name="(tabs)/score/spot-history"
+          options={{ headerShown: false }}
+        />
       </Stack>
       <AuthModal />
 
