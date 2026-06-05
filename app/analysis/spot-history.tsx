@@ -61,8 +61,8 @@ function SpotCard({ item }: { item: SpotAtBat }) {
 
 export default function SpotHistoryScreen() {
   const { currentUser } = useAuth();
-  const [records, setRecords]     = useState<SpotAtBat[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const [records, setRecords]       = useState<SpotAtBat[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
