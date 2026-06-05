@@ -16,9 +16,11 @@ export async function registerForPushNotifications(userId: string): Promise<void
 
   // iOS: 権限リクエスト
   if (Platform.OS === 'ios') {
+    // @ts-ignore
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
     if (existingStatus !== 'granted') {
+      // @ts-ignore
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }

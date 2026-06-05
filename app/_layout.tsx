@@ -77,16 +77,7 @@ function AppShell() {
     SplashScreen.hideAsync();
   }, []);
 
-  // AdMob 初期化（モジュール未対応環境はtry-catchでスキップ）
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-    try {
-      const { MobileAds } = require('react-native-google-mobile-ads');
-      MobileAds().initialize();
-    } catch (e) {
-      console.warn('AdMob init skipped:', e);
-    }
-  }, []);
+
   const [showLoading, setShowLoading] = useState(true);
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
