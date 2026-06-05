@@ -285,11 +285,14 @@ export default function ChatDetailScreen() {
   } = useGroupMessages(isGroup ? (chatId ?? '') : '__none__');
 
   // DM chat data
+  const dmRecipientId = !isGroup && chatId
+    ? chatId.split('_').find((id) => id !== currentUser?.uid) ?? ''
+    : '';
   const {
     messages: dmMessages,
     loading: dmLoading,
     sendMessage: sendDMMsg,
-  } = useDMChat(!isGroup ? (chatId ?? '') : '__none__');
+  } = useDMChat(!isGroup ? (chatId ?? '') : '__none__', dmRecipientId);
 
   const messages = isGroup ? groupMessages : dmMessages;
   const loading = isGroup ? groupLoading : dmLoading;

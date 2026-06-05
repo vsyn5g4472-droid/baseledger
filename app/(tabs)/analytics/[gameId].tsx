@@ -260,7 +260,9 @@ export default function GameAnalyticsScreen() {
     setSharing(true);
     try {
       // expo-print / expo-sharing を遅延ロード（ネイティブモジュール未登録時のクラッシュを防ぐ）
+      // @ts-ignore
       let Print: typeof import('expo-print');
+      // @ts-ignore
       let Sharing: typeof import('expo-sharing');
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -645,7 +647,7 @@ export default function GameAnalyticsScreen() {
               style={styles.upgradeBtn}
               onPress={() => {
                 setShowUpgradeModal(false);
-                router.push('/(tabs)/profile/plan');
+                router.push('/(tabs)/profile/plan' as any);
               }}
             >
               <Text style={styles.upgradeBtnText}>プランをアップグレード</Text>

@@ -4,6 +4,7 @@
  * SDK の初期化、プラン取得、ログイン/ログアウトを管理する。
  */
 
+// @ts-ignore
 import Purchases, { LOG_LEVEL, type PurchasesOfferings } from 'react-native-purchases';
 import Constants from 'expo-constants';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -113,7 +114,7 @@ export async function fetchOfferings(): Promise<PurchasesOfferings | null> {
 export async function purchasePlan(packageIdentifier: string): Promise<UserPlan> {
   const offerings = await fetchOfferings();
   const pkg = offerings?.current?.availablePackages.find(
-    (p) => p.identifier === packageIdentifier,
+    (p: any) => p.identifier === packageIdentifier,
   );
   if (!pkg) throw new Error(`パッケージが見つかりません: ${packageIdentifier}`);
   const { customerInfo } = await Purchases.purchasePackage(pkg);

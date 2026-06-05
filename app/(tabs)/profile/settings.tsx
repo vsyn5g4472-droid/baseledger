@@ -35,6 +35,7 @@ const ITEM_LABEL: Record<RecordingItemId, string> = {
   bunt_stance: 'バントの構え',
   bunt_detail: 'バント分類',
   sign_play: 'サイン',
+  sign_miss: 'サインミス',
   pitch_zone_detail: '球威ゾーン（高/低/内外の詳細）',
   batted_ball_location: '打球の落下位置（フィールド図）',
   batted_ball_distance: '推定飛距離',
