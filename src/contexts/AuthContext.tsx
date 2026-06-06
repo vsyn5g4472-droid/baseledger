@@ -21,7 +21,6 @@ import {
   clearBiometricCredentials,
 } from '../services/auth/passkeyAuth';
 import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
-import { registerForPushNotifications } from '../services/pushNotificationService';
 import type { User, UserRole } from '../models/types';
 import { UserPlan } from '../services/planService';
 import { logoutRevenueCatUser } from '../services/revenueCatService';
@@ -92,9 +91,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCurrentUser(user);
       if (isNew) setIsNewUser(true);
       setLoading(false);
-
-      // プッシュ通知トークンを登録（エラーは無視）
-      registerForPushNotifications(firebaseUser.uid).catch(() => {});
     });
 
     return unsubscribe;
