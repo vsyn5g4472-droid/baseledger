@@ -1,3 +1,6 @@
+import { enableScreens } from 'react-native-screens';
+enableScreens(false);
+
 import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, Animated, Platform, Linking } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
