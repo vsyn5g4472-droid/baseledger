@@ -39,8 +39,12 @@ try {
     ? getAuth(app)
     : initializeAuth(app, { persistence: inMemoryPersistence });
 } catch {
-  // 既に初期化済みの場合（hot reload 等）は getAuth() で既存インスタンスを取得
-  auth = getAuth(app);
+  // 既に初期化済みの場合も inMemoryPersistence で再初期化
+  try {
+    auth = initializeAuth(app, { persistence: inMemoryPersistence });
+  } catch {
+    auth = getAuth(app);
+  }
 }
 
 // Initialize Firestore with memory cache (persistentLocalCache は RN 非対応)

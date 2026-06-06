@@ -10,7 +10,8 @@ import { auth } from '../services/firebase';
 import {
   getFirestoreUser,
   getEmailByUsername,
-  syncFirestoreUser,
+  // TODO(切り分け): Step B — onAuthStateChanged 空化のため一時未使用
+  // syncFirestoreUser,
 } from '../services/auth/userAuthService';
 import {
   signInWithGoogleCredential,
@@ -74,23 +75,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // onAuthStateChanged はアプリ起動時・ログイン・ログアウト時に発火する
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        setCurrentUser(null);
-        setLoading(false);
-        return;
-      }
-
-      const extras = pendingExtras.current
-        ? { displayName: pendingExtras.current.displayName, role: pendingExtras.current.role }
-        : null;
-      pendingExtras.current = null;
-      const _t0 = Date.now();
-      const { user, isNew } = await syncFirestoreUser(firebaseUser, extras);
-      if (__DEV__) console.log(`[perf][auth] onAuthStateChanged.sync: ${Date.now() - _t0}ms`);
-
-      // 起動をブロックしないよう Firestore のプランで先に表示する
-      setCurrentUser(user);
-      if (isNew) setIsNewUser(true);
+      // TODO(切り分け): Step B - コールバックを空にしてクラッシュ確認
+      console.log('[切り分けB] onAuthStateChanged fired:', !!firebaseUser);
       setLoading(false);
     });
 
