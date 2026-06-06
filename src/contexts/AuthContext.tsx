@@ -24,12 +24,7 @@ import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import { registerForPushNotifications } from '../services/pushNotificationService';
 import type { User, UserRole } from '../models/types';
 import { UserPlan } from '../services/planService';
-import {
-  configureRevenueCat,
-  loginRevenueCatUser,
-  logoutRevenueCatUser,
-  syncPlanToFirestore,
-} from '../services/revenueCatService';
+import { logoutRevenueCatUser } from '../services/revenueCatService';
 import { syncGamesFromFirestore } from '../services/gameService';
 
 interface AuthContextType {
@@ -63,11 +58,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearNewUser = useCallback(() => setIsNewUser(false), []);
 
-  // RevenueCat SDK を一度だけ初期化
-  useEffect(() => {
-    configureRevenueCat();
-  }, []);
-
   const refreshUser = useCallback(async (updates?: Partial<User>) => {
     const u = auth.currentUser;
     if (!u) return;
@@ -98,20 +88,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { user, isNew } = await syncFirestoreUser(firebaseUser, extras);
       if (__DEV__) console.log(`[perf][auth] onAuthStateChanged.sync: ${Date.now() - _t0}ms`);
 
-      // RevenueCat にログインしてサブスクリプション状態を取得
-      const rcPlan = await loginRevenueCatUser(firebaseUser.uid);
-      // RC が有料プランを返した場合のみ Firestore を更新する。
-      // FREE を返した場合は Firestore の既存 plan をそのまま維持する。
-      const resolvedPlan = rcPlan !== UserPlan.FREE ? rcPlan : user.plan;
-      const mergedUser = resolvedPlan !== user.plan
-        ? { ...user, plan: resolvedPlan }
-        : user;
-      if (rcPlan !== UserPlan.FREE && resolvedPlan !== user.plan) {
-        await syncPlanToFirestore(firebaseUser.uid, resolvedPlan);
-      }
-      setCurrentUser(mergedUser);
+      // 起動をブロックしないよう Firestore のプランで先に表示する
+      setCurrentUser(user);
       if (isNew) setIsNewUser(true);
       setLoading(false);
+
       // プッシュ通知トークンを登録（エラーは無視）
       registerForPushNotifications(firebaseUser.uid).catch(() => {});
     });

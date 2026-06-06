@@ -63,7 +63,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/icon.png",
+          "icon": "./assets/icon.png",
           "color": "#1B3A5C"
         }
       ],
@@ -82,13 +82,6 @@
           "ios": {
             "useFrameworks": "static"
           }
-        }
-      ],
-      [
-        "react-native-google-mobile-ads",
-        {
-          "androidAppId": "ca-app-pub-xxxxxxxxxxxxxxxx~xxxxxxxxxx",
-          "iosAppId": "$(EXPO_PUBLIC_ADMOB_IOS_APP_ID)"
         }
       ]
     ],

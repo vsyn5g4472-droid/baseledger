@@ -2,29 +2,64 @@
  * RevenueCat サービス
  *
  * SDK の初期化、プラン取得、ログイン/ログアウトを管理する。
+ * react-native-purchases は動的 require で読み込み、未組み込みビルドでも起動クラッシュを防ぐ。
  */
 
-// @ts-ignore
-import Purchases, { LOG_LEVEL, type PurchasesOfferings } from 'react-native-purchases';
 import Constants from 'expo-constants';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
 import { UserPlan } from './planService';
+import type { PurchasesOfferings } from 'react-native-purchases';
 
 const IOS_API_KEY: string =
   (Constants.expoConfig?.extra?.revenueCatIosApiKey as string | undefined) ?? '';
 
-// =============================================================================
-// 初期化
-// =============================================================================
+type PurchasesModule = {
+  configure: (opts: { apiKey: string }) => void;
+  setLogLevel: (level: number) => void;
+  getCustomerInfo: () => Promise<{ activeSubscriptions: string[] }>;
+  logIn: (uid: string) => Promise<{ customerInfo: { activeSubscriptions: string[] } }>;
+  logOut: () => Promise<void>;
+  getOfferings: () => Promise<PurchasesOfferings>;
+  purchasePackage: (pkg: unknown) => Promise<{ customerInfo: { activeSubscriptions: string[] } }>;
+  restorePurchases: () => Promise<{ activeSubscriptions: string[] }>;
+};
 
-export function configureRevenueCat(): void {
+let configured = false;
+
+function getPurchases(): PurchasesModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('react-native-purchases');
+    return mod.default ?? mod;
+  } catch {
+    if (__DEV__) console.warn('[RevenueCat] react-native-purchases not available');
+    return null;
+  }
+}
+
+/** 課金画面など必要なときだけ初期化する（起動時の void TurboModule 呼び出しを避ける） */
+function ensureConfigured(): boolean {
+  if (configured) return true;
   if (!IOS_API_KEY) {
     if (__DEV__) console.warn('[RevenueCat] API key not set');
-    return;
+    return false;
   }
-  if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-  Purchases.configure({ apiKey: IOS_API_KEY });
+  const Purchases = getPurchases();
+  if (!Purchases) return false;
+  try {
+    Purchases.configure({ apiKey: IOS_API_KEY });
+    configured = true;
+    return true;
+  } catch (err) {
+    if (__DEV__) console.warn('[RevenueCat] configure failed:', err);
+    return false;
+  }
+}
+
+/** @deprecated 起動時呼び出しはクラッシュの原因になるため使用しない */
+export function configureRevenueCat(): void {
+  ensureConfigured();
 }
 
 // =============================================================================
@@ -59,6 +94,9 @@ export function customerInfoToUserPlan(
 // =============================================================================
 
 export async function fetchRevenueCatPlan(): Promise<UserPlan> {
+  if (!ensureConfigured()) return UserPlan.FREE;
+  const Purchases = getPurchases();
+  if (!Purchases) return UserPlan.FREE;
   try {
     const info = await Purchases.getCustomerInfo();
     return customerInfoToUserPlan([...info.activeSubscriptions]);
@@ -73,6 +111,9 @@ export async function fetchRevenueCatPlan(): Promise<UserPlan> {
 // =============================================================================
 
 export async function loginRevenueCatUser(uid: string): Promise<UserPlan> {
+  if (!ensureConfigured()) return UserPlan.FREE;
+  const Purchases = getPurchases();
+  if (!Purchases) return UserPlan.FREE;
   try {
     const { customerInfo } = await Purchases.logIn(uid);
     return customerInfoToUserPlan([...customerInfo.activeSubscriptions]);
@@ -83,6 +124,9 @@ export async function loginRevenueCatUser(uid: string): Promise<UserPlan> {
 }
 
 export async function logoutRevenueCatUser(): Promise<void> {
+  if (!ensureConfigured()) return;
+  const Purchases = getPurchases();
+  if (!Purchases) return;
   try {
     await Purchases.logOut();
   } catch (err) {
@@ -91,14 +135,13 @@ export async function logoutRevenueCatUser(): Promise<void> {
 }
 
 // =============================================================================
-// Firestore へのプラン同期
-// =============================================================================
-
-// =============================================================================
 // Offerings 取得
 // =============================================================================
 
 export async function fetchOfferings(): Promise<PurchasesOfferings | null> {
+  if (!ensureConfigured()) return null;
+  const Purchases = getPurchases();
+  if (!Purchases) return null;
   try {
     return await Purchases.getOfferings();
   } catch (err) {
@@ -112,9 +155,12 @@ export async function fetchOfferings(): Promise<PurchasesOfferings | null> {
 // =============================================================================
 
 export async function purchasePlan(packageIdentifier: string): Promise<UserPlan> {
+  if (!ensureConfigured()) throw new Error('課金機能が利用できません');
+  const Purchases = getPurchases();
+  if (!Purchases) throw new Error('課金機能が利用できません');
   const offerings = await fetchOfferings();
   const pkg = offerings?.current?.availablePackages.find(
-    (p: any) => p.identifier === packageIdentifier,
+    (p: { identifier: string }) => p.identifier === packageIdentifier,
   );
   if (!pkg) throw new Error(`パッケージが見つかりません: ${packageIdentifier}`);
   const { customerInfo } = await Purchases.purchasePackage(pkg);
@@ -126,6 +172,9 @@ export async function purchasePlan(packageIdentifier: string): Promise<UserPlan>
 // =============================================================================
 
 export async function restorePurchases(): Promise<UserPlan> {
+  if (!ensureConfigured()) return UserPlan.FREE;
+  const Purchases = getPurchases();
+  if (!Purchases) return UserPlan.FREE;
   try {
     const info = await Purchases.restorePurchases();
     return customerInfoToUserPlan([...info.activeSubscriptions]);
