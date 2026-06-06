@@ -10,8 +10,7 @@ import { auth } from '../services/firebase';
 import {
   getFirestoreUser,
   getEmailByUsername,
-  // TODO(切り分け): Step B — onAuthStateChanged 空化のため一時未使用
-  // syncFirestoreUser,
+  syncFirestoreUser,
 } from '../services/auth/userAuthService';
 import {
   signInWithGoogleCredential,
@@ -22,11 +21,11 @@ import {
   clearBiometricCredentials,
 } from '../services/auth/passkeyAuth';
 import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
+import { registerForPushNotifications } from '../services/pushNotificationService';
 import type { User, UserRole } from '../models/types';
 import { UserPlan } from '../services/planService';
 import { logoutRevenueCatUser } from '../services/revenueCatService';
-// TODO(切り分け): ログイン後クラッシュ調査のため一時無効化 — Step 1
-// import { syncGamesFromFirestore } from '../services/gameService';
+import { syncGamesFromFirestore } from '../services/gameService';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -75,24 +74,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // onAuthStateChanged はアプリ起動時・ログイン・ログアウト時に発火する
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      // TODO(切り分け): Step B - コールバックを空にしてクラッシュ確認
-      console.log('[切り分けB] onAuthStateChanged fired:', !!firebaseUser);
+      if (!firebaseUser) {
+        setCurrentUser(null);
+        setLoading(false);
+        return;
+      }
+
+      const extras = pendingExtras.current
+        ? { displayName: pendingExtras.current.displayName, role: pendingExtras.current.role }
+        : null;
+      pendingExtras.current = null;
+      const _t0 = Date.now();
+      const { user, isNew } = await syncFirestoreUser(firebaseUser, extras);
+      if (__DEV__) console.log(`[perf][auth] onAuthStateChanged.sync: ${Date.now() - _t0}ms`);
+
+      // 起動をブロックしないよう Firestore のプランで先に表示する
+      setCurrentUser(user);
+      if (isNew) setIsNewUser(true);
       setLoading(false);
+
+      // プッシュ通知トークンを登録（エラーは無視）
+      registerForPushNotifications(firebaseUser.uid).catch(() => {});
     });
 
     return unsubscribe;
   }, []);
 
   // ── ゲームデータ同期 ─────────────────────────────────────────────────────────
-  // TODO(切り分け): Step 1 — syncGamesFromFirestore を一時無効化（ログイン後クラッシュ調査）
   // ログイン後、AsyncStorage が空の場合のみ Firestore からリストア
-  // useEffect(() => {
-  //   if (currentUser?.uid) {
-  //     syncGamesFromFirestore(currentUser.uid).catch((e) =>
-  //       console.warn('syncGamesFromFirestore error:', e),
-  //     );
-  //   }
-  // }, [currentUser?.uid]);
+  useEffect(() => {
+    if (currentUser?.uid) {
+      syncGamesFromFirestore(currentUser.uid).catch((e) =>
+        console.warn('syncGamesFromFirestore error:', e),
+      );
+    }
+  }, [currentUser?.uid]);
 
   // ── メールアドレス + パスワード ログイン ────────────────────────────────────
   // Firebase Auth のみ実行。Firestore sync は onAuthStateChanged に一本化して二重呼び出しを防ぐ

@@ -1,8 +1,12 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth, initializeAuth, inMemoryPersistence } from 'firebase/auth';
+// @ts-ignore - getReactNativePersistence is available in React Native builds
+import { getAuth, Auth, initializeAuth } from 'firebase/auth';
+// @ts-ignore
+import { getReactNativePersistence } from 'firebase/auth';
 import { initializeFirestore, getFirestore, memoryLocalCache, Firestore } from 'firebase/firestore';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 import { getFunctions, Functions } from 'firebase/functions';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 /**
@@ -32,19 +36,14 @@ const app: FirebaseApp = getApps().length === 0
 // Auth のシングルトン管理。
 // initializeAuth は初回のみ呼ぶ必要があり、2回目以降は getAuth() で取得する。
 // try/catch で両方を安全に処理する。
-// TODO(切り分け): Step 2 — ログイン後クラッシュ調査のため inMemoryPersistence に一時変更（診断用）
 let auth: Auth;
 try {
   auth = Platform.OS === 'web'
     ? getAuth(app)
-    : initializeAuth(app, { persistence: inMemoryPersistence });
+    : initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) });
 } catch {
-  // 既に初期化済みの場合も inMemoryPersistence で再初期化
-  try {
-    auth = initializeAuth(app, { persistence: inMemoryPersistence });
-  } catch {
-    auth = getAuth(app);
-  }
+  // 既に初期化済みの場合（hot reload 等）は getAuth() で既存インスタンスを取得
+  auth = getAuth(app);
 }
 
 // Initialize Firestore with memory cache (persistentLocalCache は RN 非対応)
