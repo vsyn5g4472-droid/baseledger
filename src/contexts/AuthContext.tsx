@@ -24,7 +24,8 @@ import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import type { User, UserRole } from '../models/types';
 import { UserPlan } from '../services/planService';
 import { logoutRevenueCatUser } from '../services/revenueCatService';
-import { syncGamesFromFirestore } from '../services/gameService';
+// TODO(切り分け): ログイン後クラッシュ調査のため一時無効化 — Step 1
+// import { syncGamesFromFirestore } from '../services/gameService';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -97,14 +98,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── ゲームデータ同期 ─────────────────────────────────────────────────────────
+  // TODO(切り分け): Step 1 — syncGamesFromFirestore を一時無効化（ログイン後クラッシュ調査）
   // ログイン後、AsyncStorage が空の場合のみ Firestore からリストア
-  useEffect(() => {
-    if (currentUser?.uid) {
-      syncGamesFromFirestore(currentUser.uid).catch((e) =>
-        console.warn('syncGamesFromFirestore error:', e),
-      );
-    }
-  }, [currentUser?.uid]);
+  // useEffect(() => {
+  //   if (currentUser?.uid) {
+  //     syncGamesFromFirestore(currentUser.uid).catch((e) =>
+  //       console.warn('syncGamesFromFirestore error:', e),
+  //     );
+  //   }
+  // }, [currentUser?.uid]);
 
   // ── メールアドレス + パスワード ログイン ────────────────────────────────────
   // Firebase Auth のみ実行。Firestore sync は onAuthStateChanged に一本化して二重呼び出しを防ぐ
