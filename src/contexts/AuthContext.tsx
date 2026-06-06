@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   createUserWithEmailAndPassword,
   signOut as fbSignOut,
   onAuthStateChanged,
@@ -117,7 +118,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const _tTotal = Date.now();
     try {
       const _tAuth = Date.now();
-      await signInWithEmailAndPassword(auth, email, password);
+      // Firebase Auth REST API でトークン取得
+      const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+      const response = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            returnSecureToken: true,
+          }),
+        },
+      );
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error.message);
+      }
+      // カスタムトークンでFirebase SDKにサインイン
+      await signInWithCustomToken(auth, data.idToken);
       if (__DEV__) console.log(`[perf][auth] signIn.firebaseAuth: ${Date.now() - _tAuth}ms`);
       if (__DEV__) console.log(`[perf][auth] signIn.TOTAL: ${Date.now() - _tTotal}ms`);
       // currentUser 更新と setLoading(false) は onAuthStateChanged が担当
