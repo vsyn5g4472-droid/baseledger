@@ -14,6 +14,11 @@ import type {
   FieldingRecord,
   OutDetail,
 } from '../../types/game';
+import {
+  baseToNum,
+  capBatterTargetBase,
+  isBatterPassingBlocked,
+} from '../../utils/runnerAdvancementRules';
 
 // ============================================================
 // 定数
@@ -98,11 +103,59 @@ function nearestBase(x: number, y: number, threshold: number): BaseTarget | null
 }
 
 /** 進塁先として選択不可かを判定 */
-function isBaseDisabled(adv: RunnerAdvancement, base: BaseTarget): boolean {
+function isBaseDisabled(
+  adv: RunnerAdvancement,
+  base: BaseTarget,
+  advancements: RunnerAdvancement[],
+): boolean {
   const baseNum = BASE_ORDER[base] ?? 0;
-  const fromNum = BASE_ORDER[adv.fromBase] ?? 0;
+  const fromNum = adv.fromBase === 'batter' ? 0 : (BASE_ORDER[adv.fromBase] ?? 0);
   const minNum  = adv.minBase !== 'out' ? (BASE_ORDER[adv.minBase] ?? 0) : 0;
-  return baseNum < Math.max(minNum, fromNum + 1);
+  if (baseNum < Math.max(minNum, fromNum + 1)) return true;
+  return isBatterPassingBlocked(adv, base, advancements);
+}
+
+/** 塁間の折れ線経路（from → 中間塁 → target） */
+function getPathWaypoints(
+  fromBase: RunnerAdvancement['fromBase'],
+  targetBase: BaseTarget,
+): { x: number; y: number }[] {
+  const fromNum = fromBase === 'batter' ? 0 : (BASE_ORDER[fromBase] ?? 0);
+  const toNum = baseToNum(targetBase);
+  if (targetBase === 'out' || toNum <= fromNum) return [];
+
+  const startKey = fromBase === 'batter' ? 'batter' : fromBase;
+  const points: { x: number; y: number }[] = [{ ...BASE_POS[startKey] }];
+  const legKeys = (['first', 'second', 'third', 'home'] as const);
+  for (let n = fromNum + 1; n <= toNum && n <= 4; n++) {
+    const key = n === 4 ? 'home' : legKeys[n - 1];
+    points.push({ ...BASE_POS[key] });
+  }
+  return points;
+}
+
+/** 同一到達塁の走者をずらして重なりを避ける */
+function computeDestinationOffsets(
+  advancements: RunnerAdvancement[],
+): Record<string, { dx: number; dy: number }> {
+  const groups = new Map<string, RunnerAdvancement[]>();
+  for (const adv of advancements) {
+    if (adv.outcome === 'out_tag' || adv.outcome === 'out_force' || adv.targetBase === 'out') continue;
+    const key = adv.targetBase;
+    const list = groups.get(key) ?? [];
+    list.push(adv);
+    groups.set(key, list);
+  }
+
+  const offsets: Record<string, { dx: number; dy: number }> = {};
+  for (const [, group] of groups) {
+    if (group.length <= 1) continue;
+    group.forEach((adv, i) => {
+      const spread = (i - (group.length - 1) / 2) * 10;
+      offsets[adv.runnerId] = { dx: spread, dy: -spread * 0.35 };
+    });
+  }
+  return offsets;
 }
 
 // 進塁理由 (サブメニュー用)
@@ -145,7 +198,14 @@ export default function RunnerAdvancementView({
   onCancel,
 }: RunnerAdvancementViewProps) {
   const { t } = useI18n();
-  const [editable, setEditable] = useState<RunnerAdvancement[]>(advancements);
+  const [editable, setEditable] = useState<RunnerAdvancement[]>(() => capBatterTargetBase(advancements));
+
+  const updateEditable = useCallback(
+    (updater: (prev: RunnerAdvancement[]) => RunnerAdvancement[]) => {
+      setEditable((prev) => capBatterTargetBase(updater(prev)));
+    },
+    [],
+  );
   const [expandedRunner, setExpandedRunner] = useState<string | null>(null);
 
   // ドラッグ用 ref（PanResponder クロージャ内で最新値を読む）
@@ -204,7 +264,7 @@ export default function RunnerAdvancementView({
       const base     = activeBaseRef.current;
       if (runnerId && base) {
         const runner = editableRef.current.find((r) => r.runnerId === runnerId);
-        if (runner && !isBaseDisabled(runner, base)) {
+        if (runner && !isBaseDisabled(runner, base, editableRef.current)) {
           setSafeOutDialog({ runnerId, base });
         }
       }
@@ -262,18 +322,18 @@ export default function RunnerAdvancementView({
 
   // タッチアップトグル (batted_ball ↔ tag_up)
   const toggleTagUp = useCallback((runnerId: string) => {
-    setEditable((prev) =>
+    updateEditable((prev) =>
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
         const newAction: RunnerAction = adv.action === 'tag_up' ? 'batted_ball' : 'tag_up';
         return { ...adv, action: newAction };
       }),
     );
-  }, []);
+  }, [updateEditable]);
 
   // 理由変更 (action + outcome を同時設定)
   const setReason = useCallback((runnerId: string, action: RunnerAction, outcome: RunnerOutcome) => {
-    setEditable((prev) =>
+    updateEditable((prev) =>
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
         if (outcome === 'out_tag' || outcome === 'out_force') {
@@ -289,20 +349,20 @@ export default function RunnerAdvancementView({
         return { ...adv, outcome, action };
       }),
     );
-  }, []);
+  }, [updateEditable]);
 
   // セーフ選択
   const handleSafeSelected = useCallback(() => {
     if (!safeOutDialog) return;
     const { runnerId, base } = safeOutDialog;
-    setEditable((prev) =>
+    updateEditable((prev) =>
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
         return { ...adv, targetBase: base, outcome: 'safe' as RunnerOutcome, outDetail: undefined };
       }),
     );
     setSafeOutDialog(null);
-  }, [safeOutDialog]);
+  }, [safeOutDialog, updateEditable]);
 
   // セーフ/アウト ダイアログから「アウト」選択
   const handleOutSelected = useCallback(() => {
@@ -316,7 +376,7 @@ export default function RunnerAdvancementView({
   const handleOutDetailSelected = useCallback((detail: OutDetail) => {
     if (!outDetailDialog) return;
     const { runnerId } = outDetailDialog;
-    setEditable((prev) =>
+    updateEditable((prev) =>
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
         if (detail === 'force_out') {
@@ -326,7 +386,9 @@ export default function RunnerAdvancementView({
       }),
     );
     setOutDetailDialog(null);
-  }, [outDetailDialog]);
+  }, [outDetailDialog, updateEditable]);
+
+  const destinationOffsets = computeDestinationOffsets(editable);
 
   // バリデーション
   const validationError = (() => {
@@ -335,6 +397,12 @@ export default function RunnerAdvancementView({
       .map((a) => a.targetBase);
     const dupes = occupied.filter((b, i) => occupied.indexOf(b) !== i);
     if (dupes.length > 0) return t.advancement.conflictError;
+    const batterPassing = editable.find(
+      (a) => a.fromBase === 'batter'
+        && a.targetBase !== 'out'
+        && isBatterPassingBlocked(a, a.targetBase, editable),
+    );
+    if (batterPassing) return t.advancement.batterPassingError;
     return null;
   })();
 
@@ -453,36 +521,64 @@ export default function RunnerAdvancementView({
 
             {/* ランナーの軌跡ライン + 円 */}
             {editable.map((adv) => {
-              const from = BASE_POS[adv.fromBase];
               const isOut = adv.outcome === 'out_tag' || adv.outcome === 'out_force';
               const isDraggingThis = draggingRunnerId === adv.runnerId;
-              const circlePos = isDraggingThis && dragPos ? dragPos : from;
-              const to = isOut ? from
-                       : isDraggingThis && dragPos ? dragPos
-                       : BASE_POS[adv.targetBase] ?? from;
+              const runnerColor = RUNNER_COLORS[adv.fromBase] ?? Colors.primary;
               const dimmed = !!draggingRunnerId && !isDraggingThis;
+
+              const destOffset = destinationOffsets[adv.runnerId] ?? { dx: 0, dy: 0 };
+              const destBase = isOut ? adv.fromBase : adv.targetBase;
+              const destPosRaw = isOut
+                ? BASE_POS[adv.fromBase]
+                : (BASE_POS[destBase] ?? BASE_POS[adv.fromBase]);
+              const destPos = {
+                x: destPosRaw.x + destOffset.dx,
+                y: destPosRaw.y + destOffset.dy,
+              };
+
+              const circlePos = isDraggingThis && dragPos
+                ? dragPos
+                : isOut
+                  ? BASE_POS[adv.fromBase]
+                  : destPos;
+
+              const pathTarget: BaseTarget = isDraggingThis && activeBase
+                ? activeBase
+                : isOut
+                  ? 'out'
+                  : adv.targetBase;
+              const waypoints = isOut
+                ? []
+                : isDraggingThis && dragPos
+                  ? [{ ...BASE_POS[adv.fromBase] }, dragPos]
+                  : getPathWaypoints(adv.fromBase, pathTarget);
 
               return (
                 <React.Fragment key={adv.runnerId}>
-                  {!isOut && (from !== to || isDraggingThis) && (
-                    <Line
-                      x1={from.x}
-                      y1={from.y}
-                      x2={to.x}
-                      y2={to.y}
-                      stroke={NEON}
-                      strokeWidth={2.5}
-                      strokeDasharray="6,3"
-                      opacity={isDraggingThis ? 1 : 0.8}
-                    />
-                  )}
+                  {!isOut && waypoints.length >= 2 && waypoints.slice(0, -1).map((from, i) => {
+                    const to = waypoints[i + 1];
+                    const isLastLeg = i === waypoints.length - 2;
+                    return (
+                      <Line
+                        key={`${adv.runnerId}-leg-${i}`}
+                        x1={from.x}
+                        y1={from.y}
+                        x2={to.x}
+                        y2={to.y}
+                        stroke={runnerColor}
+                        strokeWidth={isLastLeg ? 3.5 : 2}
+                        strokeDasharray={isLastLeg ? undefined : '6,3'}
+                        opacity={dimmed ? 0.35 : isLastLeg ? 1 : 0.65}
+                      />
+                    );
+                  })}
                   <Circle
                     cx={circlePos.x}
                     cy={circlePos.y}
                     r={isDraggingThis ? 15 : 12}
-                    fill={isOut ? Colors.secondary : (RUNNER_COLORS[adv.fromBase] ?? Colors.primary)}
-                    stroke={isDraggingThis ? '#FFFFFF' : isOut ? (RUNNER_COLORS[adv.fromBase] ?? NEON) : NEON}
-                    strokeWidth={isDraggingThis ? 3 : 2.5}
+                    fill={isOut ? Colors.secondary : runnerColor}
+                    stroke={isDraggingThis ? '#FFFFFF' : isOut ? runnerColor : '#FFFFFF'}
+                    strokeWidth={isDraggingThis ? 3 : 2}
                     opacity={dimmed ? 0.35 : 1}
                   />
                   <SvgText

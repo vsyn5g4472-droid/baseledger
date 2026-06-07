@@ -177,6 +177,7 @@ export const en: TranslationKeys = {
     stolenBase: 'Stolen Base',
     battedBall: 'Batted Ball',
     conflictError: 'Two runners cannot occupy the same base',
+    batterPassingError: 'Batter cannot advance past a base occupied by another runner',
     forceError: 'Forced runner must advance',
     tapToChange: 'Use buttons to select base',
     selectBase: 'Which base did the runner reach?',

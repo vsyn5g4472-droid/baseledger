@@ -175,6 +175,7 @@ export const ja = {
     stolenBase: '盗塁',
     battedBall: '打球進塁',
     conflictError: '同じ塁に2人は置けません',
+    batterPassingError: '打者は先のランナーが進塁した塁より先に進めません',
     forceError: 'フォースプレイの走者は進塁が必要です',
     tapToChange: 'ボタンで進塁先を選択',
     selectBase: 'どの塁まで進みましたか？',

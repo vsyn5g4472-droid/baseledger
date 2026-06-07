@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { db } from '../db';
 import { incrementGameUsage } from '../services/planService';
+import { capBatterTargetBase } from '../utils/runnerAdvancementRules';
 import type {
   GameState,
   GamePhase,
@@ -694,7 +695,7 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
     });
   }
 
-  return advancements;
+  return capBatterTargetBase(advancements);
 }
 
 /** ランナーBeforePlay or 打者から Player を検索 */
