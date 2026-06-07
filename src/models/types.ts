@@ -255,7 +255,7 @@ export interface Message {
 // Group Chat
 // ============================================================
 
-export type GroupMessageType = 'text' | 'system' | 'schedule';
+export type GroupMessageType = 'text' | 'system' | 'schedule' | 'game_analytics';
 
 export interface Group {
   id: string;
@@ -277,6 +277,7 @@ export interface GroupMessage {
   content: string;
   type: GroupMessageType;
   scheduleDate: string | null; // ISO date string for schedule messages
+  gameId?: string; // game reference for game_analytics messages
   mediaURLs: string[];
   createdAt: Timestamp;
   readBy: string[];

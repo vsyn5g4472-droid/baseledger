@@ -108,7 +108,7 @@ export async function sendGroupMessage(
   senderName: string,
   content: string,
   type: GroupMessageType = 'text',
-  opts?: { scheduleDate?: string | null; mediaURLs?: string[] },
+  opts?: { scheduleDate?: string | null; mediaURLs?: string[]; gameId?: string },
 ): Promise<GroupMessage> {
   try {
     const messageData: Omit<GroupMessage, 'id'> = {
@@ -120,13 +120,19 @@ export async function sendGroupMessage(
       mediaURLs: opts?.mediaURLs ?? [],
       createdAt: Timestamp.now(),
       readBy: [senderId],
+      ...(opts?.gameId ? { gameId: opts.gameId } : {}),
     };
 
     const messagesRef = collection(db, GROUPS_COLLECTION, groupId, GROUP_MESSAGES_SUBCOLLECTION);
     const msgRef = await addDoc(messagesRef, messageData);
 
     await updateDoc(doc(db, GROUPS_COLLECTION, groupId), {
-      lastMessage: type === 'schedule' ? `📅 ${content}` : content,
+      lastMessage:
+        type === 'schedule'
+          ? `📅 ${content}`
+          : type === 'game_analytics'
+            ? (content.split('\n')[0] ?? content)
+            : content,
       lastMessageAt: Timestamp.now(),
       lastMessageSenderId: senderId,
     });

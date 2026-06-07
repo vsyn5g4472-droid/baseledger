@@ -33,9 +33,10 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   summary: string;
+  gameId?: string;
 }
 
-export default function ShareToChatModal({ visible, onClose, summary }: Props) {
+export default function ShareToChatModal({ visible, onClose, summary, gameId }: Props) {
   const { currentUser } = useAuth();
   const { teams } = useTeams();
   const { conversations } = useConversations();
@@ -57,6 +58,8 @@ export default function ShareToChatModal({ visible, onClose, summary }: Props) {
         currentUser.uid,
         currentUser.displayName ?? 'ユーザー',
         summary,
+        gameId ? 'game_analytics' : 'text',
+        gameId ? { gameId } : undefined,
       );
       Alert.alert('送信しました', `${teamName} のチャットに共有しました。`);
       onClose();
@@ -65,7 +68,7 @@ export default function ShareToChatModal({ visible, onClose, summary }: Props) {
     } finally {
       setSending(null);
     }
-  }, [currentUser, summary, onClose]);
+  }, [currentUser, summary, gameId, onClose]);
 
   const handleSendToDM = useCallback((conversationId: string, otherName: string, recipientId: string) => {
     if (!currentUser) return;

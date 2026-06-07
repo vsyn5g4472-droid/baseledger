@@ -205,6 +205,7 @@ export default function GameAnalyticsScreen() {
   // チャット/DM 共有
   const [showChatModal, setShowChatModal] = useState(false);
   const [chatSummary, setChatSummary]     = useState('');
+  const [chatGameId, setChatGameId]       = useState<string | undefined>();
 
   const shareGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
@@ -314,6 +315,7 @@ export default function GameAnalyticsScreen() {
       'BaseLedgerで詳細を確認',
     ].join('\n');
     setChatSummary(text);
+    setChatGameId(game.id);
     setShowChatModal(true);
   }, [game, analytics]);
 
@@ -623,6 +625,7 @@ export default function GameAnalyticsScreen() {
         visible={showChatModal}
         onClose={() => setShowChatModal(false)}
         summary={chatSummary}
+        gameId={chatGameId}
       />
 
       {/* ── 試合サマリー投稿モーダル ─────────────────────────────────────────── */}

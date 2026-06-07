@@ -11,7 +11,7 @@ import {
   Animated,
 } from 'react-native';
 import { TextInput, IconButton, Text, Divider } from 'react-native-paper';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGroupMessages } from '../../../src/hooks/useGroupChat';
 import { useChat as useDMChat } from '../../../src/hooks/useMessages';
@@ -89,6 +89,49 @@ function ScheduleCard({
   );
 }
 
+function GameAnalyticsCard({
+  content,
+  gameId,
+  senderName,
+  timestamp,
+}: {
+  content: string;
+  gameId: string;
+  senderName: string;
+  timestamp: string;
+}) {
+  const summaryLines = content
+    .split('\n')
+    .filter((line) => line.trim() && line !== '---' && !line.startsWith('BaseLedger'));
+  const scoreLine = summaryLines[0] ?? content;
+
+  return (
+    <View style={styles.scheduleCardWrapper}>
+      <Text style={styles.scheduleSender}>{senderName}</Text>
+      <TouchableOpacity
+        style={styles.analyticsCard}
+        onPress={() => router.push(`/(tabs)/analytics/${gameId}` as any)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.analyticsHeader}>
+          <MaterialCommunityIcons name="baseball" size={18} color={Colors.primary} />
+          <Text style={styles.analyticsTitle}>試合分析</Text>
+        </View>
+        <Text style={styles.analyticsScore} numberOfLines={3}>
+          {scoreLine}
+        </Text>
+        {summaryLines.length > 1 && (
+          <Text style={styles.analyticsSub} numberOfLines={2}>
+            {summaryLines.slice(1).join('\n')}
+          </Text>
+        )}
+        <Text style={styles.analyticsLink}>詳細を見る →</Text>
+        <Text style={styles.scheduleTime}>{timestamp}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function GroupBubble({
   msg,
   isMine,
@@ -104,6 +147,16 @@ function GroupBubble({
       <ScheduleCard
         content={msg.content}
         scheduleDate={msg.scheduleDate}
+        senderName={isMine ? 'あなた' : msg.senderName}
+        timestamp={formatTime(msg.createdAt)}
+      />
+    );
+  }
+  if (msg.type === 'game_analytics' && msg.gameId) {
+    return (
+      <GameAnalyticsCard
+        content={msg.content}
+        gameId={msg.gameId}
         senderName={isMine ? 'あなた' : msg.senderName}
         timestamp={formatTime(msg.createdAt)}
       />
@@ -502,6 +555,51 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 6,
     alignSelf: 'flex-end',
+  },
+
+  // Game analytics card
+  analyticsCard: {
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.primary,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  analyticsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+    gap: 6,
+  },
+  analyticsTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  analyticsScore: {
+    fontSize: Typography.body,
+    fontWeight: '600',
+    color: Colors.text,
+    lineHeight: 22,
+  },
+  analyticsSub: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    lineHeight: 20,
+  },
+  analyticsLink: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '600',
+    color: Colors.primary,
+    marginTop: Spacing.sm,
   },
 
   // Chat bubbles
