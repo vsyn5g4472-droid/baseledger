@@ -32,10 +32,35 @@ import { usePlanGate } from '../../../src/hooks/usePlanGate';
 import { generateGameReportHtml } from '../../../src/utils/gameReportGenerator';
 import { usePostActions } from '../../../src/hooks/usePosts';
 import type { PostVisibility } from '../../../src/models/types';
-import ShareToChatModal from '../../../src/components/ShareToChatModal';
+import GameShareModal from '../../../src/components/GameShareModal';
 import { showPdfSharePlanAlert } from '../../../src/utils/planLimitAlerts';
+import { useAuth } from '../../../src/contexts/AuthContext';
+import { importFromGame } from '../../../src/services/spotAtBatService';
+import type { GamePlayerAssignment, SpotAtBatImportMode } from '../../../src/models/types';
+import type { AtBatLog, AtBatResult } from '../../../src/types/game';
 
 type TabKey = 'batting' | 'pitching' | 'heatmap' | 'spray';
+
+const AT_BAT_RESULT_JP: Record<AtBatResult, string> = {
+  strikeout: '三振',
+  strikeout_looking: '見逃し三振',
+  walk: '四球',
+  hit_by_pitch: '死球',
+  single: '単打',
+  double: '二塁打',
+  triple: '三塁打',
+  home_run: '本塁打',
+  groundout: 'ゴロアウト',
+  flyout: 'フライアウト',
+  lineout: 'ライナーアウト',
+  pop_out: 'ポップフライ',
+  sacrifice_bunt: '犠打',
+  sacrifice_fly: '犠飛',
+  fielders_choice: '野選',
+  error: 'エラー',
+  double_play: '併殺',
+  triple_play: '三重殺',
+};
 
 // ── Batting Table ──────────────────────────────────────────────────────────────
 
@@ -174,6 +199,7 @@ function Legend({ items }: { items: { color: string; label: string }[] }) {
 export default function GameAnalyticsScreen() {
   const { gameId } = useLocalSearchParams<{ gameId: string }>();
   const { t } = useI18n();
+  const { currentUser } = useAuth();
   const [game, setGame] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [gameCanReshare, setGameCanReshare] = useState(true);
@@ -204,10 +230,11 @@ export default function GameAnalyticsScreen() {
   const [playerVisibility, setPlayerVisibility] = useState<PostVisibility>('public');
   const [playerPosting, setPlayerPosting] = useState(false);
 
-  // チャット/DM 共有
-  const [showChatModal, setShowChatModal] = useState(false);
-  const [chatSummary, setChatSummary]     = useState('');
-  const [chatGameId, setChatGameId]       = useState<string | undefined>();
+  // チーム共有（選手割り当て付き）
+  const [showGameShareModal, setShowGameShareModal] = useState(false);
+  const [chatSummary, setChatSummary]               = useState('');
+  const [gamePlayerAssignments, setGamePlayerAssignments] = useState<GamePlayerAssignment[]>([]);
+  const [importingAtBatId, setImportingAtBatId]     = useState<string | null>(null);
 
   const shareGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
@@ -223,6 +250,7 @@ export default function GameAnalyticsScreen() {
         if (local) {
           setGame(local);
           setGameCanReshare(true);
+          setGamePlayerAssignments([]);
           return;
         }
 
@@ -231,6 +259,7 @@ export default function GameAnalyticsScreen() {
         if (shared) {
           setGame(stripGameMetadata(shared));
           setGameCanReshare(shared.canReshare !== false);
+          setGamePlayerAssignments(shared.playerAssignments ?? []);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -249,6 +278,69 @@ export default function GameAnalyticsScreen() {
       return null;
     }
   }, [game]);
+
+  const myAssignedPlayerIds = useMemo(() => {
+    if (!currentUser) return new Set<string>();
+    return new Set(
+      gamePlayerAssignments
+        .filter((a) => a.userId === currentUser.uid)
+        .map((a) => a.playerId),
+    );
+  }, [gamePlayerAssignments, currentUser]);
+
+  const myImportableAtBats = useMemo((): AtBatLog[] => {
+    if (!game || myAssignedPlayerIds.size === 0) return [];
+    return game.atBatLogs.filter(
+      (l) => l.result !== null && myAssignedPlayerIds.has(l.batterId),
+    );
+  }, [game, myAssignedPlayerIds]);
+
+  const runImport = useCallback(
+    async (atBatId: string, mode: SpotAtBatImportMode) => {
+      if (!currentUser || !gameId) return;
+      setImportingAtBatId(atBatId);
+      try {
+        const { imported, skipped } = await importFromGame(
+          gameId,
+          [atBatId],
+          currentUser.uid,
+          mode,
+        );
+        if (imported.length > 0) {
+          Alert.alert('インポート完了', '打席データをスポット打席に追加しました。');
+        } else if (skipped.length > 0) {
+          Alert.alert('スキップ', 'この打席は既にインポート済みです。');
+        }
+      } catch (e: unknown) {
+        Alert.alert('エラー', (e as Error)?.message ?? 'インポートに失敗しました。');
+      } finally {
+        setImportingAtBatId(null);
+      }
+    },
+    [currentUser, gameId],
+  );
+
+  const handleImportAtBat = useCallback(
+    (atBatId: string) => {
+      if (!currentUser || !gameId) return;
+      Alert.alert(
+        '打席をインポート',
+        'スポット打席データに追加します。統合方法を選んでください。',
+        [
+          { text: 'キャンセル', style: 'cancel' },
+          {
+            text: '別管理',
+            onPress: () => runImport(atBatId, 'separate'),
+          },
+          {
+            text: '統合する',
+            onPress: () => runImport(atBatId, 'merged'),
+          },
+        ],
+      );
+    },
+    [currentUser, gameId, runImport],
+  );
 
   // 選手モーダル Step2 で投手の奪三振等を表示するために事前計算
   const pitcherComputedStats = useMemo(() => {
@@ -337,8 +429,7 @@ export default function GameAnalyticsScreen() {
       'BaseLedgerで詳細を確認',
     ].join('\n');
     setChatSummary(text);
-    setChatGameId(game.id);
-    setShowChatModal(true);
+    setShowGameShareModal(true);
   }, [game, analytics]);
 
   // ── 試合サマリー共有ハンドラ ────────────────────────────────────────────────────
@@ -644,13 +735,15 @@ export default function GameAnalyticsScreen() {
         }}
       />
 
-      {/* チャット/DM 共有モーダル */}
-      <ShareToChatModal
-        visible={showChatModal}
-        onClose={() => setShowChatModal(false)}
-        summary={chatSummary}
-        gameId={chatGameId}
-      />
+      {/* チーム共有モーダル（選手割り当て） */}
+      {game && (
+        <GameShareModal
+          visible={showGameShareModal}
+          onClose={() => setShowGameShareModal(false)}
+          game={game}
+          summary={chatSummary}
+        />
+      )}
 
       {/* ── 試合サマリー投稿モーダル ─────────────────────────────────────────── */}
       <Modal
@@ -1272,6 +1365,39 @@ export default function GameAnalyticsScreen() {
             </>
           )}
 
+          {/* 自分の打席インポート */}
+          {myImportableAtBats.length > 0 && (
+            <View style={styles.importCard}>
+              <Text style={styles.importCardTitle}>自分の打席をインポート</Text>
+              <Text style={styles.importCardHint}>
+                スポット打席データに追加して分析できます
+              </Text>
+              {myImportableAtBats.map((atBat) => {
+                const half = atBat.inning.half === 'top' ? '表' : '裏';
+                const label = `${atBat.inning.number}回${half} — ${AT_BAT_RESULT_JP[atBat.result!] ?? atBat.result}`;
+                return (
+                  <View key={atBat.id} style={styles.importRow}>
+                    <View style={styles.importRowInfo}>
+                      <Text style={styles.importRowLabel}>{label}</Text>
+                      <Text style={styles.importRowSub}>{atBat.pitches.length}球</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.importBtn}
+                      onPress={() => handleImportAtBat(atBat.id)}
+                      disabled={importingAtBatId === atBat.id}
+                    >
+                      {importingAtBatId === atBat.id ? (
+                        <ActivityIndicator size="small" color={Colors.white} />
+                      ) : (
+                        <Text style={styles.importBtnText}>インポート</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
           {/* 共有ボタン行 */}
           {allowShare && (
             <View style={styles.shareCol}>
@@ -1348,6 +1474,48 @@ const styles = StyleSheet.create({
   },
 
   // 画面内共有ボタン列（2段）
+  importCard: {
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    backgroundColor: Colors.card,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.accent,
+  },
+  importCardTitle: {
+    fontSize: Typography.body,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  importCardHint: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  importRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border,
+  },
+  importRowInfo: { flex: 1 },
+  importRowLabel: { fontSize: Typography.bodySmall, fontWeight: '600', color: Colors.text },
+  importRowSub: { fontSize: Typography.tiny, color: Colors.textSecondary, marginTop: 2 },
+  importBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.sm,
+    minWidth: 88,
+    alignItems: 'center',
+  },
+  importBtnText: { color: Colors.white, fontWeight: '600', fontSize: Typography.caption },
+
   shareCol: {
     gap: Spacing.sm,
     paddingHorizontal: Spacing.md,

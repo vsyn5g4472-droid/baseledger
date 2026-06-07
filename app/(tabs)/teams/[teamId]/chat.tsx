@@ -8,7 +8,9 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { TextInput, IconButton, Text } from 'react-native-paper';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
+import TeamPlayerAssignmentModal from '../../../../src/components/TeamPlayerAssignmentModal';
+import { useTeamDetail } from '../../../../src/hooks/useTeam';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ChatBubble from '../../../../src/components/ChatBubble';
 import { useTeamChat } from '../../../../src/hooks/useTeam';
@@ -63,8 +65,10 @@ function GameAnalyticsCard({
 export default function TeamChatScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const { messages, sendMessage } = useTeamChat(teamId ?? '');
+  const { team } = useTeamDetail(teamId ?? '');
   const { currentUser } = useAuth();
   const [text, setText] = useState('');
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false);
 
   const handleSend = async () => {
     if (text.trim()) {
@@ -74,6 +78,27 @@ export default function TeamChatScreen() {
   };
 
   return (
+    <>
+      <Stack.Screen
+        options={{
+          title: team?.name ?? 'チームチャット',
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => setShowAssignmentModal(true)}
+              style={{ padding: 8 }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialCommunityIcons name="account-switch" size={22} color={Colors.primary} />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <TeamPlayerAssignmentModal
+        visible={showAssignmentModal}
+        onClose={() => setShowAssignmentModal(false)}
+        teamId={teamId ?? ''}
+        teamName={team?.name}
+      />
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -120,6 +145,7 @@ export default function TeamChatScreen() {
         />
       </View>
     </KeyboardAvoidingView>
+    </>
   );
 }
 

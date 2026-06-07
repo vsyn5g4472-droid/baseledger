@@ -457,7 +457,19 @@ export interface GamePlayerAssignment {
   playerId: string;
   userId: string;
   displayName: string;
+  playerName?: string;
 }
+
+/** チームに永続化する選手とアカウントの紐付け */
+export interface TeamPlayerAssignment {
+  playerId: string;
+  playerName: string;
+  userId: string;
+  displayName: string;
+  updatedAt: Timestamp;
+}
+
+export type SpotAtBatImportMode = 'merged' | 'separate';
 
 /** games/{gameId} に付与する共有メタデータ */
 export interface GameSharingFields {
@@ -502,6 +514,10 @@ export interface SpotAtBat {
     type?: string;
   };
   memo?: string;
+  /** 試合からインポートした場合の出典 */
+  sourceGameId?: string;
+  sourceAtBatId?: string;
+  importMode?: SpotAtBatImportMode;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

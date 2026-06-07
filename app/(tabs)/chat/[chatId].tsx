@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { TextInput, IconButton, Text, Divider } from 'react-native-paper';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { useGroup } from '../../../src/hooks/useGroupChat';
+import TeamPlayerAssignmentModal from '../../../src/components/TeamPlayerAssignmentModal';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGroupMessages } from '../../../src/hooks/useGroupChat';
 import { useChat as useDMChat } from '../../../src/hooks/useMessages';
@@ -324,9 +326,12 @@ export default function ChatDetailScreen() {
   const [text, setText] = useState('');
   const [showAttach, setShowAttach] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const isGroup = type === 'group';
+  const { group } = useGroup(isGroup ? (chatId ?? '') : '__none__');
+  const assignmentTeamId = group?.teamId ?? null;
 
   // Group chat data
   const {
@@ -378,7 +383,21 @@ export default function ChatDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: title ?? (isGroup ? 'グループ' : 'DM') }} />
+      <Stack.Screen
+        options={{
+          title: title ?? (isGroup ? 'グループ' : 'DM'),
+          headerRight: () =>
+            isGroup && assignmentTeamId ? (
+              <TouchableOpacity
+                onPress={() => setShowAssignmentModal(true)}
+                style={{ padding: 8 }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="account-switch" size={22} color={Colors.primary} />
+              </TouchableOpacity>
+            ) : null,
+        }}
+      />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -472,6 +491,15 @@ export default function ChatDetailScreen() {
         onClose={() => setShowSchedule(false)}
         onSubmit={handleScheduleSubmit}
       />
+
+      {assignmentTeamId && (
+        <TeamPlayerAssignmentModal
+          visible={showAssignmentModal}
+          onClose={() => setShowAssignmentModal(false)}
+          teamId={assignmentTeamId}
+          teamName={title}
+        />
+      )}
     </>
   );
 }
