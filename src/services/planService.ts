@@ -118,7 +118,7 @@ interface UsageLimits {
 }
 
 const PLAN_USAGE_LIMITS: Record<UserPlan, UsageLimits> = {
-  [UserPlan.FREE]:     { aiReportsPerMonth: 0,  gamesPerMonth: 3 },
+  [UserPlan.FREE]:     { aiReportsPerMonth: 3,  gamesPerMonth: 3 },
   [UserPlan.LIGHT]:    { aiReportsPerMonth: 10, gamesPerMonth: 5 },
   [UserPlan.STANDARD]: { aiReportsPerMonth: 20, gamesPerMonth: 10 },
   [UserPlan.PRO]:      { aiReportsPerMonth: Infinity, gamesPerMonth: Infinity },
