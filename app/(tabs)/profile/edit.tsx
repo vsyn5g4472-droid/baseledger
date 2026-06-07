@@ -82,7 +82,12 @@ export default function EditProfileScreen() {
     try {
       await updateUser(currentUser.uid, { displayName, bio, position, team, role, photoURL });
       if (displayName !== currentUser.displayName || photoURL !== currentUser.photoURL) {
-        await updateAuthorNameInPosts(currentUser.uid, displayName, photoURL);
+        await updateAuthorNameInPosts(
+          currentUser.uid,
+          displayName,
+          photoURL,
+          currentUser.plan,
+        );
       }
       await refreshUser({ displayName, bio, position, team, role, photoURL });
       Alert.alert('保存完了', 'プロフィールを更新しました', [

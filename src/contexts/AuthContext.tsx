@@ -30,6 +30,7 @@ import {
   syncPlanToFirestore,
 } from '../services/revenueCatService';
 import { syncGamesFromFirestore } from '../services/gameService';
+import { updateAuthorNameInPosts } from '../services/postService';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -106,6 +107,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (rcPlan === UserPlan.FREE) return;
           setCurrentUser((prev) => (prev ? { ...prev, plan: rcPlan } : prev));
           await syncPlanToFirestore(firebaseUser.uid, rcPlan);
+          await updateAuthorNameInPosts(
+            firebaseUser.uid,
+            user.displayName,
+            user.photoURL,
+            rcPlan,
+          );
         })
         .catch(() => {});
     });

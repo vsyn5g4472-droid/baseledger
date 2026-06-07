@@ -19,16 +19,15 @@ import {
   syncPlanToFirestore,
 } from '../../../src/services/revenueCatService';
 import { auth } from '../../../src/services/firebase';
+import { updateAuthorNameInPosts } from '../../../src/services/postService';
 import PlanWelcomeModal from '../../../src/components/PlanWelcomeModal';
+import PlanBadge from '../../../src/components/PlanBadge';
 
 // ─── プランカード定義 ─────────────────────────────────────────────────────────
 
 interface PlanCard {
   plan: UserPlan;
   packageId: string;
-  emoji: string;
-  color: string;
-  gradientTop: string;
   recommended: boolean;
   features: string[];
   limit: string;
@@ -38,9 +37,6 @@ const PLAN_CARDS: PlanCard[] = [
   {
     plan: UserPlan.LIGHT,
     packageId: 'light_monthly',
-    emoji: '⚡',
-    color: '#5B9BD5',
-    gradientTop: '#E8F2FB',
     recommended: false,
     limit: '5試合/月・AIレポート10回/月',
     features: [
@@ -56,9 +52,6 @@ const PLAN_CARDS: PlanCard[] = [
   {
     plan: UserPlan.STANDARD,
     packageId: 'standard_monthly',
-    emoji: '🔥',
-    color: '#1A6BB5',
-    gradientTop: '#1A6BB5',
     recommended: true,
     limit: '10試合/月・AIレポート20回/月',
     features: [
@@ -74,9 +67,6 @@ const PLAN_CARDS: PlanCard[] = [
   {
     plan: UserPlan.PRO,
     packageId: 'pro_monthly',
-    emoji: '👑',
-    color: '#D4AF37',
-    gradientTop: '#2C2C2C',
     recommended: false,
     limit: '全機能無制限',
     features: [
@@ -111,7 +101,16 @@ export default function PlanScreen() {
     setPurchasing(card.packageId);
     try {
       const newPlan = await purchasePlan(card.packageId);
-      await syncPlanToFirestore(auth.currentUser!.uid, newPlan);
+      const uid = auth.currentUser!.uid;
+      await syncPlanToFirestore(uid, newPlan);
+      if (currentUser) {
+        await updateAuthorNameInPosts(
+          uid,
+          currentUser.displayName,
+          currentUser.photoURL,
+          newPlan,
+        );
+      }
       await refreshUser();
       setWelcomePlan(newPlan);
     } catch (err: any) {
@@ -127,7 +126,14 @@ export default function PlanScreen() {
     setRestoring(true);
     try {
       const restored = await restorePurchases();
-      await syncPlanToFirestore(auth.currentUser!.uid, restored);
+      const uid = auth.currentUser!.uid;
+      await syncPlanToFirestore(uid, restored);
+      await updateAuthorNameInPosts(
+        uid,
+        currentUser.displayName,
+        currentUser.photoURL,
+        restored,
+      );
       await refreshUser();
       Alert.alert(
         '購入情報を復元しました',
@@ -192,7 +198,7 @@ export default function PlanScreen() {
 
             {/* プラン名・価格 */}
             <View style={styles.cardHeader}>
-              <Text style={styles.planEmoji}>{card.emoji}</Text>
+              <PlanBadge plan={card.plan} variant="badge" size="lg" />
               <View style={styles.planTitleBlock}>
                 <Text style={[styles.planName, card.recommended && styles.planNameRecommended]}>
                   {USER_PLAN_META[card.plan].label}
@@ -317,8 +323,7 @@ const styles = StyleSheet.create({
   },
   recommendedText: { fontSize: 12, fontWeight: '700', color: Colors.white },
 
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 4 },
-  planEmoji: { fontSize: 32, marginRight: Spacing.sm },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 8, marginBottom: 4 },
   planTitleBlock: { flex: 1 },
   planName: { fontSize: Typography.h3, fontWeight: '800', color: Colors.text },
   planNameRecommended: { color: Colors.primary },
@@ -329,7 +334,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption,
     color: Colors.textSecondary,
     marginBottom: Spacing.sm,
-    marginLeft: 44,
   },
 
   featureList: { marginBottom: Spacing.md, gap: 6 },
