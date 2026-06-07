@@ -44,30 +44,42 @@ export default function ShareToChatModal({ visible, onClose, summary, gameId }: 
   const [tab, setTab] = useState<TabKey>('team');
   const [sending, setSending] = useState<string | null>(null); // id of item being sent
 
-  const handleSendToTeam = useCallback(async (teamId: string, teamName: string) => {
+  const handleSendToTeam = useCallback((teamId: string, teamName: string) => {
     if (!currentUser) return;
-    setSending(teamId);
-    try {
-      const group = await getOrCreateTeamGroup(
-        teamId,
-        currentUser.displayName ?? 'ユーザー',
-        [],
-      );
-      await sendGroupMessage(
-        group.id,
-        currentUser.uid,
-        currentUser.displayName ?? 'ユーザー',
-        summary,
-        gameId ? 'game_analytics' : 'text',
-        gameId ? { gameId } : undefined,
-      );
-      Alert.alert('送信しました', `${teamName} のチャットに共有しました。`);
-      onClose();
-    } catch (e: unknown) {
-      Alert.alert('エラー', (e as Error)?.message ?? '送信に失敗しました。');
-    } finally {
-      setSending(null);
-    }
+    Alert.alert(
+      '送信の確認',
+      `${teamName} に送信しますか？`,
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '送信する',
+          onPress: async () => {
+            setSending(teamId);
+            try {
+              const group = await getOrCreateTeamGroup(
+                teamId,
+                currentUser.displayName ?? 'ユーザー',
+                [],
+              );
+              await sendGroupMessage(
+                group.id,
+                currentUser.uid,
+                currentUser.displayName ?? 'ユーザー',
+                summary,
+                gameId ? 'game_analytics' : 'text',
+                gameId ? { gameId } : undefined,
+              );
+              Alert.alert('送信しました', `${teamName} のチャットに共有しました。`);
+              onClose();
+            } catch (e: unknown) {
+              Alert.alert('エラー', (e as Error)?.message ?? '送信に失敗しました。');
+            } finally {
+              setSending(null);
+            }
+          },
+        },
+      ],
+    );
   }, [currentUser, summary, gameId, onClose]);
 
   const handleSendToDM = useCallback((conversationId: string, otherName: string, recipientId: string) => {
