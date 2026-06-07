@@ -44,6 +44,7 @@ import {
   type BuntType,
   type SignPlayTag,
   type BuntOutcome,
+  type BatterAdvancementReason,
 } from '../../../src/types/game';
 import FieldView from '../../../src/components/score/FieldView';
 import SignPlayPicker from '../../../src/components/score/SignPlayPicker';
@@ -524,9 +525,12 @@ export default function LiveScoreScreen() {
     persist();
   }, [resolveAtBat, persist, atBatSign]);
 
-  const handleAdvancementConfirm = useCallback((finalAdvancements: RunnerAdvancement[]) => {
+  const handleAdvancementConfirm = useCallback((
+    finalAdvancements: RunnerAdvancement[],
+    batterAdvancementReasons?: BatterAdvancementReason[],
+  ) => {
     const sp = atBatSign !== 'none' ? atBatSign : undefined;
-    confirmAdvancement(finalAdvancements, { signPlay: sp });
+    confirmAdvancement(finalAdvancements, { signPlay: sp, batterAdvancementReasons });
     setAtBatSign('none');
     setShowFieldView(false);
     persist();

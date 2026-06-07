@@ -192,6 +192,10 @@ export const en: TranslationKeys = {
     caughtStealing: 'Caught stealing',
     pickoff: 'Pickoff',
     outDetailOther: 'Other',
+    batterAdvancementReasonLabel: 'Advancement reason (optional)',
+    goodBaserunning: 'Good baserunning',
+    batterError: 'Error',
+    fieldersChoiceAdvance: "Fielder's choice",
   },
   fielding: {
     title: 'Select Fielder',

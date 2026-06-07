@@ -13,7 +13,9 @@ import type {
   AtBatResult,
   FieldingRecord,
   OutDetail,
+  BatterAdvancementReason,
 } from '../../types/game';
+import { HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT } from '../../types/game';
 import {
   baseToNum,
   capBatterTargetBase,
@@ -158,6 +160,17 @@ function computeDestinationOffsets(
   return offsets;
 }
 
+// 打者の超過進塁理由（ヒット時・ダイヤモンド下）
+const BATTER_ADVANCEMENT_REASONS: {
+  key: BatterAdvancementReason;
+  labelKey: string;
+  color: string;
+}[] = [
+  { key: 'good_baserunning', labelKey: 'goodBaserunning', color: '#4CAF50' },
+  { key: 'error', labelKey: 'batterError', color: '#FF9800' },
+  { key: 'fielders_choice', labelKey: 'fieldersChoiceAdvance', color: '#00ACC1' },
+];
+
 // 進塁理由 (サブメニュー用)
 const ADVANCEMENT_REASONS: {
   action: RunnerAction;
@@ -182,7 +195,10 @@ interface RunnerAdvancementViewProps {
   advancements: RunnerAdvancement[];
   result: AtBatResult | string;
   fielding?: FieldingRecord;
-  onConfirm: (finalAdvancements: RunnerAdvancement[]) => void;
+  onConfirm: (
+    finalAdvancements: RunnerAdvancement[],
+    batterAdvancementReasons?: BatterAdvancementReason[],
+  ) => void;
   onCancel: () => void;
 }
 
@@ -207,6 +223,7 @@ export default function RunnerAdvancementView({
     [],
   );
   const [expandedRunner, setExpandedRunner] = useState<string | null>(null);
+  const [batterAdvancementReasons, setBatterAdvancementReasons] = useState<BatterAdvancementReason[]>([]);
 
   // ドラッグ用 ref（PanResponder クロージャ内で最新値を読む）
   const draggingRunnerIdRef = useRef<string | null>(null);
@@ -406,10 +423,34 @@ export default function RunnerAdvancementView({
     return null;
   })();
 
+  const isHitResult = HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT.includes(result as AtBatResult);
+  const batterAdv = editable.find((a) => a.fromBase === 'batter');
+  const showBatterReasonButtons = (() => {
+    if (!isHitResult || !batterAdv) return false;
+    if (batterAdv.minBase === 'out' || batterAdv.targetBase === 'out') return false;
+    if (batterAdv.outcome === 'out_tag' || batterAdv.outcome === 'out_force') return false;
+    return (BASE_ORDER[batterAdv.targetBase as string] ?? 0) > (BASE_ORDER[batterAdv.minBase as string] ?? 0);
+  })();
+
+  useEffect(() => {
+    if (!showBatterReasonButtons) {
+      setBatterAdvancementReasons([]);
+    }
+  }, [showBatterReasonButtons]);
+
+  const toggleBatterReason = useCallback((reason: BatterAdvancementReason) => {
+    setBatterAdvancementReasons((prev) =>
+      prev.includes(reason) ? prev.filter((r) => r !== reason) : [...prev, reason],
+    );
+  }, []);
+
   const handleConfirm = useCallback(() => {
     if (validationError) return;
-    onConfirm(editable);
-  }, [editable, validationError, onConfirm]);
+    onConfirm(
+      editable,
+      batterAdvancementReasons.length > 0 ? batterAdvancementReasons : undefined,
+    );
+  }, [editable, validationError, onConfirm, batterAdvancementReasons]);
 
   // 結果ラベル
   const resultLabel = (t.atBatResults as Record<string, string>)[result] ?? result;
@@ -600,6 +641,35 @@ export default function RunnerAdvancementView({
 
         <Text style={styles.hint}>{'走者をドラッグして塁を選択'}</Text>
 
+        {showBatterReasonButtons && (
+          <View style={styles.batterReasonSection}>
+            <Text style={styles.batterReasonLabel}>{t.advancement.batterAdvancementReasonLabel}</Text>
+            <View style={styles.batterReasonRow}>
+              {BATTER_ADVANCEMENT_REASONS.map((reason) => {
+                const isActive = batterAdvancementReasons.includes(reason.key);
+                return (
+                  <TouchableOpacity
+                    key={reason.key}
+                    style={[
+                      styles.batterReasonBtn,
+                      { borderColor: reason.color },
+                      isActive && { backgroundColor: reason.color },
+                    ]}
+                    onPress={() => toggleBatterReason(reason.key)}
+                  >
+                    <Text style={[
+                      styles.batterReasonBtnText,
+                      { color: isActive ? '#FFF' : reason.color },
+                    ]}>
+                      {(t.advancement as Record<string, string>)[reason.labelKey]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         {/* ランナーリスト */}
         {editable.map((adv) => {
           const isExpanded = expandedRunner === adv.runnerId;
@@ -685,8 +755,8 @@ export default function RunnerAdvancementView({
                 </View>
               )}
 
-              {/* 理由サブメニュー (展開時) */}
-              {(isExpanded || beyondMinBase) && !isBatterOut && !isBatterRegularOut && (
+              {/* 理由サブメニュー (展開時) — ヒット時の打者超過進塁はダイヤモンド下で選択 */}
+              {(isExpanded || (beyondMinBase && !(isHitResult && adv.fromBase === 'batter'))) && !isBatterOut && !isBatterRegularOut && (
                 <View style={styles.subMenu}>
                   <Text style={styles.subLabel}>{t.advancement.title}:</Text>
                   <View style={styles.subRow}>
@@ -846,6 +916,38 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     marginBottom: Spacing.sm,
+  },
+
+  batterReasonSection: {
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+    padding: Spacing.sm,
+    backgroundColor: CARD_BG,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  batterReasonLabel: {
+    fontSize: Typography.tiny,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+    textAlign: 'center',
+  },
+  batterReasonRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  batterReasonBtn: {
+    borderWidth: 1.5,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  batterReasonBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
   },
 
   // ランナーカード

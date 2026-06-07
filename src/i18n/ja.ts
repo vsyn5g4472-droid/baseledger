@@ -190,6 +190,10 @@ export const ja = {
     caughtStealing: '盗塁死',
     pickoff: '牽制死',
     outDetailOther: 'その他',
+    batterAdvancementReasonLabel: '進塁理由（任意）',
+    goodBaserunning: '好走塁',
+    batterError: 'エラー',
+    fieldersChoiceAdvance: '野手選択',
   },
   fielding: {
     title: '守備位置を選択',

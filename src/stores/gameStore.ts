@@ -37,7 +37,8 @@ import type {
   SignMissEvent,
   SignMissContext,
 } from '../types/game';
-import { RESULTS_NEEDING_ADVANCEMENT } from '../types/game';
+import { HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT } from '../types/game';
+import type { AtBatExtra } from '../types/game';
 
 // ============================================================
 // ヘルパー: 攻撃/守備チームの判定
@@ -116,7 +117,7 @@ interface GameActions {
     result: AtBatResult,
     battedBall?: BattedBall,
     rbiCount?: number,
-    atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag },
+    atBatExtra?: AtBatExtra,
   ) => void;
 
   // --- ランナー操作 ---
@@ -129,12 +130,12 @@ interface GameActions {
     result: AtBatResult,
     battedBall?: BattedBall,
     fielding?: FieldingRecord,
-    atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag },
+    atBatExtra?: AtBatExtra,
   ) => void;
   /** Phase 2: 進塁確認を確定する */
   confirmAdvancement: (
     finalAdvancements: RunnerAdvancement[],
-    atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag },
+    atBatExtra?: AtBatExtra,
   ) => void;
   /** 進塁確認をキャンセルする */
   cancelAdvancement: () => void;
@@ -1001,9 +1002,10 @@ export const useGameStore = create<GameStore>()(
         rbiCount = 1 + (r.first ? 1 : 0) + (r.second ? 1 : 0) + (r.third ? 1 : 0);
       }
 
-      // ランナーがいれば進塁確認モードへ（3アウト確定で省略する場合を除く）
+      // ランナーがいる、またはヒット時の打者進塁確認が必要な場合は進塁確認モードへ
       const hasRunners = g.runners.first || g.runners.second || g.runners.third;
-      if (hasRunners && !shouldResolveInPlayWithoutAdvancement(g, result)) {
+      const needsBatterAdvancement = HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT.includes(result);
+      if ((hasRunners || needsBatterAdvancement) && !shouldResolveInPlayWithoutAdvancement(g, result)) {
         get().beginAdvancementConfirmation(result, battedBall, undefined, atBatExtra);
         return;
       }
@@ -1124,6 +1126,9 @@ export const useGameStore = create<GameStore>()(
         }
         if (mergedExtra.signPlay && g.currentAtBat) {
           g.currentAtBat.signPlay = mergedExtra.signPlay;
+        }
+        if (mergedExtra.batterAdvancementReasons?.length && g.currentAtBat) {
+          g.currentAtBat.batterAdvancementReasons = mergedExtra.batterAdvancementReasons;
         }
 
         // ランナーをクリアして再配置

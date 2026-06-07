@@ -138,6 +138,16 @@ export type BuntOutcome = 'stance_only' | 'foul' | 'swing_miss' | 'in_play';
 /** 打席におけるバントの分類 */
 export type BuntType = 'sacrifice' | 'squeeze' | 'safety' | 'push' | 'drag';
 
+/** 打者の超過進塁理由（単打で2塁など） */
+export type BatterAdvancementReason = 'good_baserunning' | 'error' | 'fielders_choice';
+
+/** 打席付加情報 */
+export interface AtBatExtra {
+  buntType?: BuntType;
+  signPlay?: SignPlayTag;
+  batterAdvancementReasons?: BatterAdvancementReason[];
+}
+
 /** チーム戦術タグ（サインプレー） */
 export type SignPlayTag =
   | 'hit_and_run'
@@ -156,7 +166,7 @@ export interface PendingAdvancement {
   fielding?: FieldingRecord;
   advancements: RunnerAdvancement[];
   /** 打席完了時に AtBatLog へ取り込む */
-  atBatExtra?: { buntType?: BuntType; signPlay?: SignPlayTag };
+  atBatExtra?: AtBatExtra;
 }
 
 // 牽制セーフ時の進塁確認ペンディング状態
@@ -165,6 +175,11 @@ export interface PendingPickoffSafe {
   runnerId: string;
   playerName: string;
 }
+
+/** ランナーなしでも打者進塁確認が必要なヒット系結果 */
+export const HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT: AtBatResult[] = [
+  'single', 'double', 'triple',
+];
 
 /** 手動進塁確認が必要な打席結果 */
 export const RESULTS_NEEDING_ADVANCEMENT: AtBatResult[] = [
@@ -352,6 +367,8 @@ export interface AtBatLog {
   buntType?: BuntType;
   /** サインプレー */
   signPlay?: SignPlayTag;
+  /** 打者がデフォルトより先に進んだ理由（複数選択可） */
+  batterAdvancementReasons?: BatterAdvancementReason[];
 }
 
 // ============================================================
