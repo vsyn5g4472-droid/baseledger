@@ -21,6 +21,11 @@ import {
   isBiometricAvailable,
   hasBiometricCredentials,
 } from '../../src/services/auth/passkeyAuth';
+import {
+  analyzeLoginFailure,
+  sendPasswordResetEmailToUser,
+  type LoginFailureHint,
+} from '../../src/services/auth/passwordResetService';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -135,6 +140,9 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [loginHint, setLoginHint] = useState<LoginFailureHint | null>(null);
+  const [resetSending, setResetSending] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState('');
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
 
   // ── Google OAuth ─────────────────────────────────────────────────────────────
@@ -171,6 +179,8 @@ export default function LoginScreen() {
     }
     try {
       setErrorMessage('');
+      setLoginHint(null);
+      setResetSuccess('');
       if (loginMode === 'email') {
         await signIn(identifier.trim(), password);
       } else {
@@ -180,6 +190,31 @@ export default function LoginScreen() {
       router.replace('/' as any);
     } catch (e: any) {
       setErrorMessage(e?.message || getErrorMessage(e));
+      if (loginMode === 'email' && identifier.includes('@')) {
+        analyzeLoginFailure(identifier.trim())
+          .then(setLoginHint)
+          .catch(() => setLoginHint('unknown'));
+      }
+    }
+  };
+
+  const handleSendPasswordReset = async () => {
+    if (!identifier.trim() || !identifier.includes('@')) {
+      setErrorMessage('メールアドレスを入力してください');
+      return;
+    }
+    setResetSending(true);
+    setResetSuccess('');
+    try {
+      await sendPasswordResetEmailToUser(identifier.trim());
+      setResetSuccess(
+        `${identifier.trim()} 宛にパスワード再設定メールを送信しました。メールのリンクから新しいパスワードを設定してから、再度ログインしてください。`,
+      );
+      setErrorMessage('');
+    } catch (e: any) {
+      setErrorMessage(e?.message || 'メールの送信に失敗しました。');
+    } finally {
+      setResetSending(false);
     }
   };
 
@@ -276,7 +311,13 @@ export default function LoginScreen() {
           </View>
 
           {/* メール / ユーザーID 切り替えタブ */}
-          <ModeTab mode={loginMode} onChange={(m) => { setLoginMode(m); setIdentifier(''); setErrorMessage(''); }} />
+          <ModeTab mode={loginMode} onChange={(m) => {
+          setLoginMode(m);
+          setIdentifier('');
+          setErrorMessage('');
+          setLoginHint(null);
+          setResetSuccess('');
+        }} />
 
           <TextInput
             label={loginMode === 'email' ? 'メールアドレス' : 'ユーザーID（@なし）'}
@@ -312,6 +353,36 @@ export default function LoginScreen() {
             </Text>
           ) : null}
 
+          {resetSuccess ? (
+            <Text style={{ color: Colors.primary, fontSize: 13, marginBottom: 8, lineHeight: 20 }}>
+              {resetSuccess}
+            </Text>
+          ) : null}
+
+          {loginHint === 'apple_only' ? (
+            <Text style={styles.hintText}>
+              このメールアドレスは Apple ログインで登録されています。上の「Appleでログイン」をお試しください。
+            </Text>
+          ) : null}
+
+          {(loginHint === 'password_reset_available' || loginHint === 'unknown') && loginMode === 'email' ? (
+            <View style={styles.resetBox}>
+              <Text style={styles.hintText}>
+                パスワードが合っているのにログインできない場合、再設定メールをお送りできます。
+              </Text>
+              <Button
+                mode="outlined"
+                onPress={handleSendPasswordReset}
+                loading={resetSending}
+                disabled={resetSending || loading}
+                style={styles.resetBtn}
+                textColor={Colors.action}
+              >
+                パスワード再設定メールを送信
+              </Button>
+            </View>
+          ) : null}
+
           <Button
             mode="contained"
             onPress={handleLogin}
@@ -323,6 +394,16 @@ export default function LoginScreen() {
           >
             ログイン
           </Button>
+
+          {loginMode === 'email' ? (
+            <TouchableOpacity
+              style={styles.forgotRow}
+              onPress={() => router.push('/(auth)/forgot-password' as any)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.forgotLink}>パスワードをお忘れですか？</Text>
+            </TouchableOpacity>
+          ) : null}
 
           {/* アカウント作成へ */}
           <TouchableOpacity
@@ -461,6 +542,33 @@ const styles = StyleSheet.create({
   loginBtnLabel: {
     fontSize: Typography.body,
     fontWeight: '700',
+  },
+  hintText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: Spacing.sm,
+  },
+  resetBox: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  resetBtn: {
+    borderColor: Colors.action,
+    borderRadius: BorderRadius.lg,
+  },
+  forgotRow: {
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  forgotLink: {
+    fontSize: Typography.caption,
+    color: Colors.action,
+    fontWeight: '600',
   },
 
   // 新規登録

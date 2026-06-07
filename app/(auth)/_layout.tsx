@@ -15,6 +15,7 @@ export default function AuthLayout() {
     >
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="register" options={{ title: t.auth.createAccount }} />
+      <Stack.Screen name="forgot-password" options={{ title: 'パスワード再設定' }} />
       <Stack.Screen
         name="onboarding"
         options={{
