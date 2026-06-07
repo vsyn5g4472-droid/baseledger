@@ -1,17 +1,12 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
 
 /**
  * iOS 26 クラッシュ切り分け用の最小ルート。
  * Auth / Firebase / RevenueCat 等を一切ロードしない。
  */
 export default function MinimalRootLayout() {
-  useEffect(() => {
-    SplashScreen.hideAsync();
-  }, []);
-
   return (
     <View style={styles.root}>
       <Text style={styles.badge}>Step 0B Minimal</Text>

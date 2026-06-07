@@ -19,11 +19,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1B3A5C"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "jp.baseledger.app",
@@ -49,15 +44,6 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/splash-icon.png",
-          "resizeMode": "contain",
-          "backgroundColor": "#1B3A5C",
-          "imageWidth": 280
-        }
-      ],
       "expo-router",
       "expo-secure-store",
       [
