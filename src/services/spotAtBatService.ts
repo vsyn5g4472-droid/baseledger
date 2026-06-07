@@ -20,12 +20,27 @@ import type { GameState } from '../types/game';
 
 const spotRef = () => collection(db, COLLECTIONS.SPOT_AT_BATS);
 
+/** Firestore は undefined を受け付けないため null に変換する */
+function sanitizeForFirestore<T>(value: T): T {
+  if (value === undefined) return null as T;
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Timestamp) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForFirestore(item)) as T;
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    result[key] = v === undefined ? null : sanitizeForFirestore(v);
+  }
+  return result as T;
+}
+
 export async function createSpotAtBat(
   userId: string,
   data: Omit<SpotAtBat, 'id' | 'userId' | 'createdAt' | 'updatedAt'>,
 ): Promise<SpotAtBat> {
   const now = Timestamp.now();
-  const docData = { ...data, userId, createdAt: now, updatedAt: now };
+  const docData = sanitizeForFirestore({ ...data, userId, createdAt: now, updatedAt: now });
   const docRef = await addDoc(spotRef(), docData);
   return { id: docRef.id, ...docData } as SpotAtBat;
 }
