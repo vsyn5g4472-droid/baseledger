@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
-  signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as fbSignOut,
   onAuthStateChanged,
@@ -16,6 +15,7 @@ import {
   signInWithGoogleCredential,
   signInWithAppleToken,
 } from '../services/auth/socialAuth';
+import { signInWithEmailPassword } from '../services/auth/emailPasswordAuth';
 import {
   authenticateWithBiometrics,
   clearBiometricCredentials,
@@ -117,13 +117,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const _tTotal = Date.now();
     try {
       const _tAuth = Date.now();
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailPassword(email, password);
       if (__DEV__) console.log(`[perf][auth] signIn.firebaseAuth: ${Date.now() - _tAuth}ms`);
       if (__DEV__) console.log(`[perf][auth] signIn.TOTAL: ${Date.now() - _tTotal}ms`);
       // currentUser 更新と setLoading(false) は onAuthStateChanged が担当
     } catch (error) {
       if (__DEV__) console.log(`[perf][auth] signIn.TOTAL: ${Date.now() - _tTotal}ms`);
       setLoading(false); // 認証失敗時は onAuthStateChanged が発火しないため手動で解除
+      if (error && typeof error === 'object' && 'code' in error) {
+        throw error;
+      }
       throw new Error(getFirebaseErrorMessage(error));
     }
   }, []);
@@ -135,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const email = await getEmailByUsername(username);
       if (!email) throw new Error('このユーザーIDは存在しません。');
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailPassword(email, password);
       // currentUser 更新と setLoading(false) は onAuthStateChanged が担当
     } catch (error) {
       setLoading(false);
@@ -212,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, creds.email, creds.password);
+      await signInWithEmailPassword(creds.email, creds.password);
       // currentUser 更新と setLoading(false) は onAuthStateChanged が担当
     } catch (error) {
       setLoading(false);

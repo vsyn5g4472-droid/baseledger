@@ -61,6 +61,23 @@ const ERROR_MESSAGES: Record<string, string> = {
  * @param error - catch で受け取った任意のエラー
  * @returns ユーザーに表示する日本語メッセージ
  */
+/** Firebase Auth REST API のエラーコードを Firebase Auth エラーに変換する */
+const REST_TO_AUTH_CODE: Record<string, string> = {
+  EMAIL_NOT_FOUND: 'auth/user-not-found',
+  INVALID_PASSWORD: 'auth/wrong-password',
+  INVALID_LOGIN_CREDENTIALS: 'auth/invalid-credential',
+  USER_DISABLED: 'auth/user-disabled',
+  TOO_MANY_ATTEMPTS_TRY_LATER: 'auth/too-many-requests',
+};
+
+export function createAuthErrorFromRest(restError: { message: string }): Error & { code: string } {
+  const code = REST_TO_AUTH_CODE[restError.message] ?? 'auth/invalid-credential';
+  const message = ERROR_MESSAGES[code] ?? restError.message;
+  const err = new Error(message) as Error & { code: string };
+  err.code = code;
+  return err;
+}
+
 export function getFirebaseErrorMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'code' in error) {
     const code = (error as { code: string }).code;

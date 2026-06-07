@@ -179,7 +179,7 @@ export default function LoginScreen() {
       // index が isNew / currentUser により feed か onboarding へ分岐
       router.replace('/' as any);
     } catch (e: any) {
-      setErrorMessage(getErrorMessage(e));
+      setErrorMessage(e?.message || getErrorMessage(e));
     }
   };
 

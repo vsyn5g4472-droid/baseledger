@@ -586,3 +586,22 @@ export const onNotificationCreated = onDocumentCreated(
     }]);
   },
 );
+
+// =============================================================================
+// Auth: REST API で取得した idToken を custom token に交換
+// =============================================================================
+
+export const createCustomTokenFromIdToken = onCall(async (request) => {
+  const idToken = request.data?.idToken;
+  if (!idToken || typeof idToken !== "string") {
+    throw new HttpsError("invalid-argument", "idToken is required");
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    const customToken = await admin.auth().createCustomToken(decoded.uid);
+    return { customToken };
+  } catch {
+    throw new HttpsError("unauthenticated", "Invalid idToken");
+  }
+});
