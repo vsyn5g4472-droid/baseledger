@@ -1,24 +1,13 @@
-import { Redirect } from 'expo-router';
-import { useAuth } from '../src/contexts/AuthContext';
-import LoadingScreen from '../src/components/LoadingScreen';
+import React from 'react';
+
+const IS_STEP0_MINIMAL = process.env.EXPO_PUBLIC_STEP0_MINIMAL === '1';
 
 export default function Index() {
-  const { loading, isNewUser, currentUser } = useAuth();
-
-  if (loading) {
-    return <LoadingScreen />;
+  if (IS_STEP0_MINIMAL) {
+    const MinimalIndex = require('../src/step0/MinimalIndex').default;
+    return <MinimalIndex />;
   }
 
-  // New users (just signed up) → onboarding to set username
-  if (isNewUser) {
-    return <Redirect href={'/(auth)/onboarding' as any} />;
-  }
-
-  // Not authenticated → login screen
-  if (!currentUser) {
-    return <Redirect href={'/(auth)/login' as any} />;
-  }
-
-  // Authenticated → main app
-  return <Redirect href="/(tabs)/feed" />;
+  const FullIndex = require('../src/step0/FullIndex').default;
+  return <FullIndex />;
 }

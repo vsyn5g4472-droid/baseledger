@@ -28,6 +28,18 @@
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
       }
+    },
+    "production-step0a": {
+      "extends": "production",
+      "channel": "production-step0a"
+    },
+    "production-step0b-minimal": {
+      "extends": "production",
+      "channel": "production-step0b",
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "EXPO_PUBLIC_STEP0_MINIMAL": "1"
+      }
     }
   },
   "submit": {
