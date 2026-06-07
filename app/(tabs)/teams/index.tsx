@@ -6,9 +6,12 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import EmptyState from '../../../src/components/EmptyState';
 import { useTeams } from '../../../src/hooks/useTeam';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
+import { usePlanGate } from '../../../src/hooks/usePlanGate';
+import { showTeamCreatePlanAlert } from '../../../src/utils/planLimitAlerts';
 
 export default function TeamsScreen() {
   const { teams, loading, joinByCode } = useTeams();
+  const teamCreateGate = usePlanGate('team_create');
   const [joinModal, setJoinModal] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const { inviteCode: initialInviteCode } = useLocalSearchParams<{ inviteCode?: string }>();
@@ -88,7 +91,13 @@ export default function TeamsScreen() {
         icon="plus"
         style={styles.fab}
         color={Colors.white}
-        onPress={() => router.push('/(tabs)/teams/create' as any)}
+        onPress={() => {
+          if (!teamCreateGate.allowed) {
+            showTeamCreatePlanAlert();
+            return;
+          }
+          router.push('/(tabs)/teams/create' as any);
+        }}
       />
 
       <Portal>

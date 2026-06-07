@@ -56,6 +56,8 @@ import PlayLogList from '../../../src/components/score/PlayLogList';
 import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
 import PlayerSubstitutionModal from '../../../src/components/score/PlayerSubstitutionModal';
 import InGameStatsPanel from '../../../src/components/score/InGameStatsPanel';
+import { usePlanGate } from '../../../src/hooks/usePlanGate';
+import { showOpponentDataPlanAlert } from '../../../src/utils/planLimitAlerts';
 import type { AtBatLog, Player } from '../../../src/types/game';
 
 // ── 投球コース記録キャンバス定数 (横4:縦7 ストライクゾーン) ──────────
@@ -156,6 +158,23 @@ export default function LiveScoreScreen() {
   const [stealSign, setStealSign] = useState<SignPlayTag | 'none'>('none');
   const [showPitcherStats, setShowPitcherStats] = useState(false);
   const [showBatterStats, setShowBatterStats] = useState(false);
+  const opponentDataGate = usePlanGate('opponent_data');
+
+  const openPitcherStats = useCallback(() => {
+    if (!opponentDataGate.allowed) {
+      showOpponentDataPlanAlert();
+      return;
+    }
+    setShowPitcherStats(true);
+  }, [opponentDataGate.allowed]);
+
+  const openBatterStats = useCallback(() => {
+    if (!opponentDataGate.allowed) {
+      showOpponentDataPlanAlert();
+      return;
+    }
+    setShowBatterStats(true);
+  }, [opponentDataGate.allowed]);
   const [playSnack, setPlaySnack] = useState<{
     id: string;
     batter: string;
@@ -827,7 +846,7 @@ export default function LiveScoreScreen() {
             <Text style={styles.matchupName}>{pitcher.number != null ? `#${pitcher.number} ` : ''}{pitcher.name}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.matchupStat}>{game.totalPitchCount[defSide]}{t.live.pitchCount}</Text>
-              <TouchableOpacity style={styles.detailBtn} onPress={() => setShowPitcherStats(true)}>
+              <TouchableOpacity style={styles.detailBtn} onPress={openPitcherStats}>
                 <Text style={styles.detailBtnText}>詳細</Text>
               </TouchableOpacity>
             </View>
@@ -836,7 +855,7 @@ export default function LiveScoreScreen() {
           <View style={[styles.matchupPlayer, { alignItems: 'flex-end' }]}>
             <Text style={styles.matchupRole}>{t.live.batter}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <TouchableOpacity style={styles.detailBtn} onPress={() => setShowBatterStats(true)}>
+              <TouchableOpacity style={styles.detailBtn} onPress={openBatterStats}>
                 <Text style={styles.detailBtnText}>詳細</Text>
               </TouchableOpacity>
               <Text style={styles.matchupName}>{batter.number != null ? `#${batter.number} ` : ''}{batter.name}</Text>

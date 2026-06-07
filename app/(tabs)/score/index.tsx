@@ -84,6 +84,24 @@ export default function ScoreIndexScreen() {
         <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.white} />
       </TouchableOpacity>
 
+      {/* ===== 偵察モード ===== */}
+      <TouchableOpacity
+        style={styles.scoutCard}
+        onPress={() => router.push('/(tabs)/score/normal?mode=scout' as any)}
+        activeOpacity={0.88}
+      >
+        <View style={styles.cardLeft}>
+          <View style={styles.cardIconWrap}>
+            <MaterialCommunityIcons name="binoculars" size={26} color={Colors.white} />
+          </View>
+          <View style={styles.cardTextWrap}>
+            <Text style={styles.cardTitle}>偵察モード</Text>
+            <Text style={styles.cardSub}>相手チームを偵察・記録します。データは偵察記録として保存されます。</Text>
+          </View>
+        </View>
+        <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.white} />
+      </TouchableOpacity>
+
       {/* ===== スポット打席 ===== */}
       <TouchableOpacity
         style={styles.spotCard}
@@ -176,6 +194,20 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     shadowColor: Colors.action,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  scoutCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#2E7D32',
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    shadowColor: '#2E7D32',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 10,

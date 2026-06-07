@@ -34,6 +34,7 @@ import { generateBatteryAIReport, reportToSections, type AIReport } from '../../
 import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan } from '../../src/hooks/usePlanGate';
 import { checkAIReportUsage } from '../../src/services/planService';
+import { showAIUsageLimitAlert } from '../../src/utils/planLimitAlerts';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -184,11 +185,7 @@ export default function PitcherReportScreen() {
       const report = await generateBatteryAIReport(fakeBatteryProfile, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
         const usage = await checkAIReportUsage(userPlan);
-        Alert.alert(
-          'AI分析の上限に達しました',
-          `今月のAI分析回数（${usage.limit}回）を使い切りました。プランをアップグレードすると回数が増えます。`,
-          [{ text: 'OK' }],
-        );
+        showAIUsageLimitAlert(userPlan, usage.limit);
         return;
       }
       setAiReport(report);

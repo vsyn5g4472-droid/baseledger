@@ -17,6 +17,7 @@ import { useGameStore } from '../../../src/stores/gameStore';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
 import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, incrementGameUsage, type UsageCheckResult } from '../../../src/services/planService';
+import { showGameUsageLimitAlert } from '../../../src/utils/planLimitAlerts';
 import { DRAFT_GAME_KEY } from '../../../src/db';
 
 export default function ScoreStartScreen() {
@@ -75,10 +76,7 @@ export default function ScoreStartScreen() {
 
   const handleQuickStart = async () => {
     if (gameUsage && !gameUsage.allowed) {
-      Alert.alert(
-        '試合数の上限',
-        `今月の試合記録数（${gameUsage.limit}試合）に達しました。プランをアップグレードすると、より多くの試合を記録できます。`,
-      );
+      showGameUsageLimitAlert(userPlan, gameUsage.limit);
       return;
     }
     const draftJson = await AsyncStorage.getItem(DRAFT_GAME_KEY);

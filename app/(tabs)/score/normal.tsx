@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, TextInput, Button, Menu } from 'react-native-paper';
-import { router, Stack } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
@@ -10,6 +10,7 @@ import { useGameStore } from '../../../src/stores/gameStore';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
 import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, type UsageCheckResult } from '../../../src/services/planService';
+import { showGameUsageLimitAlert } from '../../../src/utils/planLimitAlerts';
 import type { GameCategory } from '../../../src/types/game';
 import { DRAFT_GAME_KEY } from '../../../src/db';
 import { useAuth } from '../../../src/contexts/AuthContext';
@@ -20,6 +21,8 @@ import TeamQuickSelect from '../../../src/components/score/TeamQuickSelect';
 const CATEGORIES: GameCategory[] = ['practice', 'official', 'tournament', 'other'];
 
 export default function NormalModeScreen() {
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const isScoutMode = mode === 'scout';
   const { t } = useI18n();
   const { currentUser } = useAuth();
   const userPlan = useUserPlan();
@@ -70,10 +73,7 @@ export default function NormalModeScreen() {
 
   const navigateToSetup = async (isScout: boolean) => {
     if (gameUsage && !gameUsage.allowed) {
-      Alert.alert(
-        '試合数の上限',
-        `今月の試合記録数（${gameUsage.limit}試合）に達しました。プランをアップグレードすると、より多くの試合を記録できます。`,
-      );
+      showGameUsageLimitAlert(userPlan, gameUsage.limit);
       return;
     }
     if (!awayName.trim() || !homeName.trim()) {
@@ -123,7 +123,7 @@ export default function NormalModeScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: '試合設定', headerShown: true }} />
+      <Stack.Screen options={{ title: isScoutMode ? '偵察モード' : '試合設定', headerShown: true }} />
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -347,35 +347,35 @@ export default function NormalModeScreen() {
           )}
         </View>
 
-        {/* スタメン登録ボタン */}
-        <Button
-          mode="contained"
-          onPress={handleNext}
-          style={styles.nextButton}
-          buttonColor={Colors.primary}
-          labelStyle={styles.nextLabel}
-          icon="account-group"
-        >
-          {t.setup.lineupSetup}
-        </Button>
-
-        {/* ===== 偵察モード ===== */}
-        <TouchableOpacity
-          style={styles.scoutCard}
-          onPress={handleScout}
-          activeOpacity={0.88}
-        >
-          <View style={styles.cardLeft}>
-            <View style={styles.cardIconWrap}>
-              <MaterialCommunityIcons name="binoculars" size={26} color={Colors.white} />
+        {isScoutMode ? (
+          <TouchableOpacity
+            style={styles.scoutCard}
+            onPress={handleScout}
+            activeOpacity={0.88}
+          >
+            <View style={styles.cardLeft}>
+              <View style={styles.cardIconWrap}>
+                <MaterialCommunityIcons name="binoculars" size={26} color={Colors.white} />
+              </View>
+              <View style={styles.cardTextWrap}>
+                <Text style={styles.cardTitle}>偵察を開始する</Text>
+                <Text style={styles.cardSub}>相手チームを偵察・記録します。データは偵察記録として保存されます。</Text>
+              </View>
             </View>
-            <View style={styles.cardTextWrap}>
-              <Text style={styles.cardTitle}>偵察モード</Text>
-              <Text style={styles.cardSub}>相手チームを偵察・記録します。データは偵察記録として保存されます。</Text>
-            </View>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.white} />
-        </TouchableOpacity>
+            <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.white} />
+          </TouchableOpacity>
+        ) : (
+          <Button
+            mode="contained"
+            onPress={handleNext}
+            style={styles.nextButton}
+            buttonColor={Colors.primary}
+            labelStyle={styles.nextLabel}
+            icon="account-group"
+          >
+            {t.setup.lineupSetup}
+          </Button>
+        )}
       </ScrollView>
     </>
   );

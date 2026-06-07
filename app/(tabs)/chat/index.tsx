@@ -14,6 +14,8 @@ import { useConversations } from '../../../src/hooks/useMessages';
 import { useTeams } from '../../../src/hooks/useTeam';
 import EmptyState from '../../../src/components/EmptyState';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
+import { usePlanGate } from '../../../src/hooks/usePlanGate';
+import { showTeamCreatePlanAlert } from '../../../src/utils/planLimitAlerts';
 import { useI18n } from '../../../src/i18n';
 import { Group, Conversation } from '../../../src/models/types';
 
@@ -145,6 +147,7 @@ export default function ChatIndexScreen() {
   const { groups, loading: groupsLoading } = useGroups();
   const { conversations, loading: dmsLoading } = useConversations();
   const { teams, joinByCode } = useTeams();
+  const teamCreateGate = usePlanGate('team_create');
   const [joinModal, setJoinModal] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
 
@@ -264,7 +267,13 @@ export default function ChatIndexScreen() {
             icon="plus"
             style={styles.fab}
             color={Colors.white}
-            onPress={() => router.push('/(tabs)/teams/create' as any)}
+            onPress={() => {
+              if (!teamCreateGate.allowed) {
+                showTeamCreatePlanAlert();
+                return;
+              }
+              router.push('/(tabs)/teams/create' as any);
+            }}
           />
           <Portal>
             <Modal

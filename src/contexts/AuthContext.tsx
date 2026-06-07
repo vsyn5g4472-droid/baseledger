@@ -24,7 +24,11 @@ import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 import { registerForPushNotifications } from '../services/pushNotificationService';
 import type { User, UserRole } from '../models/types';
 import { UserPlan } from '../services/planService';
-import { logoutRevenueCatUser } from '../services/revenueCatService';
+import {
+  loginRevenueCatUser,
+  logoutRevenueCatUser,
+  syncPlanToFirestore,
+} from '../services/revenueCatService';
 import { syncGamesFromFirestore } from '../services/gameService';
 
 interface AuthContextType {
@@ -95,6 +99,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // プッシュ通知トークンを登録（エラーは無視）
       registerForPushNotifications(firebaseUser.uid).catch(() => {});
+
+      // RevenueCat はログイン後に非同期で初期化・プラン同期（起動をブロックしない）
+      loginRevenueCatUser(firebaseUser.uid)
+        .then(async (rcPlan) => {
+          if (rcPlan === UserPlan.FREE) return;
+          setCurrentUser((prev) => (prev ? { ...prev, plan: rcPlan } : prev));
+          await syncPlanToFirestore(firebaseUser.uid, rcPlan);
+        })
+        .catch(() => {});
     });
 
     return unsubscribe;

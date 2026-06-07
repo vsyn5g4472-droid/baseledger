@@ -32,6 +32,7 @@ import { generateGameReportHtml } from '../../../src/utils/gameReportGenerator';
 import { usePostActions } from '../../../src/hooks/usePosts';
 import type { PostVisibility } from '../../../src/models/types';
 import ShareToChatModal from '../../../src/components/ShareToChatModal';
+import { showPdfSharePlanAlert } from '../../../src/utils/planLimitAlerts';
 
 type TabKey = 'batting' | 'pitching' | 'heatmap' | 'spray';
 
@@ -178,7 +179,6 @@ export default function GameAnalyticsScreen() {
   const [heatmapTeam, setHeatmapTeam] = useState<'away' | 'home'>('home');
   const [sprayTeam, setSprayTeam] = useState<'away' | 'home'>('away');
   const [sharing, setSharing] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   // ── 試合サマリー共有 ──────────────────────────────────────────────────────────
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryStep, setSummaryStep] = useState<'select' | 'preview'>('select');
@@ -252,7 +252,7 @@ export default function GameAnalyticsScreen() {
 
   const handleShare = useCallback(async () => {
     if (!shareGate.allowed) {
-      setShowUpgradeModal(true);
+      showPdfSharePlanAlert();
       return;
     }
     if (!game || !analytics) return;
@@ -624,40 +624,6 @@ export default function GameAnalyticsScreen() {
         onClose={() => setShowChatModal(false)}
         summary={chatSummary}
       />
-
-      {/* PRO アップグレードモーダル */}
-      <Modal
-        visible={showUpgradeModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowUpgradeModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.upgradeBackdrop}
-          activeOpacity={1}
-          onPress={() => setShowUpgradeModal(false)}
-        >
-          <View style={styles.upgradeCard}>
-            <Text style={styles.upgradeLock}>🔒</Text>
-            <Text style={styles.upgradeTitle}>PROプラン限定機能</Text>
-            <Text style={styles.upgradeDesc}>
-              試合結果・詳細・AI分析を{'\n'}PDFで共有できます。{'\n'}PROプランにアップグレードして{'\n'}ご利用ください。
-            </Text>
-            <TouchableOpacity
-              style={styles.upgradeBtn}
-              onPress={() => {
-                setShowUpgradeModal(false);
-                router.push('/(tabs)/profile/plan' as any);
-              }}
-            >
-              <Text style={styles.upgradeBtnText}>プランをアップグレード</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowUpgradeModal(false)}>
-              <Text style={styles.upgradeCancel}>キャンセル</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* ── 試合サマリー投稿モーダル ─────────────────────────────────────────── */}
       <Modal
@@ -1319,7 +1285,7 @@ export default function GameAnalyticsScreen() {
                 <View style={styles.shareInlineBtnInner}>
                   <MaterialCommunityIcons name="file-pdf-box" size={16} color={Colors.white} />
                   <Text style={styles.shareInlinePdfText}>
-                    {shareGate.allowed ? 'PDF共有' : 'PDF共有（PRO）'}
+                    {shareGate.allowed ? 'PDF共有' : 'PDF共有（ライト以上）'}
                   </Text>
                 </View>
               )}

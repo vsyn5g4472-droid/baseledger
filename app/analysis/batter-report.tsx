@@ -42,6 +42,7 @@ import PlanUpgradeCard from '../../src/components/PlanUpgradeCard';
 import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan, usePlanGate } from '../../src/hooks/usePlanGate';
 import { checkAIReportUsage } from '../../src/services/planService';
+import { showAIUsageLimitAlert, showPdfSharePlanAlert } from '../../src/utils/planLimitAlerts';
 import { usePostActions } from '../../src/hooks/usePosts';
 import type { PostVisibility } from '../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
@@ -206,6 +207,7 @@ export default function BatterReportScreen() {
   const aiGate = usePlanGate('ai_report');
   const sprayGate = usePlanGate('spray_chart');
   const heatmapGate = usePlanGate('zone_heatmap');
+  const pdfGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
 
   const [profile, setProfile]   = useState<BatterProfile | null>(null);
@@ -230,11 +232,7 @@ export default function BatterReportScreen() {
       const report = await generateBatterAIReport(p, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
         const usage = await checkAIReportUsage(userPlan);
-        Alert.alert(
-          'AI分析の上限に達しました',
-          `今月のAI分析回数（${usage.limit}回）を使い切りました。プランをアップグレードすると回数が増えます。`,
-          [{ text: 'OK' }],
-        );
+        showAIUsageLimitAlert(userPlan, usage.limit);
         return;
       }
       setAiReport(report);
@@ -289,6 +287,10 @@ export default function BatterReportScreen() {
 
   const handleSharePDF = useCallback(async () => {
     if (!profile) return;
+    if (!pdfGate.allowed) {
+      showPdfSharePlanAlert();
+      return;
+    }
     setPdfSharing(true);
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -312,7 +314,7 @@ export default function BatterReportScreen() {
     } finally {
       setPdfSharing(false);
     }
-  }, [profile, batterName]);
+  }, [profile, batterName, pdfGate.allowed]);
 
   const handleOpenChatShare = useCallback(() => {
     if (!profile) return;

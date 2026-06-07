@@ -51,7 +51,8 @@ export type Feature =
   | 'group_chat_send'
   | 'ad_free'
   | 'ai_prediction'
-  | 'share_report';
+  | 'share_report'
+  | 'opponent_data';
 
 interface FeatureMeta {
   label: string;
@@ -73,7 +74,8 @@ const FEATURE_REGISTRY: Record<Feature, FeatureMeta> = {
   group_chat_send:  { label: 'グループチャット送信',   minPlan: UserPlan.LIGHT },
   ad_free:          { label: '広告非表示',             minPlan: UserPlan.LIGHT },
   ai_prediction:    { label: 'AI 試合予測',             minPlan: UserPlan.PRO },
-  share_report:     { label: 'PDF共有',                minPlan: UserPlan.PRO },
+  share_report:     { label: 'PDF共有',                minPlan: UserPlan.LIGHT },
+  opponent_data:    { label: '試合中 相手データ参照',   minPlan: UserPlan.PRO },
 };
 
 // =============================================================================
@@ -217,13 +219,16 @@ export interface PlanFeatureRow {
 }
 
 export const PLAN_COMPARISON: PlanFeatureRow[] = [
+  { feature: 'ai_report',       label: '試合記録数',             free: '3試合/月', light: '5試合/月', standard: '10試合/月', pro: '無制限' },
   { feature: 'ai_report',       label: 'AI 分析レポート',        free: '-',      light: '10回/月', standard: '20回/月', pro: '無制限' },
+  { feature: 'share_report',    label: 'PDF共有',                free: '-',      light: '○',       standard: '○',       pro: '○' },
+  { feature: 'team_create',     label: 'チーム作成',             free: '-',      light: '-',       standard: '○',       pro: '○' },
+  { feature: 'opponent_data',   label: '試合中 相手データ参照',  free: '-',      light: '-',       standard: '-',       pro: '○' },
   { feature: 'spray_chart',     label: 'スプレーチャート',       free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'zone_heatmap',    label: 'ゾーンヒートマップ',     free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'leaderboard',     label: 'リーダーボード',         free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'sabermetrics',    label: 'セイバーメトリクス',     free: '-',      light: '-',       standard: '○',       pro: '○' },
   { feature: 'stats_export',    label: '成績エクスポート',       free: '-',      light: '-',       standard: '○',       pro: '○' },
-  { feature: 'team_create',     label: 'チーム作成',             free: '-',      light: '-',       standard: '1チーム', pro: '無制限' },
   { feature: 'cloud_backup',    label: 'クラウドバックアップ',   free: '-',      light: '-',       standard: '○',       pro: '○' },
   { feature: 'kyureki_search',  label: '球歴検索',               free: '-',      light: '-',       standard: '-',       pro: '○' },
   { feature: 'scout_ai',       label: 'AI スカウトレポート',    free: '-',      light: '-',       standard: '-',       pro: '○' },

@@ -3,16 +3,23 @@ import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, TextInput, Button, Switch } from 'react-native-paper';
 import { router } from 'expo-router';
 import { useTeams } from '../../../src/hooks/useTeam';
+import { usePlanGate } from '../../../src/hooks/usePlanGate';
+import { showTeamCreatePlanAlert } from '../../../src/utils/planLimitAlerts';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 
 export default function CreateTeamScreen() {
   const { createTeam } = useTeams();
+  const teamCreateGate = usePlanGate('team_create');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(true);
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
+    if (!teamCreateGate.allowed) {
+      showTeamCreatePlanAlert();
+      return;
+    }
     if (!name.trim()) {
       Alert.alert('エラー', 'チーム名を入力してください');
       return;

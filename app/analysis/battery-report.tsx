@@ -30,8 +30,9 @@ import { buildBatteryProfile, type BatteryProfile, type CountTendency } from '..
 import ZoneHeatmap from '../../src/components/analysis/ZoneHeatmap';
 import { generateBatteryAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
 import AIReportErrorCard from '../../src/components/AIReportErrorCard';
-import { useUserPlan } from '../../src/hooks/usePlanGate';
+import { useUserPlan, usePlanGate } from '../../src/hooks/usePlanGate';
 import { checkAIReportUsage } from '../../src/services/planService';
+import { showAIUsageLimitAlert, showPdfSharePlanAlert } from '../../src/utils/planLimitAlerts';
 import { usePostActions } from '../../src/hooks/usePosts';
 import type { PostVisibility } from '../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
@@ -149,6 +150,7 @@ export default function BatteryReportScreen() {
     }>();
 
   const userPlan = useUserPlan();
+  const pdfGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
 
   const [profile, setProfile] = useState<BatteryProfile | null>(null);
@@ -174,11 +176,7 @@ export default function BatteryReportScreen() {
       const report = await generateBatteryAIReport(p, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
         const usage = await checkAIReportUsage(userPlan);
-        Alert.alert(
-          'AI分析の上限に達しました',
-          `今月のAI分析回数（${usage.limit}回）を使い切りました。プランをアップグレードすると回数が増えます。`,
-          [{ text: 'OK' }],
-        );
+        showAIUsageLimitAlert(userPlan, usage.limit);
         return;
       }
       setAiReport(report);
@@ -231,6 +229,10 @@ export default function BatteryReportScreen() {
 
   const handleSharePDF = useCallback(async () => {
     if (!profile) return;
+    if (!pdfGate.allowed) {
+      showPdfSharePlanAlert();
+      return;
+    }
     setPdfSharing(true);
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -254,7 +256,7 @@ export default function BatteryReportScreen() {
     } finally {
       setPdfSharing(false);
     }
-  }, [profile]);
+  }, [profile, pdfGate.allowed]);
 
   const handleOpenChatShare = useCallback(() => {
     if (!profile) return;
