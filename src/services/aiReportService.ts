@@ -17,7 +17,9 @@ import { httpsCallable, type FunctionsError } from 'firebase/functions';
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import type { GameState } from '../types/game';
 import type { AggregatedPitchingStats, AggregatedBattingStats } from '../utils/multiGameStats';
-import type { BatteryProfile, BatterProfile } from '../utils/analysisEngine';
+import type { BatteryProfile, BatterProfile, PitcherProfile } from '../utils/analysisEngine';
+import { collectAtBatMemos } from '../utils/analysisEngine';
+import type { SpotAtBat } from '../models/types';
 import { auth, db, functions, COLLECTIONS } from './firebase';
 import {
   UserPlan,
@@ -202,7 +204,7 @@ export interface ReportInput {
 // =============================================================================
 
 type ServerReportType =
-  | 'pitcher' | 'batter' | 'team' | 'battery-profile' | 'batter-profile';
+  | 'pitcher' | 'batter' | 'team' | 'battery-profile' | 'batter-profile' | 'pitcher-profile' | 'spot-profile';
 
 interface ServerResponse {
   overall: string;
@@ -303,12 +305,32 @@ async function assertMonthlyAIQuota(plan: UserPlan): Promise<AIReport | null> {
 // 5. データシェイプ（クライアント型 → サーバー型）
 // =============================================================================
 
+function collectGameAtBatMemos(
+  game: GameState,
+  role: ReportRole,
+  playerId?: string,
+): string[] {
+  const logs = game.atBatLogs.filter((l) => {
+    if (!l.note?.trim()) return false;
+    if (role === 'batter' && playerId) return l.batterId === playerId;
+    if (role === 'pitcher' && playerId) return l.pitcherId === playerId;
+    return true;
+  });
+  return collectAtBatMemos(logs);
+}
+
+function withAtBatMemos<T extends Record<string, unknown>>(payload: T, memos: string[]): T {
+  if (memos.length === 0) return payload;
+  return { ...payload, atBatMemos: memos };
+}
+
 function shapePitcher(
   stats: AggregatedPitchingStats,
   score: { away: number; home: number },
   teamNames: { away: string; home: string },
+  atBatMemos: string[] = [],
 ) {
-  return {
+  return withAtBatMemos({
     playerName: stats.playerName,
     totalPitches: stats.totalPitches,
     strikeRate: stats.strikeRate,
@@ -319,15 +341,16 @@ function shapePitcher(
     zoneDistribution: stats.zoneDistribution,
     teamNames,
     score,
-  };
+  }, atBatMemos);
 }
 
 function shapeBatter(
   stats: AggregatedBattingStats,
   score: { away: number; home: number },
   teamNames: { away: string; home: string },
+  atBatMemos: string[] = [],
 ) {
-  return {
+  return withAtBatMemos({
     playerName: stats.playerName,
     atBats: stats.atBats,
     hits: stats.hits,
@@ -340,7 +363,7 @@ function shapeBatter(
     avgHitDistance: stats.avgHitDistance ?? null,
     teamNames,
     score,
-  };
+  }, atBatMemos);
 }
 
 function shapeTeam(
@@ -348,6 +371,7 @@ function shapeTeam(
   pitcher: AggregatedPitchingStats | null,
   score: { away: number; home: number },
   teamNames: { away: string; home: string },
+  atBatMemos: string[] = [],
 ) {
   const topBatters = [...batters]
     .sort((a, b) => b.ops - a.ops)
@@ -369,7 +393,7 @@ function shapeTeam(
       }
     : null;
 
-  return { topBatters, pitcherSummary, teamNames, score };
+  return withAtBatMemos({ topBatters, pitcherSummary, teamNames, score }, atBatMemos);
 }
 
 function shapeBatteryProfile(profile: BatteryProfile) {
@@ -388,7 +412,7 @@ function shapeBatteryProfile(profile: BatteryProfile) {
     .slice(0, 3)
     .map(([zone, count]) => ({ zone, count }));
 
-  return {
+  return withAtBatMemos({
     pitcherName:  profile.pitcherName,
     catcherName:  profile.catcherName,
     totalGames:   profile.totalGames,
@@ -414,11 +438,45 @@ function shapeBatteryProfile(profile: BatteryProfile) {
         topPitchPct:  c.pitchTypes[0]?.pct ?? 0,
         topZone:      c.topZones[0]?.zone ?? '-',
       })),
-  };
+  }, profile.atBatMemos ?? []);
+}
+
+function shapePitcherProfile(profile: PitcherProfile) {
+  const top2SPitches = profile.pitchType2Strike.slice(0, 3)
+    .map((p) => ({ type: p.type, pct: p.pct }));
+  const top2SZones = Object.entries(profile.zone2Strike)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([zone, count]) => ({ zone, count }));
+
+  return withAtBatMemos({
+    pitcherName:  profile.pitcherName,
+    totalGames:   profile.totalGames,
+    totalPitches: profile.totalPitches,
+    strikeRate:   profile.strikeRate,
+    avgVelocity:  profile.avgVelocity ?? null,
+    maxVelocity:  profile.maxVelocity ?? null,
+    top2SPitches,
+    top2SZones,
+    finishingPitches: profile.finishingPitches.slice(0, 3).map((f) => ({
+      pitchType: f.pitchType,
+      zone:      f.zone,
+      pct:       f.pct,
+    })),
+    countTendencies: profile.countTendencies
+      .filter((c) => c.total > 0)
+      .slice(0, 5)
+      .map((c) => ({
+        count:        `${c.balls}B-${c.strikes}S`,
+        topPitchType: c.pitchTypes[0]?.type ?? '-',
+        topPitchPct:  c.pitchTypes[0]?.pct ?? 0,
+        topZone:      c.topZones[0]?.zone ?? '-',
+      })),
+  }, profile.atBatMemos ?? []);
 }
 
 function shapeBatterProfile(profile: BatterProfile) {
-  return {
+  return withAtBatMemos({
     batterName:          profile.batterName,
     totalGames:          profile.totalGames,
     totalAtBats:         profile.totalAtBats,
@@ -444,7 +502,45 @@ function shapeBatterProfile(profile: BatterProfile) {
       hitRate:       b.pitchesFaced > 0 ? b.hits / b.pitchesFaced : 0,
     })),
     avgHitDistance: profile.avgHitDistance ?? null,
+  }, profile.atBatMemos ?? []);
+}
+
+const HIT_RESULTS = ['single', 'double', 'triple', 'home_run'] as const;
+const WALK_RESULTS = ['walk', 'hit_by_pitch'] as const;
+
+function shapeSpotProfile(spots: SpotAtBat[], playerName: string, opponent?: string) {
+  let atBats = 0;
+  let hits = 0;
+  const pitchTypeCounts: Record<string, number> = {};
+
+  for (const s of spots) {
+    if (!WALK_RESULTS.includes(s.result as typeof WALK_RESULTS[number])) atBats++;
+    if (HIT_RESULTS.includes(s.result as typeof HIT_RESULTS[number])) hits++;
+    for (const p of s.pitches) {
+      pitchTypeCounts[p.pitchType] = (pitchTypeCounts[p.pitchType] ?? 0) + 1;
+    }
+  }
+
+  const userMemos = spots
+    .filter((s) => s.memo?.trim())
+    .map((s) => `メモ: ${s.memo!.trim()}`);
+
+  const payload: Record<string, unknown> = {
+    playerName,
+    opponent: opponent ?? null,
+    totalSpotAtBats: spots.length,
+    atBats,
+    hits,
+    avg: atBats > 0 ? hits / atBats : 0,
+    topPitchTypes: Object.entries(pitchTypeCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([type, count]) => ({ type, count })),
   };
+  if (userMemos.length > 0) {
+    payload.userMemos = userMemos;
+  }
+  return payload;
 }
 
 // =============================================================================
@@ -486,17 +582,20 @@ export async function generateAIReport(input: ReportInput): Promise<AIReport> {
   try {
     let report: AIReport;
     if (role === 'pitcher' && pitcher) {
-      report = await callAIReportFunction('pitcher', shapePitcher(pitcher, score, teamNames));
+      const memos = collectGameAtBatMemos(game, 'pitcher', input.playerId);
+      report = await callAIReportFunction('pitcher', shapePitcher(pitcher, score, teamNames, memos));
     } else if (role === 'batter' && input.playerId) {
       const targetBatter = batters.find((b) => b.playerId === input.playerId);
       if (!targetBatter) {
         return toErrorReport(new Error('対象打者が見つかりません'));
       }
-      report = await callAIReportFunction('batter', shapeBatter(targetBatter, score, teamNames));
+      const memos = collectGameAtBatMemos(game, 'batter', input.playerId);
+      report = await callAIReportFunction('batter', shapeBatter(targetBatter, score, teamNames, memos));
     } else {
+      const memos = collectGameAtBatMemos(game, 'team');
       report = await callAIReportFunction(
         'team',
-        shapeTeam(batters, pitcher ?? null, score, teamNames),
+        shapeTeam(batters, pitcher ?? null, score, teamNames, memos),
       );
     }
     await incrementAIReportUsage();
@@ -551,6 +650,41 @@ export async function generateBatteryAIReport(
 /**
  * BatterProfile から AI 分析レポートを生成する。
  */
+export async function generatePitcherAIReport(
+  profile: PitcherProfile,
+  userPlan: UserPlan,
+): Promise<AIReport> {
+  const early = earlyPlanGate(userPlan);
+  if (early) return early;
+
+  const cacheKey = `pitcher:${profile.pitcherId}:${profile.pitcherName}:${profile.totalGames}:${profile.totalPitches}`;
+
+  const cached = await readCache(cacheKey);
+  if (cached) return { ...cached, fromCache: true };
+
+  const userId = auth.currentUser?.uid;
+  if (userId) {
+    const fsCached = await readFirestoreCache(userId, cacheKey);
+    if (fsCached) {
+      await writeCache(cacheKey, fsCached, userPlan);
+      return { ...fsCached, fromCache: true };
+    }
+  }
+
+  const quotaBlock = await assertMonthlyAIQuota(userPlan);
+  if (quotaBlock) return quotaBlock;
+
+  try {
+    const report = await callAIReportFunction('pitcher-profile', shapePitcherProfile(profile));
+    await incrementAIReportUsage();
+    await writeCache(cacheKey, report, userPlan);
+    if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan);
+    return report;
+  } catch (err) {
+    return toErrorReport(err);
+  }
+}
+
 export async function generateBatterAIReport(
   profile: BatterProfile,
   userPlan: UserPlan,
@@ -582,6 +716,49 @@ export async function generateBatterAIReport(
     await incrementAIReportUsage();
     await writeCache(cacheKey, report, userPlan);                              // L1
     if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan); // L2
+    return report;
+  } catch (err) {
+    return toErrorReport(err);
+  }
+}
+
+/**
+ * スポット打席データから AI 分析レポートを生成する。
+ */
+export async function generateSpotAIReport(
+  spots: SpotAtBat[],
+  playerName: string,
+  userPlan: UserPlan,
+  opponent?: string,
+): Promise<AIReport> {
+  const early = earlyPlanGate(userPlan);
+  if (early) return early;
+
+  const cacheKey = `spot:${playerName}:${opponent ?? 'all'}:${spots.length}:${spots.map((s) => s.id).join(',')}`;
+
+  const cached = await readCache(cacheKey);
+  if (cached) return { ...cached, fromCache: true };
+
+  const userId = auth.currentUser?.uid;
+  if (userId) {
+    const fsCached = await readFirestoreCache(userId, cacheKey);
+    if (fsCached) {
+      await writeCache(cacheKey, fsCached, userPlan);
+      return { ...fsCached, fromCache: true };
+    }
+  }
+
+  const quotaBlock = await assertMonthlyAIQuota(userPlan);
+  if (quotaBlock) return quotaBlock;
+
+  try {
+    const report = await callAIReportFunction(
+      'spot-profile',
+      shapeSpotProfile(spots, playerName, opponent),
+    );
+    await incrementAIReportUsage();
+    await writeCache(cacheKey, report, userPlan);
+    if (userId) await writeFirestoreCache(userId, cacheKey, report, userPlan);
     return report;
   } catch (err) {
     return toErrorReport(err);

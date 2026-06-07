@@ -111,6 +111,8 @@ export interface BatteryProfile {
   countTendencies:   CountTendency[];
   /** ルールベースの自然言語サマリ */
   summary:           string;
+  /** 打席メモ（AI分析用。「第N打席メモ: …」形式） */
+  atBatMemos:        string[];
 }
 
 export interface PitcherProfile {
@@ -135,6 +137,8 @@ export interface PitcherProfile {
   /** 一緒に組んだ捕手一覧（pitchCount 降順） */
   catchers: Array<{ catcherId: string; catcherName: string; pitchCount: number }>;
   summary:  string;
+  /** 打席メモ（AI分析用。「第N打席メモ: …」形式） */
+  atBatMemos: string[];
 }
 
 // ── Batter Profile ────────────────────────────────────────────────────────────
@@ -213,6 +217,16 @@ export interface BatterProfile {
   firstPitchSwingRate: number;
   /** バント率 (sacrifice_bunt / 打席) */
   buntRate:          number;
+  /** 打席メモ（AI分析用。「第N打席メモ: …」形式） */
+  atBatMemos:        string[];
+}
+
+/** 打席ログからメモを時系列で収集する（空メモは除外） */
+export function collectAtBatMemos(atBats: { note?: string; timestamp: number }[]): string[] {
+  return atBats
+    .filter((l) => l.note?.trim())
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((log, i) => `第${i + 1}打席メモ: ${log.note!.trim()}`);
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -622,6 +636,7 @@ export function buildBatteryProfile(
     pitchType2Strike: toPitchTypeStats(typeMap2S, pitches2S.length),
     finishingPitches,
     countTendencies,
+    atBatMemos: collectAtBatMemos(allAtBats),
   };
 
   return { ...base, summary: buildBatterySummary(base) };
@@ -825,6 +840,7 @@ export function buildBatterProfile(
     pitchTypeStats,
     firstPitchSwingRate: allAtBats.length > 0 ? firstPitchSwings / allAtBats.length : 0,
     buntRate:            completedAtBats.length > 0 ? buntCount / completedAtBats.length : 0,
+    atBatMemos:          collectAtBatMemos(allAtBats),
   };
 }
 
@@ -983,5 +999,6 @@ export function buildPitcherProfile(
     countTendencies,
     catchers,
     summary,
+    atBatMemos: collectAtBatMemos(allAtBats),
   };
 }

@@ -30,7 +30,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { db } from '../../src/db';
 import { buildPitcherProfile, type PitcherProfile, type CountTendency } from '../../src/utils/analysisEngine';
 import ZoneHeatmap from '../../src/components/analysis/ZoneHeatmap';
-import { generateBatteryAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
+import { generatePitcherAIReport, reportToSections, type AIReport } from '../../src/services/aiReportService';
 import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan } from '../../src/hooks/usePlanGate';
 import { checkAIReportUsage } from '../../src/services/planService';
@@ -157,32 +157,9 @@ export default function PitcherReportScreen() {
   const gamesRef = useRef<import('../../src/types/game').GameState[]>([]);
 
   const loadAIReport = useCallback(async (p: PitcherProfile) => {
-    if (p.catchers.length === 0) return;
     setAiLoading(true);
     try {
-      // AI レポートはバッテリープロファイル形式で呼ぶため、最多捕手で代表生成
-      const topCatcher = p.catchers[0];
-      const fakeBatteryProfile = {
-        pitcherId:        p.pitcherId,
-        pitcherName:      p.pitcherName,
-        catcherId:        topCatcher.catcherId,
-        catcherName:      topCatcher.catcherName,
-        totalGames:       p.totalGames,
-        totalPitches:     p.totalPitches,
-        strikeRate:       p.strikeRate,
-        avgVelocity:      p.avgVelocity,
-        maxVelocity:      p.maxVelocity,
-        zone2Strike:      p.zone2Strike,
-        zone2StrikeR:     p.zone2StrikeR,
-        zone2StrikeL:     p.zone2StrikeL,
-        zoneAllR:         {},
-        zoneAllL:         {},
-        pitchType2Strike: p.pitchType2Strike,
-        finishingPitches: p.finishingPitches,
-        countTendencies:  p.countTendencies,
-        summary:          p.summary,
-      };
-      const report = await generateBatteryAIReport(fakeBatteryProfile, userPlan);
+      const report = await generatePitcherAIReport(p, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
         const usage = await checkAIReportUsage(userPlan);
         showAIUsageLimitAlert(userPlan, usage.limit);

@@ -36,6 +36,8 @@ export const REPORT_TYPES = [
   'team',
   'battery-profile',
   'batter-profile',
+  'pitcher-profile',
+  'spot-profile',
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 
@@ -60,6 +62,7 @@ export interface PitcherData {
   zoneDistribution: Record<string, number>;
   teamNames: { away: string; home: string };
   score: { away: number; home: number };
+  atBatMemos?: string[];
 }
 
 export interface BatterData {
@@ -75,6 +78,7 @@ export interface BatterData {
   avgHitDistance: number | null;
   teamNames: { away: string; home: string };
   score: { away: number; home: number };
+  atBatMemos?: string[];
 }
 
 export interface TeamData {
@@ -93,6 +97,7 @@ export interface TeamData {
   } | null;
   teamNames: { away: string; home: string };
   score: { away: number; home: number };
+  atBatMemos?: string[];
 }
 
 export interface BatteryProfileData {
@@ -117,6 +122,26 @@ export interface BatteryProfileData {
     topPitchPct:  number;
     topZone:      string;
   }>;
+  atBatMemos?: string[];
+}
+
+export interface PitcherProfileData {
+  pitcherName:  string;
+  totalGames:   number;
+  totalPitches: number;
+  strikeRate:   number;
+  avgVelocity:  number | null;
+  maxVelocity:  number | null;
+  top2SPitches:    Array<{ type: string; pct: number }>;
+  top2SZones:      Array<{ zone: string; count: number }>;
+  finishingPitches: Array<{ pitchType: string; zone: string; pct: number }>;
+  countTendencies: Array<{
+    count:        string;
+    topPitchType: string;
+    topPitchPct:  number;
+    topZone:      string;
+  }>;
+  atBatMemos?: string[];
 }
 
 export interface BatterProfileData {
@@ -138,6 +163,18 @@ export interface BatterProfileData {
     band: string; count: number; swingMissRate: number; hitRate: number;
   }>;
   avgHitDistance: number | null;
+  atBatMemos?: string[];
+}
+
+export interface SpotProfileData {
+  playerName: string;
+  opponent: string | null;
+  totalSpotAtBats: number;
+  atBats: number;
+  hits: number;
+  avg: number;
+  topPitchTypes: Array<{ type: string; count: number }>;
+  userMemos?: string[];
 }
 
 // =============================================================================
@@ -205,14 +242,37 @@ export function deepSanitize<T>(value: T): T {
 // 5. ユーザープロンプト組み立て
 // =============================================================================
 
+const AT_BAT_MEMO_INTRO =
+  '以下はユーザーが記録した打席メモです。分析の参考にしてください:';
+const SPOT_MEMO_INTRO =
+  '以下はユーザーが記録したスポット打席メモです。分析の参考にしてください:';
+
+function injectAtBatMemos(
+  statsJson: Record<string, unknown>,
+  memos?: string[],
+): Record<string, unknown> {
+  if (!memos?.length) return statsJson;
+  return { ...statsJson, ユーザー打席メモ: memos };
+}
+
+function injectSpotMemos(
+  statsJson: Record<string, unknown>,
+  memos?: string[],
+): Record<string, unknown> {
+  if (!memos?.length) return statsJson;
+  return { ...statsJson, ユーザースポット打席メモ: memos };
+}
+
 /** sanitize 済みデータを <userdata> で包み、定型 JSON フォーマットを提示する */
 function wrapPrompt(
   intro: string,
   statsJson: unknown,
   responseShape: string,
+  memoIntro?: string,
 ): string {
+  const memoSection = memoIntro ? `\n\n${memoIntro}` : '';
   return `
-${intro}
+${intro}${memoSection}
 
 データ:
 <userdata>
@@ -251,9 +311,10 @@ function buildPitcherPrompt(d: PitcherData): string {
     多投ゾーン上位5: zoneEntries,
   };
 
+  const memos = d.atBatMemos;
   return wrapPrompt(
     '以下の投手成績データを分析してください。',
-    statsJson,
+    injectAtBatMemos(statsJson, memos),
     `{
   "overall": "総合評価（2〜3文）",
   "improvements": [
@@ -263,6 +324,7 @@ function buildPitcherPrompt(d: PitcherData): string {
   "nextAdvice": "次回の登板に向けた1つのアドバイス（1〜2文）",
   "highlights": "特筆すべき好プレーや数値（1文）"
 }`,
+    memos?.length ? AT_BAT_MEMO_INTRO : undefined,
   );
 }
 
@@ -281,9 +343,10 @@ function buildBatterPrompt(d: BatterData): string {
     平均飛距離: d.avgHitDistance != null ? `${d.avgHitDistance}m` : '未計測',
   };
 
+  const memos = d.atBatMemos;
   return wrapPrompt(
     '以下の打者成績データを分析してください。',
-    statsJson,
+    injectAtBatMemos(statsJson, memos),
     `{
   "overall": "総合評価（2〜3文）",
   "improvements": [
@@ -293,6 +356,7 @@ function buildBatterPrompt(d: BatterData): string {
   "nextAdvice": "次打席へのアドバイス（1〜2文）",
   "highlights": "特筆すべき好プレーや数値（1文）"
 }`,
+    memos?.length ? AT_BAT_MEMO_INTRO : undefined,
   );
 }
 
@@ -319,9 +383,10 @@ function buildTeamPrompt(d: TeamData): string {
       : null,
   };
 
+  const memos = d.atBatMemos;
   return wrapPrompt(
     '以下のチーム成績データを分析してください。',
-    statsJson,
+    injectAtBatMemos(statsJson, memos),
     `{
   "overall": "チーム全体の総合評価（2〜3文）",
   "improvements": [
@@ -331,6 +396,7 @@ function buildTeamPrompt(d: TeamData): string {
   "nextAdvice": "次の試合へのアドバイス（1〜2文）",
   "highlights": "特筆すべき好プレーや数値（1文）"
 }`,
+    memos?.length ? AT_BAT_MEMO_INTRO : undefined,
   );
 }
 
@@ -357,9 +423,10 @@ function buildBatteryProfilePrompt(d: BatteryProfileData): string {
     })),
   };
 
+  const memos = d.atBatMemos;
   return wrapPrompt(
     '以下のバッテリー配球データを分析してください。',
-    statsJson,
+    injectAtBatMemos(statsJson, memos),
     `{
   "overall": "このバッテリーの配球特徴・総合評価（2〜3文）",
   "improvements": [
@@ -369,6 +436,42 @@ function buildBatteryProfilePrompt(d: BatteryProfileData): string {
   "nextAdvice": "次回の登板に向けた配球アドバイス（1〜2文）",
   "highlights": "配球の強みや特徴（1文）"
 }`,
+    memos?.length ? AT_BAT_MEMO_INTRO : undefined,
+  );
+}
+
+function buildPitcherProfilePrompt(d: PitcherProfileData): string {
+  const statsJson = {
+    投手名:       d.pitcherName,
+    試合数:       d.totalGames,
+    総投球数:     d.totalPitches,
+    ストライク率: pct(d.strikeRate),
+    平均球速:     d.avgVelocity != null ? `${d.avgVelocity}km/h` : '未計測',
+    最高球速:     d.maxVelocity != null ? `${d.maxVelocity}km/h` : '未計測',
+    '2ストライク時球種上位3': d.top2SPitches.map((p) => `${p.type}: ${pct(p.pct)}`).join(', ') || '-',
+    '2ストライク時ゾーン上位3': d.top2SZones.map((z) => `ゾーン${z.zone}: ${z.count}球`).join(', ') || '-',
+    決め球ランキング: d.finishingPitches.map((f) => ({
+      球種: f.pitchType, ゾーン: f.zone, 割合: pct(f.pct),
+    })),
+    カウント別傾向: d.countTendencies.map((c) => ({
+      カウント: c.count, 最多球種: c.topPitchType, 球種割合: pct(c.topPitchPct), 最多ゾーン: c.topZone,
+    })),
+  };
+
+  const memos = d.atBatMemos;
+  return wrapPrompt(
+    '以下の投手傾向データを分析してください。',
+    injectAtBatMemos(statsJson, memos),
+    `{
+  "overall": "この投手の配球特徴・総合評価（2〜3文）",
+  "improvements": [
+    { "aspect": "配球上の課題", "detail": "具体的な改善アドバイス（1〜2文）" },
+    { "aspect": "課題項目2", "detail": "具体的な改善アドバイス2" }
+  ],
+  "nextAdvice": "次回の登板に向けたアドバイス（1〜2文）",
+  "highlights": "投球の強みや特徴（1文）"
+}`,
+    memos?.length ? AT_BAT_MEMO_INTRO : undefined,
   );
 }
 
@@ -399,9 +502,10 @@ function buildBatterProfilePrompt(d: BatterProfileData): string {
     平均打球飛距離: d.avgHitDistance != null ? `${d.avgHitDistance}m` : '未計測',
   };
 
+  const memos = d.atBatMemos;
   return wrapPrompt(
     '以下の打者傾向データを分析してください。',
-    statsJson,
+    injectAtBatMemos(statsJson, memos),
     `{
   "overall": "この打者の傾向・特徴の総合評価（2〜3文）",
   "improvements": [
@@ -411,6 +515,35 @@ function buildBatterProfilePrompt(d: BatterProfileData): string {
   "nextAdvice": "次打席へのアドバイス（1〜2文）",
   "highlights": "打撃の強みや特徴（1文）"
 }`,
+    memos?.length ? AT_BAT_MEMO_INTRO : undefined,
+  );
+}
+
+function buildSpotProfilePrompt(d: SpotProfileData): string {
+  const statsJson = {
+    打者名:     d.playerName,
+    対戦相手:   d.opponent ?? '未設定',
+    スポット打席数: d.totalSpotAtBats,
+    打数:       d.atBats,
+    安打数:     d.hits,
+    打率:       fmt3(d.avg),
+    球種別被投球数: d.topPitchTypes.map((p) => `${p.type}: ${p.count}球`).join(', ') || '-',
+  };
+
+  const memos = d.userMemos;
+  return wrapPrompt(
+    '以下のスポット打席データを分析してください。',
+    injectSpotMemos(statsJson, memos),
+    `{
+  "overall": "スポット打席の総合評価（2〜3文）",
+  "improvements": [
+    { "aspect": "打撃上の課題", "detail": "具体的な改善アドバイス（1〜2文）" },
+    { "aspect": "課題項目2", "detail": "具体的な改善アドバイス2" }
+  ],
+  "nextAdvice": "次の打席へのアドバイス（1〜2文）",
+  "highlights": "特筆すべき好プレーや数値（1文）"
+}`,
+    memos?.length ? SPOT_MEMO_INTRO : undefined,
   );
 }
 
@@ -443,6 +576,14 @@ export function validateData(reportType: ReportType, data: unknown): string | nu
       if (typeof d.batterName !== 'string') return 'batter-profile.batterName is required';
       if (typeof d.totalAtBats !== 'number') return 'batter-profile.totalAtBats is required';
       return null;
+    case 'pitcher-profile':
+      if (typeof d.pitcherName !== 'string') return 'pitcher-profile.pitcherName is required';
+      if (typeof d.totalPitches !== 'number') return 'pitcher-profile.totalPitches is required';
+      return null;
+    case 'spot-profile':
+      if (typeof d.playerName !== 'string') return 'spot-profile.playerName is required';
+      if (typeof d.totalSpotAtBats !== 'number') return 'spot-profile.totalSpotAtBats is required';
+      return null;
   }
 }
 
@@ -460,6 +601,8 @@ export function buildPromptForReportType(
     case 'team':             return buildTeamPrompt(data as TeamData);
     case 'battery-profile':  return buildBatteryProfilePrompt(data as BatteryProfileData);
     case 'batter-profile':   return buildBatterProfilePrompt(data as BatterProfileData);
+    case 'pitcher-profile':  return buildPitcherProfilePrompt(data as PitcherProfileData);
+    case 'spot-profile':     return buildSpotProfilePrompt(data as SpotProfileData);
   }
 }
 
