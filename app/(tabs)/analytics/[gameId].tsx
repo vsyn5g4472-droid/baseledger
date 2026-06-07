@@ -15,6 +15,7 @@ import {
 import { Stack, useLocalSearchParams, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { db } from '../../../src/db';
+import { gameService, stripGameMetadata } from '../../../src/services/gameService';
 import type { GameState } from '../../../src/types/game';
 import {
   computeGameAnalytics,
@@ -175,6 +176,7 @@ export default function GameAnalyticsScreen() {
   const { t } = useI18n();
   const [game, setGame] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gameCanReshare, setGameCanReshare] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('batting');
   const [heatmapTeam, setHeatmapTeam] = useState<'away' | 'home'>('home');
   const [sprayTeam, setSprayTeam] = useState<'away' | 'home'>('away');
@@ -212,10 +214,30 @@ export default function GameAnalyticsScreen() {
 
   useEffect(() => {
     if (!gameId) return;
-    db.games
-      .get(gameId)
-      .then((g) => { if (g) setGame(g); })
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const local = await db.games.get(gameId);
+        if (cancelled) return;
+        if (local) {
+          setGame(local);
+          setGameCanReshare(true);
+          return;
+        }
+
+        const shared = await gameService.getSharedGame(gameId);
+        if (cancelled) return;
+        if (shared) {
+          setGame(stripGameMetadata(shared));
+          setGameCanReshare(shared.canReshare !== false);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [gameId]);
 
   const analytics: GameAnalytics | null = useMemo(() => {
@@ -569,6 +591,7 @@ export default function GameAnalyticsScreen() {
   const homePitchLogs = (game.pitchLogs ?? []).filter((p) => p.inning.half === 'top');
   const awayPitchLogs = (game.pitchLogs ?? []).filter((p) => p.inning.half === 'bottom');
   const safeAtBatLogs = game.atBatLogs ?? [];
+  const allowShare = gameCanReshare;
 
   return (
     <>
@@ -576,47 +599,48 @@ export default function GameAnalyticsScreen() {
         options={{
           title: '試合分析',
           headerBackTitle: '一覧',
-          headerRight: () => (
-            <View style={styles.headerButtons}>
-              {/* チャット/DM 共有ボタン */}
-              <TouchableOpacity
-                onPress={handleOpenChatShare}
-                style={styles.headerShareBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialCommunityIcons name="chat-plus-outline" size={22} color={Colors.primary} />
-              </TouchableOpacity>
-              {/* 試合サマリー共有ボタン */}
-              <TouchableOpacity
-                onPress={handleOpenSummaryModal}
-                style={styles.headerShareBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialCommunityIcons
-                  name="text-box-plus-outline"
-                  size={22}
-                  color={Colors.primary}
-                />
-              </TouchableOpacity>
-              {/* PDF共有ボタン */}
-              <TouchableOpacity
-                onPress={handleShare}
-                disabled={sharing}
-                style={styles.headerShareBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                {sharing ? (
-                  <ActivityIndicator size="small" color={Colors.primary} />
-                ) : (
+          headerRight: () =>
+            allowShare ? (
+              <View style={styles.headerButtons}>
+                {/* チャット/DM 共有ボタン */}
+                <TouchableOpacity
+                  onPress={handleOpenChatShare}
+                  style={styles.headerShareBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <MaterialCommunityIcons name="chat-plus-outline" size={22} color={Colors.primary} />
+                </TouchableOpacity>
+                {/* 試合サマリー共有ボタン */}
+                <TouchableOpacity
+                  onPress={handleOpenSummaryModal}
+                  style={styles.headerShareBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <MaterialCommunityIcons
-                    name="share-variant"
+                    name="text-box-plus-outline"
                     size={22}
-                    color={shareGate.allowed ? Colors.primary : Colors.textSecondary}
+                    color={Colors.primary}
                   />
-                )}
-              </TouchableOpacity>
-            </View>
-          ),
+                </TouchableOpacity>
+                {/* PDF共有ボタン */}
+                <TouchableOpacity
+                  onPress={handleShare}
+                  disabled={sharing}
+                  style={styles.headerShareBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  {sharing ? (
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  ) : (
+                    <MaterialCommunityIcons
+                      name="share-variant"
+                      size={22}
+                      color={shareGate.allowed ? Colors.primary : Colors.textSecondary}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null,
         }}
       />
 
@@ -1249,51 +1273,53 @@ export default function GameAnalyticsScreen() {
           )}
 
           {/* 共有ボタン行 */}
-          <View style={styles.shareCol}>
-            {/* Row1: 試合サマリー＋選手成績 */}
-            <View style={styles.shareRow}>
-              <TouchableOpacity
-                style={[styles.shareInlineBtn, styles.shareInlineFeed]}
-                onPress={handleOpenSummaryModal}
-                activeOpacity={0.8}
-              >
-                <View style={styles.shareInlineBtnInner}>
-                  <MaterialCommunityIcons name="text-box-plus-outline" size={16} color={Colors.primary} />
-                  <Text style={styles.shareInlineFeedText}>試合結果を投稿</Text>
-                </View>
-              </TouchableOpacity>
+          {allowShare && (
+            <View style={styles.shareCol}>
+              {/* Row1: 試合サマリー＋選手成績 */}
+              <View style={styles.shareRow}>
+                <TouchableOpacity
+                  style={[styles.shareInlineBtn, styles.shareInlineFeed]}
+                  onPress={handleOpenSummaryModal}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.shareInlineBtnInner}>
+                    <MaterialCommunityIcons name="text-box-plus-outline" size={16} color={Colors.primary} />
+                    <Text style={styles.shareInlineFeedText}>試合結果を投稿</Text>
+                  </View>
+                </TouchableOpacity>
 
+                <TouchableOpacity
+                  style={[styles.shareInlineBtn, styles.shareInlinePlayer]}
+                  onPress={handleOpenPlayerModal}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.shareInlineBtnInner}>
+                    <MaterialCommunityIcons name="account-star-outline" size={16} color={Colors.accent} />
+                    <Text style={styles.shareInlinePlayerText}>選手成績を投稿</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Row2: PDF共有（幅広） */}
               <TouchableOpacity
-                style={[styles.shareInlineBtn, styles.shareInlinePlayer]}
-                onPress={handleOpenPlayerModal}
+                style={[styles.shareInlineFull, styles.shareInlinePdf]}
+                onPress={handleShare}
+                disabled={sharing}
                 activeOpacity={0.8}
               >
-                <View style={styles.shareInlineBtnInner}>
-                  <MaterialCommunityIcons name="account-star-outline" size={16} color={Colors.accent} />
-                  <Text style={styles.shareInlinePlayerText}>選手成績を投稿</Text>
-                </View>
+                {sharing ? (
+                  <ActivityIndicator size="small" color={Colors.white} />
+                ) : (
+                  <View style={styles.shareInlineBtnInner}>
+                    <MaterialCommunityIcons name="file-pdf-box" size={16} color={Colors.white} />
+                    <Text style={styles.shareInlinePdfText}>
+                      {shareGate.allowed ? 'PDF共有' : 'PDF共有（ライト以上）'}
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
-
-            {/* Row2: PDF共有（幅広） */}
-            <TouchableOpacity
-              style={[styles.shareInlineFull, styles.shareInlinePdf]}
-              onPress={handleShare}
-              disabled={sharing}
-              activeOpacity={0.8}
-            >
-              {sharing ? (
-                <ActivityIndicator size="small" color={Colors.white} />
-              ) : (
-                <View style={styles.shareInlineBtnInner}>
-                  <MaterialCommunityIcons name="file-pdf-box" size={16} color={Colors.white} />
-                  <Text style={styles.shareInlinePdfText}>
-                    {shareGate.allowed ? 'PDF共有' : 'PDF共有（ライト以上）'}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
+          )}
 
         </ScrollView>
       </View>

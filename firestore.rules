@@ -139,7 +139,14 @@ service cloud.firestore {
     // ─── games ───────────────────────────────────────────────
     match /games/{gameId} {
       allow read: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
+        && (
+          resource.data.ownerId == request.auth.uid
+          || request.auth.uid in resource.data.get('sharedWith', [])
+          || (
+            resource.data.get('isShared', false) == true
+            && request.auth.uid in resource.data.get('sharedTo', [])
+          )
+        );
       allow create: if isSignedIn()
         && request.resource.data.ownerId == request.auth.uid;
       allow update: if isSignedIn()

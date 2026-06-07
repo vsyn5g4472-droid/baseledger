@@ -449,6 +449,26 @@ export class AppError extends Error {
 }
 
 // ============================================================
+// Game Sharing (Firestore games ドキュメント)
+// ============================================================
+
+/** 共有試合における選手とアカウントの紐付け */
+export interface GamePlayerAssignment {
+  playerId: string;
+  userId: string;
+  displayName: string;
+}
+
+/** games/{gameId} に付与する共有メタデータ */
+export interface GameSharingFields {
+  sharedWith?: string[];
+  sharedTo?: string[];
+  isShared?: boolean;
+  canReshare?: boolean;
+  playerAssignments?: GamePlayerAssignment[];
+}
+
+// ============================================================
 // SpotAtBat (スポット打席記録)
 // ============================================================
 
