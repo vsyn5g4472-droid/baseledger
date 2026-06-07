@@ -54,6 +54,7 @@ import { makeFieldViewFilter, filterPitchResultOptions } from '../../../src/util
 import { mergeRecordingPreferences } from '../../../src/constants/recordingPreferences';
 import RunnerAdvancementView from '../../../src/components/score/RunnerAdvancementView';
 import PlayLogList from '../../../src/components/score/PlayLogList';
+import CurrentAtBatPitchLog from '../../../src/components/score/CurrentAtBatPitchLog';
 import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
 import PlayerSubstitutionModal from '../../../src/components/score/PlayerSubstitutionModal';
 import InGameStatsPanel from '../../../src/components/score/InGameStatsPanel';
@@ -880,6 +881,15 @@ export default function LiveScoreScreen() {
             </View>
           </View>
         </View>
+
+        {/* ===== 現在打席の投球ログ ===== */}
+        {game.currentAtBat && (
+          <CurrentAtBatPitchLog
+            batter={batter}
+            pitcher={pitcher}
+            pitches={game.currentAtBat.pitches}
+          />
+        )}
 
         {/* ===== 直前の打席を修正ボタン ===== */}
         {game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement && (

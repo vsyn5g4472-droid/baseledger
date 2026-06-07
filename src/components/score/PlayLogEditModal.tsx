@@ -13,6 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { useI18n } from '../../i18n';
 import type { AtBatLog, AtBatResult } from '../../types/game';
+import { estimateDefaultRbi, shouldAutoFillRbi } from '../../utils/rbiEstimate';
 
 interface PlayLogEditModalProps {
   visible: boolean;
@@ -48,18 +49,34 @@ export default function PlayLogEditModal({ visible, log, onSave, onClose }: Play
   const [note, setNote] = useState('');
 
   useEffect(() => {
-    if (log) {
+    if (log && log.result) {
       setSelectedResult(log.result);
-      setRbi(log.rbiCount);
+      const initialRbi = shouldAutoFillRbi(log.result, log.rbiCount)
+        ? estimateDefaultRbi(log.result, log.runnersBeforePlay)
+        : log.rbiCount;
+      setRbi(initialRbi);
       setNote(log.note ?? '');
     }
   }, [log]);
+
+  const handleResultSelect = (result: AtBatResult) => {
+    setSelectedResult(result);
+    if (!log) return;
+    const estimated = estimateDefaultRbi(result, log.runnersBeforePlay);
+    if (shouldAutoFillRbi(result, rbi) || (estimated > 0 && rbi === 0)) {
+      setRbi(estimated);
+    }
+  };
 
   if (!log) return null;
 
   const handleSave = () => {
     if (!selectedResult) return;
-    onSave(log.id, selectedResult, rbi, note.trim());
+    let finalRbi = rbi;
+    if (shouldAutoFillRbi(selectedResult, finalRbi)) {
+      finalRbi = estimateDefaultRbi(selectedResult, log.runnersBeforePlay);
+    }
+    onSave(log.id, selectedResult, finalRbi, note.trim());
     onClose();
   };
 
@@ -89,7 +106,7 @@ export default function PlayLogEditModal({ visible, log, onSave, onClose }: Play
                       { backgroundColor: isActive ? color : Colors.background },
                       isActive && styles.resultBtnActive,
                     ]}
-                    onPress={() => setSelectedResult(result)}
+                    onPress={() => handleResultSelect(result)}
                   >
                     <Text style={[styles.resultBtnText, isActive && styles.resultBtnTextActive]}>
                       {(t.atBatResults as Record<string, string>)[result] ?? result}

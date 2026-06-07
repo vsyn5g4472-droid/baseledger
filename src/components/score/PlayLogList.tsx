@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ interface PlayLogListProps {
 
 export default function PlayLogList({ logs, onEdit }: PlayLogListProps) {
   const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
 
   if (logs.length === 0) return null;
 
@@ -63,13 +64,29 @@ export default function PlayLogList({ logs, onEdit }: PlayLogListProps) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{t.playLog.title}</Text>
-      <FlatList
-        data={logs}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        scrollEnabled={false}
-      />
+      <TouchableOpacity
+        style={styles.headerRow}
+        onPress={() => setExpanded((v) => !v)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.title}>{t.playLog.title}</Text>
+        <View style={styles.headerRight}>
+          <Text style={styles.countBadge}>{logs.length}件</Text>
+          <MaterialCommunityIcons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color={Colors.primary}
+          />
+        </View>
+      </TouchableOpacity>
+      {expanded && (
+        <FlatList
+          data={logs}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          scrollEnabled={false}
+        />
+      )}
     </View>
   );
 }
@@ -81,11 +98,26 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     paddingHorizontal: Spacing.sm,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  countBadge: {
+    fontSize: Typography.tiny,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
   title: {
     fontSize: Typography.bodySmall,
     fontWeight: '800',
-    color: Colors.primary,   // ネイビー (ライト背景で視認性◎)
-    marginBottom: Spacing.xs,
+    color: Colors.primary,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
