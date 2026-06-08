@@ -5,13 +5,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Dimensions,
   LayoutAnimation,
   Platform,
   UIManager,
   Switch,
   Image,
-  PanResponder,
 } from 'react-native';
 
 // Android で LayoutAnimation を有効化
@@ -55,6 +53,8 @@ import { mergeRecordingPreferences } from '../../../src/constants/recordingPrefe
 import RunnerAdvancementView from '../../../src/components/score/RunnerAdvancementView';
 import PlayLogList from '../../../src/components/score/PlayLogList';
 import CurrentAtBatPitchLog from '../../../src/components/score/CurrentAtBatPitchLog';
+import VelocityDragMeter from '../../../src/components/score/VelocityDragMeter';
+import ModalVelocitySlider from '../../../src/components/score/ModalVelocitySlider';
 import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
 import PlayerSubstitutionModal from '../../../src/components/score/PlayerSubstitutionModal';
 import InGameStatsPanel from '../../../src/components/score/InGameStatsPanel';
@@ -242,6 +242,7 @@ export default function LiveScoreScreen() {
 
   // ── スクロールロック ────────────────────────────────────────────────
   const [scrollLocked, setScrollLocked] = useState(false);
+  const [modalScrollLocked, setModalScrollLocked] = useState(false);
 
   // ── 球速計測 ─────────────────────────────────────────────────────
   const pitchDistanceM = game?.pitchDistanceM ?? 18.44;
@@ -1588,12 +1589,14 @@ export default function LiveScoreScreen() {
             setRunnerActions({});
             setModalVelocity(130);
             setModalVelocityEnabled(true);
+            setModalScrollLocked(false);
           }}
           contentContainerStyle={styles.modal}
         >
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            scrollEnabled={!modalScrollLocked}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 }}>
               <TouchableOpacity
@@ -1733,6 +1736,7 @@ export default function LiveScoreScreen() {
                 setModalVelocityEnabled(v);
               }}
               onChange={setModalVelocity}
+              onScrollLock={setModalScrollLocked}
             />
           </ScrollView>
         </Modal>
@@ -1988,354 +1992,6 @@ function BatterSilhouetteSVG({ side }: { side: 'L' | 'R' }) {
 
 
 // rdStyles: RunnerDiamond → SwipeableDiamond に移行済み (削除)
-
-// ============================================================
-// VelocityDragMeter — ドラッグ式球速メーター
-// ============================================================
-
-const VEL_MIN = 80;
-const VEL_MAX = 165;
-const SCREEN_W = Dimensions.get('window').width;
-const METER_TRACK_W = SCREEN_W - 100; // strip padding を除いた追跡幅
-
-function VelocityDragMeter({
-  value,
-  onChange,
-  onReset,
-  setScrollLocked,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  onReset: () => void;
-  setScrollLocked: (l: boolean) => void;
-}) {
-  const fillRatio = (value - VEL_MIN) / (VEL_MAX - VEL_MIN);
-
-  // デルタドラッグ: タッチ開始時の位置と値を記録し、移動量だけ値を変化させる
-  const dragRef = useRef<{ startPageX: number; startValue: number } | null>(null);
-
-  return (
-    <View style={meterStyles.wrap}>
-      {/* 大きな数値表示 */}
-      <View style={meterStyles.valueRow}>
-        <MaterialCommunityIcons name="speedometer" size={18} color="#2E7D32" />
-        <Text style={meterStyles.valueLarge}>{value}</Text>
-        <Text style={meterStyles.unitText}>km/h</Text>
-        <TouchableOpacity onPress={onReset} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <MaterialCommunityIcons name="refresh" size={16} color={Colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
-
-      {/* ドラッグトラック */}
-      <View
-        style={meterStyles.track}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderTerminationRequest={() => false}
-        onResponderGrant={(e) => {
-          setScrollLocked(true);
-          // タッチ開始位置と現在値を記録 (値はジャンプしない)
-          dragRef.current = {
-            startPageX: e.nativeEvent.pageX,
-            startValue: value,
-          };
-        }}
-        onResponderMove={(e) => {
-          if (!dragRef.current) return;
-          const deltaX = e.nativeEvent.pageX - dragRef.current.startPageX;
-          const deltaV = (deltaX / METER_TRACK_W) * (VEL_MAX - VEL_MIN);
-          const next = Math.round(
-            Math.max(VEL_MIN, Math.min(VEL_MAX, dragRef.current.startValue + deltaV))
-          );
-          onChange(next);
-        }}
-        onResponderRelease={() => {
-          setScrollLocked(false);
-          dragRef.current = null;
-        }}
-        onResponderTerminate={() => {
-          setScrollLocked(false);
-          dragRef.current = null;
-        }}
-      >
-        {/* 背景 */}
-        <View style={meterStyles.trackBg} />
-        {/* 塗りつぶし */}
-        <View style={[meterStyles.trackFill, { width: `${fillRatio * 100}%` as any }]} />
-        {/* サム */}
-        <View style={[meterStyles.thumb, { left: fillRatio * (METER_TRACK_W - 20) }]} />
-      </View>
-
-      {/* レンジラベル */}
-      <View style={meterStyles.rangeRow}>
-        <Text style={meterStyles.rangeLabel}>{VEL_MIN}</Text>
-        <Text style={meterStyles.rangeLabel}>{VEL_MAX}</Text>
-      </View>
-    </View>
-  );
-}
-
-const meterStyles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    paddingVertical: 4,
-    gap: 2,
-  },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  valueLarge: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#2E7D32',
-    lineHeight: 26,
-  },
-  unitText: {
-    fontSize: Typography.caption,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-    flex: 1,
-  },
-  track: {
-    height: 28,
-    width: METER_TRACK_W,
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  trackBg: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.border,
-    top: 10,
-  },
-  trackFill: {
-    position: 'absolute',
-    left: 0,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#2E7D32',
-    top: 10,
-  },
-  thumb: {
-    position: 'absolute',
-    top: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#2E7D32',
-    borderWidth: 2.5,
-    borderColor: Colors.white,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  rangeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: METER_TRACK_W,
-  },
-  rangeLabel: {
-    fontSize: Typography.tiny,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-});
-
-// ============================================================
-// ModalVelocitySlider — 投球結果モーダル内の球速入力
-// ============================================================
-
-const MODAL_VEL_MIN = 50;
-const MODAL_VEL_MAX = 160;
-const MODAL_TRACK_W = Dimensions.get('window').width - 80;
-
-function ModalVelocitySlider({
-  enabled,
-  value,
-  onToggle,
-  onChange,
-}: {
-  enabled: boolean;
-  value: number;
-  onToggle: (v: boolean) => void;
-  onChange: (v: number) => void;
-}) {
-  const fillRatio = (value - MODAL_VEL_MIN) / (MODAL_VEL_MAX - MODAL_VEL_MIN);
-  const startRef = useRef<{ pageX: number; value: number } | null>(null);
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
-      onPanResponderGrant: (e) => {
-        startRef.current = { pageX: e.nativeEvent.pageX, value };
-      },
-      onPanResponderMove: (e) => {
-        if (!startRef.current) return;
-        const deltaX = e.nativeEvent.pageX - startRef.current.pageX;
-        const deltaV = (deltaX / MODAL_TRACK_W) * (MODAL_VEL_MAX - MODAL_VEL_MIN);
-        onChange(Math.round(Math.max(MODAL_VEL_MIN, Math.min(MODAL_VEL_MAX,
-          startRef.current.value + deltaV))));
-      },
-      onPanResponderRelease: () => { startRef.current = null; },
-      onPanResponderTerminate: () => { startRef.current = null; },
-    })
-  ).current;
-
-  return (
-    <View style={modalVelStyles.section}>
-      {/* ON/OFFトグル行 */}
-      <TouchableOpacity
-        style={[modalVelStyles.toggleRow, enabled && modalVelStyles.toggleRowOn]}
-        onPress={() => onToggle(!enabled)}
-        activeOpacity={0.8}
-      >
-        <MaterialCommunityIcons
-          name="speedometer"
-          size={16}
-          color={enabled ? '#fff' : Colors.textSecondary}
-        />
-        <Text style={[modalVelStyles.toggleLabel, enabled && modalVelStyles.toggleLabelOn]}>
-          球速を入力
-        </Text>
-        {enabled && (
-          <Text style={modalVelStyles.toggleValue}>{value} km/h</Text>
-        )}
-        <View style={[modalVelStyles.badge, enabled && modalVelStyles.badgeOn]}>
-          <Text style={[modalVelStyles.badgeText, enabled && modalVelStyles.badgeTextOn]}>
-            {enabled ? 'あり' : 'なし'}
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* スライダー（ONの場合のみ表示） */}
-      {enabled && (
-        <View style={modalVelStyles.sliderWrap}>
-          <View
-            style={modalVelStyles.track}
-            {...panResponder.panHandlers}
-          >
-            <View style={modalVelStyles.trackBg} />
-            <View style={[modalVelStyles.trackFill, { width: `${fillRatio * 100}%` as any }]} />
-            <View style={[modalVelStyles.thumb, { left: fillRatio * (MODAL_TRACK_W - 20) }]} />
-          </View>
-          <View style={modalVelStyles.rangeRow}>
-            <Text style={modalVelStyles.rangeLabel}>{MODAL_VEL_MIN}</Text>
-            <Text style={modalVelStyles.rangeLabel}>{MODAL_VEL_MAX}</Text>
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const modalVelStyles = StyleSheet.create({
-  section: {
-    marginTop: Spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    paddingTop: Spacing.sm,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    backgroundColor: 'transparent',
-  },
-  toggleRowOn: {
-    backgroundColor: '#1565C0',
-    borderColor: '#0D47A1',
-  },
-  toggleLabel: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  toggleLabelOn: { color: '#fff' },
-  toggleValue: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#fff',
-    marginRight: 4,
-  },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  badgeOn: { backgroundColor: '#fff' },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.textSecondary,
-    letterSpacing: 0.5,
-  },
-  badgeTextOn: { color: '#1565C0' },
-  sliderWrap: {
-    marginTop: 8,
-    paddingHorizontal: 4,
-  },
-  track: {
-    height: 28,
-    width: MODAL_TRACK_W,
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  trackBg: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.border,
-    top: 10,
-  },
-  trackFill: {
-    position: 'absolute',
-    left: 0,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#1565C0',
-    top: 10,
-  },
-  thumb: {
-    position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    borderWidth: 2.5,
-    borderColor: '#1565C0',
-    top: 4,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  rangeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: MODAL_TRACK_W,
-    marginTop: 2,
-  },
-  rangeLabel: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-  },
-});
 
 // ============================================================
 // スタイル
