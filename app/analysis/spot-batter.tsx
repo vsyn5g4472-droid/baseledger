@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -99,6 +100,7 @@ export default function SpotBatterScreen() {
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const swipeRefs = useRef<Map<string, Swipeable>>(new Map());
 
   const decodedName = decodeURIComponent(playerName ?? '');
 
@@ -132,6 +134,10 @@ export default function SpotBatterScreen() {
 
   const title = useMemo(() => decodedName || '打者', [decodedName]);
 
+  const closeOpenSwipe = useCallback(() => {
+    swipeRefs.current.forEach((ref) => ref.close());
+  }, []);
+
   const confirmDelete = useCallback((spotId: string) => {
     Alert.alert(
       '打席を削除しますか？',
@@ -140,7 +146,10 @@ export default function SpotBatterScreen() {
         {
           text: 'キャンセル',
           style: 'cancel',
-          onPress: () => setDeleteTargetId(null),
+          onPress: () => {
+            setDeleteTargetId(null);
+            closeOpenSwipe();
+          },
         },
         {
           text: '削除する',
@@ -151,6 +160,7 @@ export default function SpotBatterScreen() {
               setSpots((prev) => prev.filter((s) => s.id !== spotId));
               setAiReport(null);
               setDeleteTargetId(null);
+              closeOpenSwipe();
             } catch (e) {
               console.error('SpotBatter delete error:', e);
               Alert.alert('エラー', '打席の削除に失敗しました');
@@ -159,7 +169,21 @@ export default function SpotBatterScreen() {
         },
       ],
     );
-  }, []);
+  }, [closeOpenSwipe]);
+
+  const renderSwipeDelete = useCallback(
+    (spotId: string) => (
+      <TouchableOpacity
+        style={itemStyles.swipeDelete}
+        onPress={() => confirmDelete(spotId)}
+        activeOpacity={0.85}
+      >
+        <MaterialCommunityIcons name="delete-outline" size={22} color={Colors.white} />
+        <Text style={itemStyles.swipeDeleteText}>削除</Text>
+      </TouchableOpacity>
+    ),
+    [confirmDelete],
+  );
 
   const handleStartAI = useCallback(async () => {
     if (spots.length === 0) return;
@@ -217,12 +241,30 @@ export default function SpotBatterScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <AtBatListItem
-            spot={item}
-            showDelete={deleteTargetId === item.id}
-            onLongPress={() => setDeleteTargetId(item.id)}
-            onDeletePress={() => confirmDelete(item.id)}
-          />
+          <Swipeable
+            ref={(ref) => {
+              if (ref) swipeRefs.current.set(item.id, ref);
+              else swipeRefs.current.delete(item.id);
+            }}
+            renderRightActions={() => renderSwipeDelete(item.id)}
+            overshootRight={false}
+            onSwipeableWillOpen={() => {
+              swipeRefs.current.forEach((ref, id) => {
+                if (id !== item.id) ref.close();
+              });
+              setDeleteTargetId(item.id);
+            }}
+            onSwipeableClose={() => {
+              setDeleteTargetId((prev) => (prev === item.id ? null : prev));
+            }}
+          >
+            <AtBatListItem
+              spot={item}
+              showDelete={deleteTargetId === item.id}
+              onLongPress={() => setDeleteTargetId(item.id)}
+              onDeletePress={() => confirmDelete(item.id)}
+            />
+          </Swipeable>
         )}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
@@ -363,5 +405,19 @@ const itemStyles = StyleSheet.create({
     fontSize: Typography.bodySmall,
     fontWeight: '700',
     color: Colors.error,
+  },
+  swipeDelete: {
+    backgroundColor: Colors.error,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    gap: 4,
+  },
+  swipeDeleteText: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.white,
   },
 });
