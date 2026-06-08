@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, TouchableOpacity, ScrollView, Animated, PanResponder } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text, Portal, Modal } from 'react-native-paper';
@@ -135,23 +135,98 @@ function isBaseDisabled(
   return isBatterPassingBlocked(adv, base, advancements);
 }
 
+const PATH_LEG_OFFSET_PX = 6;
+
+interface PathLeg {
+  segmentKey: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+}
+
+function normalizeBaseKey(base: string): string {
+  return base === 'batter' ? 'home' : base;
+}
+
 /** 塁間の折れ線経路（from → 中間塁 → target） */
-function getPathWaypoints(
+function getPathLegs(
   fromBase: RunnerAdvancement['fromBase'],
   targetBase: BaseTarget,
-): { x: number; y: number }[] {
+): PathLeg[] {
   const fromNum = fromBase === 'batter' ? 0 : (BASE_ORDER[fromBase] ?? 0);
   const toNum = baseToNum(targetBase);
   if (targetBase === 'out' || toNum <= fromNum) return [];
 
-  const startKey = fromBase === 'batter' ? 'batter' : fromBase;
-  const points: { x: number; y: number }[] = [{ ...BASE_POS[startKey] }];
   const legKeys = (['first', 'second', 'third', 'home'] as const);
+  const legs: PathLeg[] = [];
+  let prevKey = normalizeBaseKey(fromBase);
+  let prevPos = { ...BASE_POS[fromBase === 'batter' ? 'batter' : fromBase] };
+
   for (let n = fromNum + 1; n <= toNum && n <= 4; n++) {
     const key = n === 4 ? 'home' : legKeys[n - 1];
-    points.push({ ...BASE_POS[key] });
+    const pos = { ...BASE_POS[key] };
+    legs.push({
+      segmentKey: `${prevKey}-${key}`,
+      from: prevPos,
+      to: pos,
+    });
+    prevKey = key;
+    prevPos = pos;
   }
-  return points;
+  return legs;
+}
+
+/** 線分に対して垂直方向へオフセットした座標を返す */
+function offsetLinePerpendicular(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  offset: number,
+): { x1: number; y1: number; x2: number; y2: number } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const px = (-dy / len) * offset;
+  const py = (dx / len) * offset;
+  return {
+    x1: from.x + px,
+    y1: from.y + py,
+    x2: to.x + px,
+    y2: to.y + py,
+  };
+}
+
+/** 同一塁間を通過するランナーごとに線のオフセットを割り当てる */
+function computeSegmentLineOffsets(
+  advancements: RunnerAdvancement[],
+  draggingRunnerId: string | null,
+  activeBase: BaseTarget | null,
+): Record<string, Record<string, number>> {
+  const segmentRunners = new Map<string, string[]>();
+
+  for (const adv of advancements) {
+    if (adv.outcome === 'out_tag' || adv.outcome === 'out_force') continue;
+    const pathTarget: BaseTarget =
+      draggingRunnerId === adv.runnerId && activeBase
+        ? activeBase
+        : adv.targetBase;
+    if (pathTarget === 'out') continue;
+
+    const legs = getPathLegs(adv.fromBase, pathTarget);
+    for (const leg of legs) {
+      const list = segmentRunners.get(leg.segmentKey) ?? [];
+      if (!list.includes(adv.runnerId)) list.push(adv.runnerId);
+      segmentRunners.set(leg.segmentKey, list);
+    }
+  }
+
+  const offsets: Record<string, Record<string, number>> = {};
+  for (const [segmentKey, runnerIds] of segmentRunners) {
+    if (runnerIds.length <= 1) continue;
+    offsets[segmentKey] = {};
+    runnerIds.forEach((runnerId, i) => {
+      offsets[segmentKey][runnerId] = (i - (runnerIds.length - 1) / 2) * PATH_LEG_OFFSET_PX;
+    });
+  }
+  return offsets;
 }
 
 /** 同一到達塁の走者をずらして重なりを避ける */
@@ -425,6 +500,10 @@ export default function RunnerAdvancementView({
   }, [outDetailDialog, updateEditable]);
 
   const destinationOffsets = computeDestinationOffsets(editable);
+  const segmentLineOffsets = useMemo(
+    () => computeSegmentLineOffsets(editable, draggingRunnerId, activeBase),
+    [editable, draggingRunnerId, activeBase],
+  );
 
   // バリデーション
   const validationError = (() => {
@@ -601,20 +680,23 @@ export default function RunnerAdvancementView({
                 : isOut
                   ? 'out'
                   : adv.targetBase;
-              const waypoints = isOut ? [] : getPathWaypoints(adv.fromBase, pathTarget);
+              const pathLegs = isOut ? [] : getPathLegs(adv.fromBase, pathTarget);
 
               return (
                 <React.Fragment key={adv.runnerId}>
-                  {!isOut && waypoints.length >= 2 && waypoints.slice(0, -1).map((from, i) => {
-                    const to = waypoints[i + 1];
-                    const isLastLeg = i === waypoints.length - 2;
+                  {!isOut && pathLegs.map((leg, i) => {
+                    const legOffset = segmentLineOffsets[leg.segmentKey]?.[adv.runnerId] ?? 0;
+                    const { x1, y1, x2, y2 } = legOffset !== 0
+                      ? offsetLinePerpendicular(leg.from, leg.to, legOffset)
+                      : { x1: leg.from.x, y1: leg.from.y, x2: leg.to.x, y2: leg.to.y };
+                    const isLastLeg = i === pathLegs.length - 1;
                     return (
                       <Line
                         key={`${adv.runnerId}-leg-${i}`}
-                        x1={from.x}
-                        y1={from.y}
-                        x2={to.x}
-                        y2={to.y}
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
                         stroke={runnerColor}
                         strokeWidth={isLastLeg ? 3.5 : 2}
                         opacity={dimmed ? 0.35 : isLastLeg ? 1 : 0.7}
