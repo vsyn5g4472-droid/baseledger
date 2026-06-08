@@ -14,13 +14,10 @@ import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
 import { useGameStore } from '../../../src/stores/gameStore';
-import type { Player, Position } from '../../../src/types/game';
+import { POSITIONS, type Player, type Position } from '../../../src/types/game';
 import { useI18n } from '../../../src/i18n';
 import { PositionDiamondPicker } from '../../../src/components/score/PositionDiamondPicker';
-import {
-  getAvailablePositions,
-  getDuplicatePositionPlayerIds,
-} from '../../../src/utils/positionAvailability';
+import { getDuplicatePositionPlayerIds } from '../../../src/utils/positionAvailability';
 
 interface PlayerRow {
   player: Player;
@@ -30,6 +27,25 @@ interface PlayerRow {
   number: string;
   position: Position;
   isPitcher: boolean;
+}
+
+function selectablePositions(teamHasDH: boolean): Position[] {
+  return POSITIONS.filter((pos) => pos !== 'DH' || teamHasDH);
+}
+
+function findDuplicatePosition(
+  entries: { playerId: string; position: Position; isPitcher?: boolean }[],
+): Position | null {
+  const counts = new Map<Position, number>();
+  for (const entry of entries) {
+    if (entry.position === 'DH') continue;
+    const pos = entry.isPitcher ? 'P' : entry.position;
+    counts.set(pos, (counts.get(pos) ?? 0) + 1);
+  }
+  for (const [pos, count] of counts) {
+    if (count > 1) return pos;
+  }
+  return null;
 }
 
 // ── メインコンポーネント ──────────────────────────────────────────────────────
@@ -102,16 +118,24 @@ export default function PlayerMappingScreen() {
   };
 
   const handleSave = async () => {
-    const awayDupes = getDuplicatePositionPlayerIds(
-      awayRows.map((r) => ({ playerId: r.player.id, position: r.position, isPitcher: r.isPitcher })),
-    );
-    const homeDupes = getDuplicatePositionPlayerIds(
-      homeRows.map((r) => ({ playerId: r.player.id, position: r.position, isPitcher: r.isPitcher })),
-    );
-    if (awayDupes.size > 0 || homeDupes.size > 0) {
+    const awayEntries = awayRows.map((r) => ({
+      playerId: r.player.id,
+      position: r.position,
+      isPitcher: r.isPitcher,
+    }));
+    const homeEntries = homeRows.map((r) => ({
+      playerId: r.player.id,
+      position: r.position,
+      isPitcher: r.isPitcher,
+    }));
+    const duplicatePosition =
+      findDuplicatePosition(awayEntries) ?? findDuplicatePosition(homeEntries);
+    if (duplicatePosition) {
+      const posName = t.positions[duplicatePosition] ?? duplicatePosition;
       Alert.alert(
         'ポジションが重複しています',
-        '同じ守備位置が複数の選手に割り当てられています。DH以外のポジションは1人ずつにしてください。',
+        `${posName}が複数の選手に割り当てられています。修正してください。`,
+        [{ text: 'OK' }],
       );
       return;
     }
@@ -182,7 +206,7 @@ export default function PlayerMappingScreen() {
           ) : (
             <PositionDiamondPicker
               value={row.position}
-              availablePositions={getAvailablePositions(entries, row.player.id, teamHasDH)}
+              availablePositions={selectablePositions(teamHasDH)}
               onChange={(pos) => updateRow(row.player.id, 'position', pos)}
               isDuplicate={duplicateIds.has(row.player.id)}
               label={row.position}
