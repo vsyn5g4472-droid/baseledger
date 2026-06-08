@@ -7,17 +7,19 @@ import {
   Share,
   Modal,
   Pressable,
+  Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { Text, Avatar, Button, Chip, TextInput, ActivityIndicator } from 'react-native-paper';
 import { useLocalSearchParams, router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTeamDetail } from '../../../../src/hooks/useTeam';
 import { useAuth } from '../../../../src/contexts/AuthContext';
-import { inviteToTeam } from '../../../../src/services/teamService';
+import { inviteToTeam, leaveTeam, removeMember } from '../../../../src/services/teamService';
 import { searchUsers } from '../../../../src/services/userService';
 import EmptyState from '../../../../src/components/EmptyState';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../../src/constants/theme';
-import { User } from '../../../../src/models/types';
+import { TeamMember, User } from '../../../../src/models/types';
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'オーナー',
@@ -29,10 +31,13 @@ type InviteTab = 'code' | 'search';
 
 export default function TeamDetailScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
-  const { team, members, loading, isOwner } = useTeamDetail(teamId ?? '');
+  const { team, members, loading, isOwner, refresh } = useTeamDetail(teamId ?? '');
   const { currentUser } = useAuth();
 
   const [inviteVisible, setInviteVisible] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<(TeamMember & { user: User }) | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const [kicking, setKicking] = useState(false);
   const [inviteTab, setInviteTab] = useState<InviteTab>('code');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
@@ -82,6 +87,73 @@ export default function TeamDetailScreen() {
       }
     },
     [currentUser, teamId, inviting],
+  );
+
+  const handleLeave = useCallback(() => {
+    if (!currentUser || !teamId || isOwner) return;
+    Alert.alert(
+      'チームを退会しますか？',
+      '退会するとチームのチャットや共有データにアクセスできなくなります',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '退会する',
+          style: 'destructive',
+          onPress: async () => {
+            setLeaving(true);
+            try {
+              await leaveTeam(teamId, currentUser.uid);
+              router.replace('/(tabs)/teams' as any);
+            } catch (err) {
+              if (__DEV__) console.error('[handleLeave] failed:', err);
+              Alert.alert('エラー', '退会に失敗しました');
+            } finally {
+              setLeaving(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [currentUser, teamId, isOwner]);
+
+  const handleKick = useCallback(
+    (member: TeamMember & { user: User }) => {
+      if (!currentUser || !teamId || !isOwner) return;
+      const memberName = member.user?.displayName ?? 'ユーザー';
+      Alert.alert(
+        `${memberName}を退会させますか？`,
+        undefined,
+        [
+          { text: 'キャンセル', style: 'cancel' },
+          {
+            text: '退会させる',
+            style: 'destructive',
+            onPress: async () => {
+              setKicking(true);
+              try {
+                await removeMember(teamId, member.userId, currentUser.uid);
+                setSelectedMember(null);
+                await refresh();
+              } catch (err) {
+                if (__DEV__) console.error('[handleKick] failed:', err);
+                Alert.alert('エラー', '強制退会に失敗しました');
+              } finally {
+                setKicking(false);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [currentUser, teamId, isOwner, refresh],
+  );
+
+  const canKickMember = useCallback(
+    (member: TeamMember & { user: User }) =>
+      isOwner &&
+      member.userId !== currentUser?.uid &&
+      member.role !== 'owner',
+    [isOwner, currentUser?.uid],
   );
 
   const handleShare = useCallback(async () => {
@@ -150,21 +222,94 @@ export default function TeamDetailScreen() {
         horizontal
         showsHorizontalScrollIndicator={false}
         nestedScrollEnabled
-        renderItem={({ item }) => (
-          <View style={styles.memberItem}>
-            <Avatar.Text
-              size={44}
-              label={(item.user?.displayName ?? 'U').charAt(0)}
-              style={styles.memberAvatar}
-            />
-            <Text style={styles.memberName} numberOfLines={1}>
-              {item.user?.displayName ?? 'ユーザー'}
-            </Text>
-            <Text style={styles.memberRole}>{ROLE_LABELS[item.role] ?? item.role}</Text>
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const kickable = canKickMember(item);
+          const content = (
+            <>
+              <Avatar.Text
+                size={44}
+                label={(item.user?.displayName ?? 'U').charAt(0)}
+                style={styles.memberAvatar}
+              />
+              <Text style={styles.memberName} numberOfLines={1}>
+                {item.user?.displayName ?? 'ユーザー'}
+              </Text>
+              <Text style={styles.memberRole}>{ROLE_LABELS[item.role] ?? item.role}</Text>
+            </>
+          );
+          if (!kickable) {
+            return <View style={styles.memberItem}>{content}</View>;
+          }
+          return (
+            <TouchableOpacity
+              style={styles.memberItem}
+              onPress={() => setSelectedMember(item)}
+              activeOpacity={0.7}
+            >
+              {content}
+            </TouchableOpacity>
+          );
+        }}
         contentContainerStyle={styles.membersList}
       />
+
+      {!isOwner && (
+        <View style={styles.leaveSection}>
+          <Button
+            mode="outlined"
+            textColor={Colors.error}
+            icon="exit-to-app"
+            onPress={handleLeave}
+            loading={leaving}
+            disabled={leaving}
+            style={styles.leaveBtn}
+          >
+            チームを退会する
+          </Button>
+        </View>
+      )}
+
+      {/* ── メンバー操作モーダル（オーナー用） ─────────────────────── */}
+      <Modal
+        visible={selectedMember !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedMember(null)}
+      >
+        <Pressable style={styles.overlay} onPress={() => setSelectedMember(null)}>
+          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.handle} />
+            {selectedMember && (
+              <>
+                <View style={styles.memberSheetHeader}>
+                  <Avatar.Text
+                    size={52}
+                    label={(selectedMember.user?.displayName ?? 'U').charAt(0)}
+                    style={styles.memberAvatar}
+                  />
+                  <Text style={styles.memberSheetName}>
+                    {selectedMember.user?.displayName ?? 'ユーザー'}
+                  </Text>
+                  <Text style={styles.memberSheetRole}>
+                    {ROLE_LABELS[selectedMember.role] ?? selectedMember.role}
+                  </Text>
+                </View>
+                <Button
+                  mode="outlined"
+                  textColor={Colors.error}
+                  icon="account-remove"
+                  onPress={() => handleKick(selectedMember)}
+                  loading={kicking}
+                  disabled={kicking}
+                  style={styles.kickBtn}
+                >
+                  強制退会
+                </Button>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── 招待モーダル ──────────────────────────────────────────── */}
       <Modal
@@ -310,6 +455,32 @@ const styles = StyleSheet.create({
   memberAvatar: { backgroundColor: Colors.primary },
   memberName: { fontSize: Typography.tiny, color: Colors.text, marginTop: 4, textAlign: 'center' },
   memberRole: { fontSize: Typography.tiny, color: Colors.textSecondary },
+  leaveSection: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.lg,
+    marginTop: Spacing.sm,
+  },
+  leaveBtn: {
+    borderColor: Colors.error,
+  },
+  memberSheetHeader: {
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  memberSheetName: {
+    fontSize: Typography.h4,
+    fontWeight: '700',
+    color: Colors.text,
+    marginTop: Spacing.sm,
+  },
+  memberSheetRole: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    marginTop: 4,
+  },
+  kickBtn: {
+    borderColor: Colors.error,
+  },
 
   // Modal
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },

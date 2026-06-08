@@ -226,6 +226,17 @@ export async function inviteToTeam(
   }
 }
 
+/** チームに紐づくグループチャットからユーザーを除外する */
+async function removeUserFromTeamGroups(teamId: string, userId: string): Promise<void> {
+  const groupsRef = collection(db, COLLECTIONS.GROUPS);
+  const groupSnap = await getDocs(query(groupsRef, where('teamId', '==', teamId)));
+  if (!groupSnap.empty) {
+    await updateDoc(doc(db, COLLECTIONS.GROUPS, groupSnap.docs[0].id), {
+      memberIds: arrayRemove(userId),
+    });
+  }
+}
+
 /**
  * Leave a team. The owner cannot leave — they must transfer ownership first.
  * @param teamId - Team to leave
@@ -250,6 +261,8 @@ export async function leaveTeam(teamId: string, userId: string): Promise<void> {
 
     // Remove member subcollection doc
     await deleteDoc(doc(db, COLLECTIONS.TEAMS, teamId, COLLECTIONS.TEAM_MEMBERS, userId));
+
+    await removeUserFromTeamGroups(teamId, userId);
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError('NETWORK', `Failed to leave team: ${(error as Error).message}`);
@@ -257,32 +270,23 @@ export async function leaveTeam(teamId: string, userId: string): Promise<void> {
 }
 
 /**
- * Remove a member from a team. Only admins/owners can remove members.
+ * Remove a member from a team. Only the owner can remove members.
  * @param teamId - Team ID
  * @param memberId - Member to remove
- * @param adminId - Admin performing the removal
+ * @param ownerId - Owner performing the removal
  */
 export async function removeMember(
   teamId: string,
   memberId: string,
-  adminId: string,
+  ownerId: string,
 ): Promise<void> {
   try {
-    // Check admin permissions
-    const adminMemberSnap = await getDoc(
-      doc(db, COLLECTIONS.TEAMS, teamId, COLLECTIONS.TEAM_MEMBERS, adminId),
-    );
-    if (!adminMemberSnap.exists()) {
-      throw new AppError('FORBIDDEN', 'Not a member of this team');
-    }
-
-    const adminRole = (adminMemberSnap.data() as TeamMember).role;
-    if (adminRole !== 'owner' && adminRole !== 'admin') {
-      throw new AppError('FORBIDDEN', 'Only owners and admins can remove members');
+    const team = await getTeam(teamId);
+    if (team.ownerId !== ownerId) {
+      throw new AppError('FORBIDDEN', 'Only the team owner can remove members');
     }
 
     // Cannot remove the owner
-    const team = await getTeam(teamId);
     if (memberId === team.ownerId) {
       throw new AppError('FORBIDDEN', 'Cannot remove the team owner');
     }
@@ -294,6 +298,8 @@ export async function removeMember(
 
     // Remove member subcollection doc
     await deleteDoc(doc(db, COLLECTIONS.TEAMS, teamId, COLLECTIONS.TEAM_MEMBERS, memberId));
+
+    await removeUserFromTeamGroups(teamId, memberId);
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError('NETWORK', `Failed to remove member: ${(error as Error).message}`);

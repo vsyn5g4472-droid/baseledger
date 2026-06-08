@@ -97,16 +97,32 @@ export function useTeamDetail(teamId: string): {
   loading: boolean;
   isOwner: boolean;
   isAdmin: boolean;
+  refresh: () => Promise<void>;
 } {
   const { currentUser } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<(TeamMember & { user: User })[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const refresh = useCallback(async () => {
+    if (!teamId) return;
+    try {
+      const [teamData, membersData] = await Promise.all([
+        getTeam(teamId),
+        getTeamMembers(teamId),
+      ]);
+      setTeam(teamData);
+      setMembers(membersData);
+    } catch (error) {
+      if (__DEV__) console.error('Failed to fetch team detail:', error);
+    }
+  }, [teamId]);
+
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
+      setLoading(true);
       try {
         const [teamData, membersData] = await Promise.all([
           getTeam(teamId),
@@ -137,7 +153,7 @@ export function useTeamDetail(teamId: string): {
         (m.role === 'admin' || m.role === 'owner'),
     );
 
-  return { team, members, loading, isOwner, isAdmin };
+  return { team, members, loading, isOwner, isAdmin, refresh };
 }
 
 export function useTeamChat(teamId: string): {
