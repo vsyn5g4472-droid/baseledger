@@ -2641,27 +2641,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.border,
   },
-  autoVelocityBadge: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 9,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: '#2E7D32',
-  },
-  autoVelocityText: {
-    fontSize: Typography.body,
-    fontWeight: '800',
-    color: Colors.white,
-  },
-  autoVelocitySubText: {
-    fontSize: Typography.tiny,
-    color: 'rgba(255,255,255,0.7)',
-    fontWeight: '500',
-    flex: 1,
-  },
   velocityOffGear: {
     flexDirection: 'row',
     alignItems: 'center',

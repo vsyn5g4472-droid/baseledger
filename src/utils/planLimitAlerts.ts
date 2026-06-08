@@ -60,11 +60,3 @@ export function showOpponentDataPlanAlert(): void {
   );
 }
 
-/** 詳細記録モードが未対応プランのとき */
-export function showDetailRecordPlanAlert(): void {
-  Alert.alert(
-    '詳細記録モードはPROプランで利用できます',
-    undefined,
-    PLAN_ALERT_BUTTONS,
-  );
-}
