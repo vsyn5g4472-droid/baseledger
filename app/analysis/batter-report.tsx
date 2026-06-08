@@ -689,7 +689,7 @@ export default function BatterReportScreen() {
         {/* スポット打撃分析ボタン */}
         <TouchableOpacity
           style={styles.spotBattingBtn}
-          onPress={() => router.push('/(tabs)/score/spot-history' as any)}
+          onPress={() => router.push('/analysis/spot-history' as any)}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons name="baseball-bat" size={20} color={Colors.primary} />

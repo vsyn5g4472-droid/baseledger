@@ -200,7 +200,7 @@ export default function ProfileScreen() {
           <Text style={styles.sectionTitle}>スポット打席</Text>
           <Card style={styles.statsCard}>
             <TouchableOpacity
-              onPress={() => router.push('/(tabs)/score/spot-history' as any)}
+              onPress={() => router.push('/analysis/spot-history' as any)}
               activeOpacity={0.85}
             >
               <View style={styles.statsGrid}>

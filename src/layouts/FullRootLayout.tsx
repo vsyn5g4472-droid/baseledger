@@ -209,7 +209,19 @@ function AppShell() {
           name="analysis/spot-history"
           options={{
             headerShown: true,
-            title: 'スポット打席履歴',
+            title: 'スポット打席分析',
+            headerBackTitle: '戻る',
+            headerStyle: { backgroundColor: Colors.white },
+            headerTintColor: Colors.primary,
+            headerTitleStyle: { fontWeight: '700', color: Colors.text },
+            headerShadowVisible: false,
+          }}
+        />
+        <Stack.Screen
+          name="analysis/spot-batter"
+          options={{
+            headerShown: true,
+            title: '打席一覧',
             headerBackTitle: '戻る',
             headerStyle: { backgroundColor: Colors.white },
             headerTintColor: Colors.primary,
