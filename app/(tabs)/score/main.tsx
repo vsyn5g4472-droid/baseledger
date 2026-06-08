@@ -579,10 +579,12 @@ export default function LiveScoreScreen() {
     setEditModalVisible(true);
   }, [game?.atBatLogs]);
 
-  const handleSaveEdit = useCallback((logId: string, newResult: AtBatResult, newRbi: number, note: string) => {
-    editAtBatLog(logId, newResult, newRbi, note);
+  const handleSaveEdit = useCallback((logId: string, note: string) => {
+    const log = game?.atBatLogs.find((l) => l.id === logId);
+    if (!log?.result) return;
+    editAtBatLog(logId, log.result, log.rbiCount, note);
     persist();
-  }, [editAtBatLog, persist]);
+  }, [editAtBatLog, persist, game?.atBatLogs]);
 
   const handlePickoffPress = useCallback(() => {
     if (!game) return;
@@ -1300,7 +1302,13 @@ export default function LiveScoreScreen() {
 
         {/* ===== プレイログ ===== */}
         {game.atBatLogs.length > 0 && (
-          <PlayLogList logs={game.atBatLogs} onEdit={handleEditLog} />
+          <PlayLogList
+            logs={game.atBatLogs}
+            awayTeam={game.awayTeam}
+            homeTeam={game.homeTeam}
+            substitutionLogs={game.substitutionLogs}
+            onEdit={handleEditLog}
+          />
         )}
       </ScrollView>
 

@@ -1,19 +1,98 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
 import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { useI18n } from '../../i18n';
-import type { AtBatLog } from '../../types/game';
+import type { AtBatLog, SubstitutionLog, Team } from '../../types/game';
 
 interface PlayLogListProps {
   logs: AtBatLog[];
+  awayTeam: Team;
+  homeTeam: Team;
+  substitutionLogs?: SubstitutionLog[];
   onEdit: (logId: string) => void;
 }
 
-export default function PlayLogList({ logs, onEdit }: PlayLogListProps) {
+function offenseSide(log: AtBatLog): 'away' | 'home' {
+  return log.inning.half === 'top' ? 'away' : 'home';
+}
+
+/** 交代ログを逆適用して試合開始時の打順を復元 */
+function initialLineupIds(team: Team, subs: SubstitutionLog[]): string[] {
+  const lineup = team.roster.starters.map((p) => p.id);
+  for (const sub of [...subs].reverse()) {
+    const idx = lineup.findIndex((id) => id === sub.playerInId);
+    if (idx !== -1) lineup[idx] = sub.playerOutId;
+  }
+  return lineup;
+}
+
+function subsBeforeLog(log: AtBatLog, subs: SubstitutionLog[]): SubstitutionLog[] {
+  return subs.filter((sub) => {
+    if (sub.side !== offenseSide(log)) return false;
+    if (sub.inning.number < log.inning.number) return true;
+    if (sub.inning.number > log.inning.number) return false;
+    if (sub.inning.half !== log.inning.half) {
+      return sub.inning.half === 'top' && log.inning.half === 'bottom';
+    }
+    return sub.timestamp < log.timestamp;
+  });
+}
+
+function lineupAtLog(
+  log: AtBatLog,
+  team: Team,
+  subs: SubstitutionLog[],
+): string[] {
+  const lineup = initialLineupIds(team, subs.filter((s) => s.side === offenseSide(log)));
+  for (const sub of subsBeforeLog(log, subs)) {
+    const idx = lineup.findIndex((id) => id === sub.playerOutId);
+    if (idx !== -1) lineup[idx] = sub.playerInId;
+  }
+  return lineup;
+}
+
+function findPlayerName(team: Team, playerId: string): string {
+  const all = [...team.roster.starters, ...team.roster.bench];
+  if (team.roster.pitcher) all.push(team.roster.pitcher);
+  return all.find((p) => p.id === playerId)?.name ?? '不明';
+}
+
+function buildBatterLabels(
+  logs: AtBatLog[],
+  awayTeam: Team,
+  homeTeam: Team,
+  substitutionLogs: SubstitutionLog[],
+): Map<string, { order: number | null; name: string }> {
+  const map = new Map<string, { order: number | null; name: string }>();
+  for (const log of logs) {
+    const side = offenseSide(log);
+    const team = side === 'away' ? awayTeam : homeTeam;
+    const lineup = lineupAtLog(log, team, substitutionLogs);
+    const slot = lineup.findIndex((id) => id === log.batterId);
+    map.set(log.id, {
+      order: slot >= 0 ? slot + 1 : null,
+      name: findPlayerName(team, log.batterId),
+    });
+  }
+  return map;
+}
+
+export default function PlayLogList({
+  logs,
+  awayTeam,
+  homeTeam,
+  substitutionLogs = [],
+  onEdit,
+}: PlayLogListProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
+
+  const batterLabels = useMemo(
+    () => buildBatterLabels(logs, awayTeam, homeTeam, substitutionLogs),
+    [logs, awayTeam, homeTeam, substitutionLogs],
+  );
 
   if (logs.length === 0) return null;
 
@@ -27,6 +106,14 @@ export default function PlayLogList({ logs, onEdit }: PlayLogListProps) {
     const fieldingStr = item.fielding
       ? item.fielding.fielders.join('-')
       : '';
+    const batter = batterLabels.get(item.id);
+    const batterLine = batter?.order
+      ? `${batter.order}番 ${batter.name}`
+      : batter?.name ?? '不明';
+
+    const detailParts = [`${resultLabel} / ${pitchCount}${t.playLog.pitches}`];
+    if (fieldingStr) detailParts.push(fieldingStr);
+    if (item.rbiCount > 0) detailParts.push(`${item.rbiCount}${t.playLog.rbi}`);
 
     return (
       <View style={styles.card}>
@@ -35,13 +122,11 @@ export default function PlayLogList({ logs, onEdit }: PlayLogListProps) {
             <Text style={styles.inningBadge}>{inningStr}</Text>
           </View>
           <View style={styles.cardCenter}>
-            <Text style={styles.resultText} numberOfLines={1}>
-              {resultLabel}
+            <Text style={styles.batterText} numberOfLines={1}>
+              {batterLine}
             </Text>
             <Text style={styles.detailText} numberOfLines={1}>
-              {pitchCount}{t.playLog.pitches}
-              {fieldingStr ? ` / ${fieldingStr}` : ''}
-              {item.rbiCount > 0 ? ` / ${item.rbiCount}${t.playLog.rbi}` : ''}
+              {detailParts.join(' / ')}
             </Text>
           </View>
           <TouchableOpacity
@@ -160,7 +245,7 @@ const styles = StyleSheet.create({
   cardCenter: {
     flex: 1,
   },
-  resultText: {
+  batterText: {
     fontSize: Typography.bodySmall,
     fontWeight: '700',
     color: Colors.text,
