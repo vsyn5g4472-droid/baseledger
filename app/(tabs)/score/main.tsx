@@ -84,8 +84,16 @@ const CLAMP_RIGHT = SZ_RIGHT + ZONE_PAD_X;
 const CLAMP_TOP = SZ_TOP - ZONE_PAD_Y;
 const CLAMP_BOT = SZ_BOT + ZONE_PAD_Y;
 
-function isInsideStrikeZone(px: number, py: number): boolean {
-  return px >= SZ_LEFT && px <= SZ_RIGHT && py >= SZ_TOP && py <= SZ_BOT;
+/** タッチ開始判定の余白（約0.5cm / 14px） */
+const TOUCH_START_PAD = 14;
+
+function isInsideStrikeZoneTouchStart(px: number, py: number): boolean {
+  return (
+    px >= SZ_LEFT - TOUCH_START_PAD &&
+    px <= SZ_RIGHT + TOUCH_START_PAD &&
+    py >= SZ_TOP - TOUCH_START_PAD &&
+    py <= SZ_BOT + TOUCH_START_PAD
+  );
 }
 
 function pitchCoordsFromTouch(rawX: number, rawY: number): { px: number; py: number } {
@@ -1063,7 +1071,7 @@ export default function LiveScoreScreen() {
                   e.nativeEvent.locationX,
                   e.nativeEvent.locationY,
                 );
-                return isInsideStrikeZone(px, py);
+                return isInsideStrikeZoneTouchStart(px, py);
               }}
               onMoveShouldSetResponder={() => pitchTouchActiveRef.current}
               onResponderTerminationRequest={() => false}
