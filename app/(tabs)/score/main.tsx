@@ -883,15 +883,6 @@ export default function LiveScoreScreen() {
           </View>
         </View>
 
-        {/* ===== 現在打席の投球ログ ===== */}
-        {game.currentAtBat && (
-          <CurrentAtBatPitchLog
-            batter={batter}
-            pitcher={pitcher}
-            pitches={game.currentAtBat.pitches}
-          />
-        )}
-
         {/* ===== 直前の打席を修正ボタン ===== */}
         {game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement && (
           <TouchableOpacity
@@ -1219,6 +1210,18 @@ export default function LiveScoreScreen() {
         >
           {t.live.endGame}
         </Button>
+
+        {/* ===== 現在打席の投球ログ ===== */}
+        {game.currentAtBat && (
+          <CurrentAtBatPitchLog
+            batter={batter}
+            pitcher={pitcher}
+            pitches={game.currentAtBat.pitches}
+            pendingResult={game.pendingAdvancement?.result}
+            battedBall={game.currentAtBat.battedBall ?? game.pendingAdvancement?.battedBall}
+            fielding={game.currentAtBat.fielding ?? game.pendingAdvancement?.fielding}
+          />
+        )}
 
         {/* ===== プレイログ ===== */}
         {game.atBatLogs.length > 0 && (

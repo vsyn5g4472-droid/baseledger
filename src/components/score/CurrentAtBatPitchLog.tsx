@@ -1,23 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { View, StyleSheet, ScrollView, Text } from 'react-native';
-import type { PitchLog, PitchResult, Player } from '../../types/game';
+import type { AtBatResult, BattedBall, FieldingRecord, PitchLog, Player } from '../../types/game';
 import { useI18n } from '../../i18n';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
+import { colorForTone, formatPitchDisplay } from '../../utils/pitchDisplay';
 
 const CIRCLED_NUMBERS = [
   '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
   '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
 ];
-
-const PITCH_RESULT_COLORS: Record<PitchResult, string> = {
-  ball:            '#B0BEC5',
-  strike_called:   '#FFD700',
-  strike_swinging: '#FF9800',
-  foul:            '#4DD0E1',
-  foul_tip:        '#4DD0E1',
-  in_play:         '#66BB6A',
-  hit_by_pitch:    '#B0BEC5',
-};
 
 function formatBats(bats: Player['bats']): string {
   if (bats === 'L') return '左打';
@@ -38,29 +29,30 @@ interface CurrentAtBatPitchLogProps {
   batter: Player;
   pitcher: Player;
   pitches: PitchLog[];
+  pendingResult?: AtBatResult | null;
+  battedBall?: BattedBall;
+  fielding?: FieldingRecord;
 }
 
 export default function CurrentAtBatPitchLog({
   batter,
   pitcher,
   pitches,
+  pendingResult,
+  battedBall,
+  fielding,
 }: CurrentAtBatPitchLogProps) {
   const { t } = useI18n();
-  const scrollRef = useRef<ScrollView>(null);
-
-  useEffect(() => {
-    if (pitches.length === 0) return;
-    const timer = setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [pitches.length]);
 
   const pitchTypeLabels = t.pitchTypes as Record<string, string>;
   const pitchResultLabels = t.pitchResults as Record<string, string>;
 
+  const lastInPlayId = [...pitches].reverse().find((p) => p.result === 'in_play')?.id;
+  const displayPitches = [...pitches].reverse();
+
   return (
     <View style={styles.container}>
+      <Text style={styles.sectionTitle}>投球ログ</Text>
       <View style={styles.headerRow}>
         <View style={styles.playerBlock}>
           <Text style={styles.roleLabel}>打者</Text>
@@ -80,26 +72,36 @@ export default function CurrentAtBatPitchLog({
         <Text style={styles.emptyText}>投球記録なし</Text>
       ) : (
         <ScrollView
-          ref={scrollRef}
           style={styles.pitchScroll}
           contentContainerStyle={styles.pitchScrollContent}
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
         >
-          {pitches.map((pitch, index) => {
-            const num = CIRCLED_NUMBERS[index] ?? `${index + 1}`;
+          {displayPitches.map((pitch, index) => {
+            const pitchNumber = pitches.length - index;
+            const num = CIRCLED_NUMBERS[pitchNumber - 1] ?? `${pitchNumber}`;
             const typeLabel = pitchTypeLabels[pitch.pitchType] ?? pitch.pitchType;
-            const resultLabel = (pitchResultLabels[pitch.result] ?? pitch.result).replace(/\n/g, ' ');
-            const veloPart = pitch.velocity != null ? `${pitch.velocity}km/h ` : '';
-            const color = PITCH_RESULT_COLORS[pitch.result] ?? Colors.white;
+            const display = formatPitchDisplay(pitch, typeLabel, pitchResultLabels, {
+              atBatResult: pendingResult,
+              battedBall,
+              fielding,
+              isLastInPlay: pitch.id === lastInPlayId,
+            });
+            const resultColor = colorForTone(display.tone);
 
             return (
               <View key={pitch.id} style={styles.pitchRow}>
                 <View style={styles.pitchNumBadge}>
                   <Text style={styles.pitchNumText}>{num}</Text>
                 </View>
-                <Text style={[styles.pitchLine, { color }]}>
-                  {veloPart}{typeLabel} {resultLabel}
+                <Text style={styles.pitchLine} numberOfLines={1}>
+                  <Text style={styles.pitchPrefix}>
+                    {display.prefix}
+                    {display.prefix ? ' ' : ''}
+                  </Text>
+                  <Text style={[styles.pitchResult, { color: resultColor }]}>
+                    {display.result}
+                  </Text>
                 </Text>
               </View>
             );
@@ -112,13 +114,21 @@ export default function CurrentAtBatPitchLog({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#121212',
+    backgroundColor: Colors.card,
     borderRadius: BorderRadius.md,
     padding: Spacing.sm,
     marginHorizontal: Spacing.sm,
+    marginTop: Spacing.sm,
     marginBottom: Spacing.sm,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: Colors.border,
+  },
+  sectionTitle: {
+    fontSize: Typography.caption,
+    fontWeight: '800',
+    color: Colors.primary,
+    letterSpacing: 0.5,
+    marginBottom: Spacing.xs,
   },
   headerRow: {
     flexDirection: 'row',
@@ -127,7 +137,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
     paddingBottom: Spacing.xs,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
+    borderBottomColor: Colors.border,
   },
   playerBlock: {
     flex: 1,
@@ -137,18 +147,18 @@ const styles = StyleSheet.create({
   },
   roleLabel: {
     fontSize: Typography.tiny,
-    color: '#9E9E9E',
+    color: Colors.textSecondary,
     fontWeight: '600',
     marginBottom: 2,
   },
   playerName: {
     fontSize: Typography.bodySmall,
-    color: Colors.white,
+    color: Colors.text,
     fontWeight: '700',
   },
   emptyText: {
     fontSize: Typography.caption,
-    color: '#757575',
+    color: Colors.textSecondary,
     textAlign: 'center',
     paddingVertical: Spacing.sm,
   },
@@ -169,18 +179,26 @@ const styles = StyleSheet.create({
     height: 26,
     borderRadius: 13,
     borderWidth: 1.5,
-    borderColor: '#FFFFFF',
+    borderColor: Colors.border,
+    backgroundColor: Colors.surfaceGray,
     justifyContent: 'center',
     alignItems: 'center',
   },
   pitchNumText: {
     fontSize: 13,
-    color: Colors.white,
+    color: Colors.text,
     fontWeight: '700',
   },
   pitchLine: {
     flex: 1,
     fontSize: Typography.bodySmall,
     fontWeight: '600',
+  },
+  pitchPrefix: {
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  pitchResult: {
+    fontWeight: '700',
   },
 });
