@@ -45,6 +45,23 @@ const BASE_POS: Record<string, { x: number; y: number }> = {
 
 const BASE_ORDER: Record<string, number> = { first: 1, second: 2, third: 3, home: 4 };
 
+const HIT_ADVANCEMENT_RESULTS: AtBatResult[] = ['single', 'double', 'triple', 'home_run'];
+
+/** ヒット時は進塁先、それ以外は元の塁にランナーを表示 */
+function isHitAdvancementResult(result: AtBatResult | string): boolean {
+  return HIT_ADVANCEMENT_RESULTS.includes(result as AtBatResult);
+}
+
+function getRunnerDisplayBase(adv: RunnerAdvancement, result: AtBatResult | string): string {
+  if (adv.outcome === 'out_tag' || adv.outcome === 'out_force' || adv.targetBase === 'out') {
+    return adv.fromBase;
+  }
+  if (isHitAdvancementResult(result)) {
+    return adv.targetBase;
+  }
+  return adv.fromBase;
+}
+
 // 塁ごとのランナー識別色
 const RUNNER_COLORS: Record<string, string> = {
   batter: '#4CAF50',   // グリーン (打者)
@@ -80,13 +97,14 @@ function isDraggable(adv: RunnerAdvancement, result: AtBatResult): boolean {
 /** タッチ座標 (x,y) から 25px 以内の走者を返す */
 function findRunnerNear(
   advancements: RunnerAdvancement[],
-  result: AtBatResult,
+  result: AtBatResult | string,
   x: number,
   y: number,
 ): RunnerAdvancement | null {
   for (const adv of advancements) {
-    if (!isDraggable(adv, result)) continue;
-    const p = BASE_POS[adv.fromBase];
+    if (!isDraggable(adv, result as AtBatResult)) continue;
+    const displayBase = getRunnerDisplayBase(adv, result);
+    const p = BASE_POS[displayBase] ?? BASE_POS[adv.fromBase];
     if (p && Math.hypot(x - p.x, y - p.y) <= 25) return adv;
   }
   return null;
@@ -231,6 +249,7 @@ export default function RunnerAdvancementView({
   const editableRef         = useRef(editable);
   const resultRef           = useRef(result);
   useEffect(() => { editableRef.current = editable; }, [editable]);
+  useEffect(() => { resultRef.current = result; }, [result]);
 
   // ドラッグ表示用 state
   const [draggingRunnerId, setDraggingRunnerId] = useState<string | null>(null);
@@ -260,7 +279,7 @@ export default function RunnerAdvancementView({
         }
         draggingRunnerIdRef.current = runner.runnerId;
         setDraggingRunnerId(runner.runnerId);
-        setDragPos(BASE_POS[runner.fromBase]);
+        setDragPos(BASE_POS[getRunnerDisplayBase(runner, resultRef.current)] ?? BASE_POS[runner.fromBase]);
       });
     },
 
@@ -568,31 +587,21 @@ export default function RunnerAdvancementView({
               const dimmed = !!draggingRunnerId && !isDraggingThis;
 
               const destOffset = destinationOffsets[adv.runnerId] ?? { dx: 0, dy: 0 };
-              const destBase = isOut ? adv.fromBase : adv.targetBase;
-              const destPosRaw = isOut
-                ? BASE_POS[adv.fromBase]
-                : (BASE_POS[destBase] ?? BASE_POS[adv.fromBase]);
-              const destPos = {
-                x: destPosRaw.x + destOffset.dx,
-                y: destPosRaw.y + destOffset.dy,
+              const displayBase = getRunnerDisplayBase(adv, result);
+              const displayPosRaw = BASE_POS[displayBase] ?? BASE_POS[adv.fromBase];
+              const displayPos = {
+                x: displayPosRaw.x + destOffset.dx,
+                y: displayPosRaw.y + destOffset.dy,
               };
 
-              const circlePos = isDraggingThis && dragPos
-                ? dragPos
-                : isOut
-                  ? BASE_POS[adv.fromBase]
-                  : destPos;
+              const circlePos = isDraggingThis && dragPos ? dragPos : displayPos;
 
               const pathTarget: BaseTarget = isDraggingThis && activeBase
                 ? activeBase
                 : isOut
                   ? 'out'
                   : adv.targetBase;
-              const waypoints = isOut
-                ? []
-                : isDraggingThis && dragPos
-                  ? [{ ...BASE_POS[adv.fromBase] }, dragPos]
-                  : getPathWaypoints(adv.fromBase, pathTarget);
+              const waypoints = isOut ? [] : getPathWaypoints(adv.fromBase, pathTarget);
 
               return (
                 <React.Fragment key={adv.runnerId}>
@@ -608,8 +617,7 @@ export default function RunnerAdvancementView({
                         y2={to.y}
                         stroke={runnerColor}
                         strokeWidth={isLastLeg ? 3.5 : 2}
-                        strokeDasharray={isLastLeg ? undefined : '6,3'}
-                        opacity={dimmed ? 0.35 : isLastLeg ? 1 : 0.65}
+                        opacity={dimmed ? 0.35 : isLastLeg ? 1 : 0.7}
                       />
                     );
                   })}

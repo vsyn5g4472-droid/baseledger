@@ -625,29 +625,55 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
     return advancements;
   }
 
+  // === ヒット（単打・二塁打・三塁打）: デフォルト進塁先に配置 ===
+  if (['single', 'double', 'triple'].includes(result)) {
+    for (const r of runners) {
+      const curNum = BASE_ORDER[r.base];
+      const defaultTarget = Math.min(curNum + advanceBases, 4);
+      const minNum = isForced[r.base] ? Math.min(curNum + 1, 4) : curNum;
+
+      advancements.push({
+        runnerId: r.player.id,
+        playerName: r.player.name,
+        fromBase: r.base,
+        targetBase: BASE_FROM_NUM[defaultTarget],
+        outcome: 'safe',
+        action: 'batted_ball',
+        isForced: isForced[r.base],
+        minBase: BASE_FROM_NUM[minNum],
+      });
+    }
+
+    const batterTarget = BASE_FROM_NUM[Math.min(advanceBases, 3)];
+    advancements.push({
+      runnerId: batter.id,
+      playerName: batter.name,
+      fromBase: 'batter',
+      targetBase: batterTarget,
+      outcome: 'safe',
+      action: 'batted_ball',
+      isForced: true,
+      minBase: batterTarget,
+    });
+
+    return capBatterTargetBase(advancements);
+  }
+
+  // === エラー・アウト・その他: 全員を元の塁に配置（ユーザーがドラッグで決定） ===
   for (const r of runners) {
     const curNum = BASE_ORDER[r.base];
-    const defaultTarget = Math.min(curNum + advanceBases, 4);
-    const minNum = isForced[r.base] ? Math.min(curNum + 1, 4) : curNum;
-
-    // 犠飛のデフォルト: タッチアップ（犠打は打球進塁）
-    const action = result === 'sacrifice_fly'
-      ? 'tag_up' as const
-      : 'batted_ball' as const;
-
     advancements.push({
       runnerId: r.player.id,
       playerName: r.player.name,
       fromBase: r.base,
-      targetBase: BASE_FROM_NUM[defaultTarget],
+      targetBase: BASE_FROM_NUM[curNum],
       outcome: 'safe',
-      action,
-      isForced: isForced[r.base],
-      minBase: BASE_FROM_NUM[minNum],
+      action: 'batted_ball',
+      isForced: false,
+      minBase: BASE_FROM_NUM[curNum],
     });
   }
 
-  // 打者の進塁
   if (result === 'sacrifice_fly') {
     advancements.push({
       runnerId: batter.id,
@@ -660,7 +686,6 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
       minBase: 'out',
     });
   } else if (result === 'sacrifice_bunt') {
-    // TODO: バント打者が出塁した場合(エラー等)はsacrifice_buntタグの再判定が必要(スコープ外)
     advancements.push({
       runnerId: batter.id,
       playerName: batter.name,
@@ -669,9 +694,9 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
       outcome: 'out_tag',
       action: 'batted_ball',
       isForced: false,
-      minBase: 'out',   // デフォルトはアウトだが RunnerAdvancementView 側でロックしない
+      minBase: 'out',
     });
-  } else if (result === 'fielders_choice') {
+  } else {
     advancements.push({
       runnerId: batter.id,
       playerName: batter.name,
@@ -679,20 +704,8 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
       targetBase: 'first',
       outcome: 'safe',
       action: 'batted_ball',
-      isForced: true,
+      isForced: false,
       minBase: 'first',
-    });
-  } else {
-    const batterTarget = BASE_FROM_NUM[Math.min(advanceBases, 3)];
-    advancements.push({
-      runnerId: batter.id,
-      playerName: batter.name,
-      fromBase: 'batter',
-      targetBase: batterTarget,
-      outcome: 'safe',
-      action: 'batted_ball',
-      isForced: true,
-      minBase: batterTarget,
     });
   }
 
