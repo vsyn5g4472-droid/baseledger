@@ -7,8 +7,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { updateUser } from '../../../src/services/userService';
 import { updateAuthorNameInPosts } from '../../../src/services/postService';
-import { uploadImage } from '../../../src/services/storageService';
+import { uploadUserAvatar } from '../../../src/services/storageService';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
+import {
+  AVATAR_COLOR_OPTIONS,
+  DEFAULT_AVATAR_COLOR,
+  getAvatarColorHex,
+  type AvatarColorId,
+} from '../../../src/constants/avatarColors';
 import type { UserRole } from '../../../src/models/types';
 
 export default function EditProfileScreen() {
@@ -20,18 +26,25 @@ export default function EditProfileScreen() {
   const [role, setRole] = useState<UserRole>(currentUser?.role ?? 'player');
   const [loading, setLoading] = useState(false);
   const [photoURL, setPhotoURL] = useState<string | null>(currentUser?.photoURL ?? null);
+  const [avatarColor, setAvatarColor] = useState<AvatarColorId>(
+    currentUser?.avatarColor ?? DEFAULT_AVATAR_COLOR,
+  );
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const avatarBg = getAvatarColorHex(avatarColor);
 
   const uploadPhoto = async (uri: string) => {
     if (!currentUser) return;
     setUploadingPhoto(true);
     try {
-      const path = `users/${currentUser.uid}/avatar.jpg`;
-      const url = await uploadImage(uri, path);
+      const url = await uploadUserAvatar(currentUser.uid, uri);
       setPhotoURL(url);
-    } catch (e: any) {
+      await updateUser(currentUser.uid, { photoURL: url });
+      await refreshUser({ photoURL: url });
+    } catch (e: unknown) {
       console.error('uploadPhoto error:', e);
-      Alert.alert('エラー', `写真のアップロードに失敗しました: ${e?.message ?? e}`);
+      const message = e instanceof Error ? e.message : String(e);
+      Alert.alert('エラー', `写真のアップロードに失敗しました: ${message}`);
     } finally {
       setUploadingPhoto(false);
     }
@@ -50,6 +63,11 @@ export default function EditProfileScreen() {
         {
           text: 'カメラで撮影',
           onPress: async () => {
+            const cam = await ImagePicker.requestCameraPermissionsAsync();
+            if (cam.status !== 'granted') {
+              Alert.alert('権限エラー', 'カメラへのアクセスを許可してください');
+              return;
+            }
             const result = await ImagePicker.launchCameraAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
               allowsEditing: true,
@@ -80,7 +98,15 @@ export default function EditProfileScreen() {
     if (!currentUser) return;
     setLoading(true);
     try {
-      await updateUser(currentUser.uid, { displayName, bio, position, team, role, photoURL });
+      await updateUser(currentUser.uid, {
+        displayName,
+        bio,
+        position,
+        team,
+        role,
+        photoURL,
+        avatarColor,
+      });
       if (displayName !== currentUser.displayName || photoURL !== currentUser.photoURL) {
         await updateAuthorNameInPosts(
           currentUser.uid,
@@ -89,7 +115,7 @@ export default function EditProfileScreen() {
           currentUser.plan,
         );
       }
-      await refreshUser({ displayName, bio, position, team, role, photoURL });
+      await refreshUser({ displayName, bio, position, team, role, photoURL, avatarColor });
       Alert.alert('保存完了', 'プロフィールを更新しました', [
         { text: 'OK', onPress: () => router.back() },
       ]);
@@ -113,7 +139,11 @@ export default function EditProfileScreen() {
         {photoURL ? (
           <Avatar.Image size={80} source={{ uri: photoURL }} />
         ) : (
-          <Avatar.Text size={80} label={currentUser?.displayName?.charAt(0) ?? '?'} style={styles.avatarText} />
+          <Avatar.Text
+            size={80}
+            label={displayName.charAt(0) || currentUser?.displayName?.charAt(0) || '?'}
+            style={[styles.avatarText, { backgroundColor: avatarBg }]}
+          />
         )}
         {uploadingPhoto ? (
           <ActivityIndicator style={styles.cameraIcon} color={Colors.white} />
@@ -123,6 +153,30 @@ export default function EditProfileScreen() {
           </View>
         )}
       </TouchableOpacity>
+
+      <Text style={styles.sectionLabel}>アイコンのテーマカラー</Text>
+      <Text style={styles.sectionHint}>画像未設定時の頭文字アイコンに適用されます</Text>
+      <View style={styles.colorRow}>
+        {AVATAR_COLOR_OPTIONS.map((option) => {
+          const selected = avatarColor === option.id;
+          return (
+            <TouchableOpacity
+              key={option.id}
+              style={[
+                styles.colorSwatch,
+                { backgroundColor: option.hex },
+                selected && styles.colorSwatchSelected,
+              ]}
+              onPress={() => setAvatarColor(option.id)}
+              accessibilityLabel={option.label}
+            >
+              {selected && (
+                <MaterialCommunityIcons name="check" size={18} color={Colors.white} />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       <TextInput label="表示名" value={displayName} onChangeText={setDisplayName} mode="outlined" style={styles.input} />
       <TextInput label="自己紹介" value={bio} onChangeText={setBio} mode="outlined" style={styles.input} multiline numberOfLines={3} />
@@ -182,7 +236,7 @@ const styles = StyleSheet.create({
   title: { fontSize: Typography.h2, fontWeight: '700', color: Colors.text, marginBottom: Spacing.lg, alignSelf: 'flex-start' },
   avatarContainer: {
     position: 'relative',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   avatarText: { backgroundColor: Colors.primary },
   cameraIcon: {
@@ -192,6 +246,38 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: 12,
     padding: 4,
+  },
+  sectionLabel: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.text,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+  },
+  sectionHint: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    alignSelf: 'flex-start',
+    marginBottom: Spacing.sm,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+    alignSelf: 'flex-start',
+  },
+  colorSwatch: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorSwatchSelected: {
+    borderColor: Colors.text,
   },
   input: { marginBottom: Spacing.md, backgroundColor: Colors.card, width: '100%' },
   label: { fontSize: Typography.body, fontWeight: '600', color: Colors.text, marginBottom: Spacing.sm, alignSelf: 'flex-start' },

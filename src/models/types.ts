@@ -1,4 +1,5 @@
 import { Timestamp } from 'firebase/firestore';
+import type { AvatarColorId } from '../constants/avatarColors';
 import type { UserPlan } from '../services/planService';
 import type { AtBatResult, StrikeZone, PitchResult, Count } from '../types/game';
 
@@ -75,6 +76,8 @@ export interface User {
   email: string;
   displayName: string;
   photoURL: string | null;
+  /** デフォルトアイコン（頭文字）の背景色。未設定時はブルー */
+  avatarColor?: AvatarColorId | null;
   /** Unique @ID chosen during onboarding. Null until set. */
   username: string | null;
   role: UserRole;
@@ -406,6 +409,7 @@ export interface ScoutSearchFilters {
 export interface UpdateUserInput {
   displayName?: string;
   photoURL?: string | null;
+  avatarColor?: AvatarColorId | null;
   role?: UserRole;
   position?: string | null;
   team?: string | null;

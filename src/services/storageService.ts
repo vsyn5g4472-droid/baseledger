@@ -15,6 +15,11 @@ async function uriToBlob(uri: string): Promise<Blob> {
   return response.blob();
 }
 
+/** プロフィール画像を users/{uid}/avatar.jpg にアップロード */
+export async function uploadUserAvatar(uid: string, uri: string): Promise<string> {
+  return uploadImage(uri, `users/${uid}/avatar.jpg`);
+}
+
 /**
  * Upload an image to Firebase Storage and return its download URL.
  * @param uri - Local file URI

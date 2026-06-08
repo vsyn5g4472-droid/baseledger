@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|gif|webp)');
+    }
+
+    function isValidImageSize() {
+      return request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    // プロフィールアイコン: users/{uid}/avatar.jpg
+    // 読み取り: 全員可 / 書き込み: 本人のみ
+    match /users/{userId}/avatar.jpg {
+      allow read: if true;
+      allow write: if isOwner(userId) && isImage() && isValidImageSize();
+      allow delete: if isOwner(userId);
+    }
+
+    // その他のユーザーファイル
+    match /users/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) && isImage() && isValidImageSize();
+      allow delete: if isOwner(userId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

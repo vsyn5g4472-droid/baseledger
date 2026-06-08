@@ -9,6 +9,7 @@ import { getUserSpotAtBats } from '../../../src/services/spotAtBatService';
 import BuntSignStatsCard from '../../../src/components/BuntSignStatsCard';
 import StatsChart from '../../../src/components/StatsChart';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
+import { getAvatarColorHex } from '../../../src/constants/avatarColors';
 import { useI18n } from '../../../src/i18n';
 import PlanBadge from '../../../src/components/PlanBadge';
 
@@ -81,7 +82,11 @@ export default function ProfileScreen() {
         {u.photoURL ? (
           <Avatar.Image size={80} source={{ uri: u.photoURL }} />
         ) : (
-          <Avatar.Text size={80} label={u.displayName.charAt(0)} style={styles.avatar} />
+          <Avatar.Text
+            size={80}
+            label={u.displayName.charAt(0)}
+            style={[styles.avatar, { backgroundColor: getAvatarColorHex(u.avatarColor) }]}
+          />
         )}
         <View style={styles.nameRow}>
           <Text style={styles.name}>{u.displayName}</Text>

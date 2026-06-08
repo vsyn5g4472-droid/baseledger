@@ -12,6 +12,7 @@ import { useAuth } from '../../../src/contexts/AuthContext';
 import PostCard from '../../../src/components/PostCard';
 import PlanBadge from '../../../src/components/PlanBadge';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
+import { getAvatarColorHex } from '../../../src/constants/avatarColors';
 import { getOrCreateConversation } from '../../../src/services/messageService';
 import { isLiked, likePost, unlikePost } from '../../../src/services/postService';
 import type { Post } from '../../../src/models/types';
@@ -88,7 +89,7 @@ export default function UserProfileScreen() {
             <Avatar.Text
               size={88}
               label={user.displayName.charAt(0)}
-              style={styles.avatar}
+              style={[styles.avatar, { backgroundColor: getAvatarColorHex(user.avatarColor) }]}
               labelStyle={styles.avatarLabel}
             />
           )}
