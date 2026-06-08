@@ -86,6 +86,11 @@ export default function SettingsScreen() {
     flush(next);
   };
 
+  const setRealtimeMemo = (on: boolean) => {
+    const next: RecordingPreferences = { ...prefs, realtimeMemo: on, items: { ...prefs.items } };
+    flush(next);
+  };
+
   const setItem = (id: RecordingItemId, on: boolean) => {
     const next: RecordingPreferences = { ...prefs, items: { ...prefs.items, [id]: on } };
     flush(next);
@@ -148,6 +153,21 @@ export default function SettingsScreen() {
             <Text style={styles.switchLabel}>詳細モード</Text>
             <Switch value={prefs.detailMode} onValueChange={setDetail} />
           </View>
+          {prefs.detailMode && (
+            <>
+              <Divider />
+              <View style={styles.row}>
+                <View style={styles.switchLabelCol}>
+                  <Text style={styles.switchLabelSmall}>リアルタイムメモ</Text>
+                  <Text style={styles.switchHint}>試合中に打席メモを入力できます</Text>
+                </View>
+                <Switch
+                  value={prefs.realtimeMemo === true}
+                  onValueChange={setRealtimeMemo}
+                />
+              </View>
+            </>
+          )}
           {visibleItems.map((id) => (
             <View key={id}>
               <Divider />
@@ -285,6 +305,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
   },
   switchLabel: { fontSize: Typography.body, fontWeight: '600', color: Colors.text, flex: 1 },
+  switchLabelCol: { flex: 1, paddingRight: 8 },
+  switchHint: { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 2 },
   switchLabelSmall: { fontSize: Typography.bodySmall, color: Colors.text, flex: 1, paddingRight: 8 },
   resetRow: { padding: Spacing.md, alignItems: 'center' },
   langRow: {

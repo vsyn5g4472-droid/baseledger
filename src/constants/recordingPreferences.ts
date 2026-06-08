@@ -27,6 +27,7 @@ const DEFAULT_ITEM_VALUES: Record<RecordingItemId, boolean> = {
 
 export const DEFAULT_RECORDING_PREFERENCES: RecordingPreferences = {
   detailMode: false,
+  realtimeMemo: false,
   items: { ...DEFAULT_ITEM_VALUES } as Partial<Record<RecordingItemId, boolean>>,
 };
 
@@ -73,6 +74,7 @@ export function mergeRecordingPreferences(
   }
   return {
     detailMode: saved.detailMode ?? base.detailMode,
+    realtimeMemo: saved.realtimeMemo ?? base.realtimeMemo,
     items: { ...DEFAULT_ITEM_VALUES, ...saved.items },
   };
 }

@@ -58,7 +58,7 @@ import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
 import PlayerSubstitutionModal from '../../../src/components/score/PlayerSubstitutionModal';
 import InGameStatsPanel from '../../../src/components/score/InGameStatsPanel';
 import { usePlanGate } from '../../../src/hooks/usePlanGate';
-import { showDetailRecordPlanAlert, showOpponentDataPlanAlert } from '../../../src/utils/planLimitAlerts';
+import { showOpponentDataPlanAlert } from '../../../src/utils/planLimitAlerts';
 import type { AtBatLog, Player } from '../../../src/types/game';
 
 // ── 投球コース記録キャンバス定数 (横4:縦7 ストライクゾーン) ──────────
@@ -127,6 +127,7 @@ export default function LiveScoreScreen() {
   const fieldViewFilter = useMemo(() => makeFieldViewFilter(prefs), [prefs]);
   const pitchResultRows = useMemo(() => filterPitchResultOptions(prefs), [prefs]);
   const detailMode = mergeRecordingPreferences(prefs).detailMode;
+  const realtimeMemoEnabled = mergeRecordingPreferences(prefs).realtimeMemo === true;
   const game = useGameStore((s) => s.game);
   const recordPitch = useGameStore((s) => s.recordPitch);
   const resolveAtBat = useGameStore((s) => s.resolveAtBat);
@@ -187,7 +188,6 @@ export default function LiveScoreScreen() {
   const [showPitcherStats, setShowPitcherStats] = useState(false);
   const [showBatterStats, setShowBatterStats] = useState(false);
   const opponentDataGate = usePlanGate('opponent_data');
-  const detailRecordGate = usePlanGate('detail_record');
 
   const openPitcherStats = useCallback(() => {
     if (!opponentDataGate.allowed) {
@@ -249,13 +249,8 @@ export default function LiveScoreScreen() {
   // ── 球速入力モード ────────────────────────────────────────────
   type VelocityMode = 'hold' | 'drag';
   const [velocityMode, setVelocityMode] = useState<VelocityMode>('hold');
-  const [velocityExpanded, setVelocityExpanded] = useState(true);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [dragVelocity, setDragVelocity] = useState(120);
-
-  // ── 詳細記録モード ────────────────────────────────────────────
-  const [detailRecordExpanded, setDetailRecordExpanded] = useState(true);
-  const [detailRecordMode, setDetailRecordMode] = useState(false);
 
   const loadGame = useGameStore((s) => s.loadGame);
   const navigation = useNavigation();
@@ -880,161 +875,80 @@ export default function LiveScoreScreen() {
           </View>
         </View>
 
-        {/* ===== 球速入力（折りたたみ） ===== */}
-        <View style={styles.collapseSection}>
-          <TouchableOpacity
-            style={styles.collapseHeader}
-            onPress={() => setVelocityExpanded((v) => !v)}
-            activeOpacity={0.75}
-          >
-            <MaterialCommunityIcons name="speedometer" size={16} color={Colors.textSecondary} />
-            <Text style={styles.collapseHeaderTitle}>球速入力</Text>
-            {velocityEnabled && (
-              <Text style={styles.collapseHeaderSub}>
-                {velocityMode === 'hold' ? '長押し計測' : 'ドラッグ入力'}
-              </Text>
+        {/* ===== 球速入力ストリップ ===== */}
+        {velocityEnabled && (
+          <View style={styles.velocityStrip}>
+            {velocityMode === 'hold' && (
+              <TouchableOpacity
+                style={[
+                  styles.velocityHoldBtn,
+                  isHoldingVelocity && styles.velocityHoldBtnActive,
+                  measuredVelocity !== null && styles.velocityHoldBtnDone,
+                ]}
+                onPressIn={() => {
+                  velocityStartRef.current = Date.now();
+                  setIsHoldingVelocity(true);
+                  setScrollLocked(true);
+                }}
+                onPressOut={() => {
+                  if (velocityStartRef.current) {
+                    const elapsed = (Date.now() - velocityStartRef.current) / 1000;
+                    if (elapsed > 0.05) {
+                      const kmh = Math.round((pitchDistanceM / elapsed) * 3.6);
+                      setMeasuredVelocity(Math.min(kmh, 220));
+                    }
+                  }
+                  setIsHoldingVelocity(false);
+                  setScrollLocked(false);
+                  velocityStartRef.current = null;
+                }}
+                activeOpacity={0.85}
+              >
+                <MaterialCommunityIcons
+                  name={isHoldingVelocity ? 'timer-outline' : measuredVelocity !== null ? 'speedometer' : 'hand-back-left-outline'}
+                  size={18}
+                  color={Colors.white}
+                />
+                <Text style={styles.velocityHoldBtnText}>
+                  {isHoldingVelocity
+                    ? '⏱ 計測中...'
+                    : measuredVelocity !== null
+                      ? `${measuredVelocity} km/h`
+                      : '長押し = 球速計測'}
+                </Text>
+              </TouchableOpacity>
             )}
-            <View style={{ flex: 1 }} />
+            {measuredVelocity !== null && velocityMode === 'hold' && (
+              <TouchableOpacity
+                style={styles.velocityResetBtn}
+                onPress={() => setMeasuredVelocity(null)}
+              >
+                <MaterialCommunityIcons name="refresh" size={16} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+
+            {velocityMode === 'drag' && (
+              <VelocityDragMeter
+                value={dragVelocity}
+                onChange={(v) => { setDragVelocity(v); setMeasuredVelocity(v); }}
+                onReset={() => { setMeasuredVelocity(null); setDragVelocity(120); }}
+                setScrollLocked={setScrollLocked}
+              />
+            )}
+
             <TouchableOpacity
+              style={styles.velocitySettingsBtn}
               onPress={() => setSettingsModalVisible(true)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <MaterialCommunityIcons name="cog-outline" size={18} color={Colors.textSecondary} />
+              <MaterialCommunityIcons name="cog-outline" size={20} color={Colors.textSecondary} />
             </TouchableOpacity>
-            <MaterialCommunityIcons
-              name={velocityExpanded ? 'chevron-up' : 'chevron-down'}
-              size={20}
-              color={Colors.textSecondary}
-            />
-          </TouchableOpacity>
+          </View>
+        )}
 
-          {velocityExpanded && (
-            <View style={styles.collapseBody}>
-              {velocityEnabled ? (
-                <View style={styles.velocityStrip}>
-                  {velocityMode === 'hold' && (
-                    <TouchableOpacity
-                      style={[
-                        styles.velocityHoldBtn,
-                        isHoldingVelocity && styles.velocityHoldBtnActive,
-                        measuredVelocity !== null && styles.velocityHoldBtnDone,
-                      ]}
-                      onPressIn={() => {
-                        velocityStartRef.current = Date.now();
-                        setIsHoldingVelocity(true);
-                        setScrollLocked(true);
-                      }}
-                      onPressOut={() => {
-                        if (velocityStartRef.current) {
-                          const elapsed = (Date.now() - velocityStartRef.current) / 1000;
-                          if (elapsed > 0.05) {
-                            const kmh = Math.round((pitchDistanceM / elapsed) * 3.6);
-                            setMeasuredVelocity(Math.min(kmh, 220));
-                          }
-                        }
-                        setIsHoldingVelocity(false);
-                        setScrollLocked(false);
-                        velocityStartRef.current = null;
-                      }}
-                      activeOpacity={0.85}
-                    >
-                      <MaterialCommunityIcons
-                        name={isHoldingVelocity ? 'timer-outline' : measuredVelocity !== null ? 'speedometer' : 'hand-back-left-outline'}
-                        size={18}
-                        color={Colors.white}
-                      />
-                      <Text style={styles.velocityHoldBtnText}>
-                        {isHoldingVelocity
-                          ? '⏱ 計測中...'
-                          : measuredVelocity !== null
-                            ? `${measuredVelocity} km/h`
-                            : '長押し = 球速計測'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  {measuredVelocity !== null && velocityMode === 'hold' && (
-                    <TouchableOpacity
-                      style={styles.velocityResetBtn}
-                      onPress={() => setMeasuredVelocity(null)}
-                    >
-                      <MaterialCommunityIcons name="refresh" size={16} color={Colors.textSecondary} />
-                    </TouchableOpacity>
-                  )}
-
-                  {velocityMode === 'drag' && (
-                    <VelocityDragMeter
-                      value={dragVelocity}
-                      onChange={(v) => { setDragVelocity(v); setMeasuredVelocity(v); }}
-                      onReset={() => { setMeasuredVelocity(null); setDragVelocity(120); }}
-                      setScrollLocked={setScrollLocked}
-                    />
-                  )}
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.velocityOffHint}
-                  onPress={() => setSettingsModalVisible(true)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.velocityOffHintText}>球速記録はOFF — タップして設定</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-        </View>
-
-        {/* ===== 詳細記録モード（折りたたみ） ===== */}
-        <View style={styles.collapseSection}>
-          <TouchableOpacity
-            style={styles.collapseHeader}
-            onPress={() => setDetailRecordExpanded((v) => !v)}
-            activeOpacity={0.75}
-          >
-            <MaterialCommunityIcons name="notebook-edit-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.collapseHeaderTitle}>詳細記録モード</Text>
-            {detailRecordMode && detailRecordGate.allowed && (
-              <Text style={[styles.collapseHeaderSub, { color: Colors.primary }]}>ON</Text>
-            )}
-            <View style={{ flex: 1 }} />
-            <MaterialCommunityIcons
-              name={detailRecordExpanded ? 'chevron-up' : 'chevron-down'}
-              size={20}
-              color={Colors.textSecondary}
-            />
-          </TouchableOpacity>
-
-          {detailRecordExpanded && (
-            <View style={styles.collapseBody}>
-              <View style={styles.detailRecordRow}>
-                <Text style={[styles.detailRecordLabel, !detailRecordGate.allowed && styles.detailRecordLabelDisabled]}>
-                  打席メモを記録
-                </Text>
-                <Switch
-                  value={detailRecordMode && detailRecordGate.allowed}
-                  onValueChange={(v) => {
-                    if (!detailRecordGate.allowed) {
-                      showDetailRecordPlanAlert();
-                      return;
-                    }
-                    setDetailRecordMode(v);
-                  }}
-                  trackColor={{
-                    false: Colors.border,
-                    true: detailRecordGate.allowed ? Colors.primary : Colors.border,
-                  }}
-                  thumbColor={detailRecordGate.allowed ? Colors.white : '#BDBDBD'}
-                />
-              </View>
-              {!detailRecordGate.allowed && (
-                <Text style={styles.detailRecordProHint}>PROプランで利用可能</Text>
-              )}
-            </View>
-          )}
-        </View>
-
-        {/* ===== 直前の打席を修正 + メモ ===== */}
+        {/* ===== 直前の打席を修正 + リアルタイムメモ ===== */}
         {((game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement)
-          || (detailRecordMode && detailRecordGate.allowed)) && (
+          || realtimeMemoEnabled) && (
           <View style={styles.revertRow}>
             {game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement && (
               <TouchableOpacity
@@ -1048,7 +962,7 @@ export default function LiveScoreScreen() {
                 <Text style={styles.revertButtonText}>直前の打席を修正</Text>
               </TouchableOpacity>
             )}
-            {detailRecordMode && detailRecordGate.allowed && (
+            {realtimeMemoEnabled && (
               <TextInput
                 mode="outlined"
                 placeholder="メモ"
@@ -1065,6 +979,17 @@ export default function LiveScoreScreen() {
               />
             )}
           </View>
+        )}
+
+        {/* ===== 球速設定ギア (velocityEnabled=false 時も常にアクセス可能) ===== */}
+        {!velocityEnabled && (
+          <TouchableOpacity
+            style={styles.velocityOffGear}
+            onPress={() => setSettingsModalVisible(true)}
+          >
+            <MaterialCommunityIcons name="cog-outline" size={15} color={Colors.textSecondary} />
+            <Text style={styles.velocityOffGearText}>球速設定</Text>
+          </TouchableOpacity>
         )}
 
         {/* ===== メインゾーンエリア: [球種縦列] + [バッター+キャンバス] ===== */}
@@ -2699,70 +2624,16 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
   },
 
-  // ── 折りたたみセクション ──────────────────────────────────────────
-  collapseSection: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.card,
-  },
-  collapseHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
-  },
-  collapseHeaderTitle: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '700',
-    color: Colors.text,
-  },
-  collapseHeaderSub: {
-    fontSize: Typography.tiny,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  collapseBody: {
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
-  },
-  detailRecordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  detailRecordLabel: {
-    fontSize: Typography.bodySmall,
-    color: Colors.text,
-    fontWeight: '600',
-  },
-  detailRecordLabelDisabled: {
-    color: Colors.textSecondary,
-  },
-  detailRecordProHint: {
-    fontSize: Typography.tiny,
-    color: Colors.textSecondary,
-    marginTop: 2,
-    marginBottom: 2,
-  },
-  velocityOffHint: {
-    paddingVertical: 8,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceGray,
-  },
-  velocityOffHintText: {
-    fontSize: Typography.caption,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-
   // ── 球速計測ストリップ ────────────────────────────────────────────
   velocityStrip: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
     gap: Spacing.xs,
+    backgroundColor: Colors.surfaceGray,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
   velocitySettingsBtn: {
     width: 34,

@@ -68,6 +68,8 @@ export type RecordingItemId =
 export interface RecordingPreferences {
   /** true のとき詳細ON/OFFのうち上級向けの項目を表示 */
   detailMode: boolean;
+  /** true のとき試合記録中に打席メモ入力欄を表示 */
+  realtimeMemo?: boolean;
   items: Partial<Record<RecordingItemId, boolean>>;
 }
 
