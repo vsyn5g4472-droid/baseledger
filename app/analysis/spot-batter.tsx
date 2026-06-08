@@ -7,11 +7,12 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { getUserSpotAtBats } from '../../src/services/spotAtBatService';
+import { deleteSpotAtBat, getUserSpotAtBats } from '../../src/services/spotAtBatService';
 import type { SpotAtBat } from '../../src/models/types';
 import type { AtBatResult } from '../../src/types/game';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
@@ -48,17 +49,42 @@ function formatSpotDate(spot: SpotAtBat): string {
   return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' });
 }
 
-function AtBatListItem({ spot }: { spot: SpotAtBat }) {
+function AtBatListItem({
+  spot,
+  showDelete,
+  onLongPress,
+  onDeletePress,
+}: {
+  spot: SpotAtBat;
+  showDelete: boolean;
+  onLongPress: () => void;
+  onDeletePress: () => void;
+}) {
   const resultJp = RESULT_JP[spot.result] ?? spot.result;
   return (
-    <View style={itemStyles.card}>
+    <TouchableOpacity
+      style={itemStyles.card}
+      onLongPress={onLongPress}
+      delayLongPress={400}
+      activeOpacity={0.85}
+    >
       <View style={itemStyles.main}>
         <Text style={itemStyles.result}>{resultJp}</Text>
         <Text style={itemStyles.meta}>{spot.pitches.length}球</Text>
       </View>
       <Text style={itemStyles.date}>{formatSpotDate(spot)}</Text>
       {spot.opponent ? <Text style={itemStyles.opponent}>vs {spot.opponent}</Text> : null}
-    </View>
+      {showDelete && (
+        <TouchableOpacity
+          style={itemStyles.deleteBtn}
+          onPress={onDeletePress}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="delete-outline" size={18} color={Colors.error} />
+          <Text style={itemStyles.deleteBtnText}>削除</Text>
+        </TouchableOpacity>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -72,6 +98,7 @@ export default function SpotBatterScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const decodedName = decodeURIComponent(playerName ?? '');
 
@@ -104,6 +131,35 @@ export default function SpotBatterScreen() {
   }, [load]);
 
   const title = useMemo(() => decodedName || '打者', [decodedName]);
+
+  const confirmDelete = useCallback((spotId: string) => {
+    Alert.alert(
+      '打席を削除しますか？',
+      'この打席データは削除され、元に戻せません',
+      [
+        {
+          text: 'キャンセル',
+          style: 'cancel',
+          onPress: () => setDeleteTargetId(null),
+        },
+        {
+          text: '削除する',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteSpotAtBat(spotId);
+              setSpots((prev) => prev.filter((s) => s.id !== spotId));
+              setAiReport(null);
+              setDeleteTargetId(null);
+            } catch (e) {
+              console.error('SpotBatter delete error:', e);
+              Alert.alert('エラー', '打席の削除に失敗しました');
+            }
+          },
+        },
+      ],
+    );
+  }, []);
 
   const handleStartAI = useCallback(async () => {
     if (spots.length === 0) return;
@@ -160,7 +216,14 @@ export default function SpotBatterScreen() {
             <Text style={styles.headerSub}>{spots.length}打席の記録</Text>
           </View>
         }
-        renderItem={({ item }) => <AtBatListItem spot={item} />}
+        renderItem={({ item }) => (
+          <AtBatListItem
+            spot={item}
+            showDelete={deleteTargetId === item.id}
+            onLongPress={() => setDeleteTargetId(item.id)}
+            onDeletePress={() => confirmDelete(item.id)}
+          />
+        )}
         ListEmptyComponent={
           <View style={styles.emptyBox}>
             <MaterialCommunityIcons name="database-off-outline" size={40} color={Colors.border} />
@@ -286,4 +349,19 @@ const itemStyles = StyleSheet.create({
   meta: { fontSize: Typography.bodySmall, color: Colors.textSecondary, fontWeight: '600' },
   date: { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 6 },
   opponent: { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 2 },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border,
+    alignSelf: 'flex-start',
+  },
+  deleteBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.error,
+  },
 });
