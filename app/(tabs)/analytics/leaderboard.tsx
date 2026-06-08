@@ -5,7 +5,7 @@
  * カテゴリ別カラーカードでランキングを表示します。
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,13 @@ import {
 import { Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { db } from '../../../src/db';
-import { buildLeaderboard, type LeaderboardData, type LeaderboardCategory } from '../../../src/utils/multiGameStats';
+import {
+  buildLeaderboard,
+  collectTeamNamesFromGames,
+  type LeaderboardData,
+  type LeaderboardCategory,
+} from '../../../src/utils/multiGameStats';
+import type { GameState } from '../../../src/types/game';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
 import { usePlanGate, useUserPlan } from '../../../src/hooks/usePlanGate';
 import PlanUpgradeCard from '../../../src/components/PlanUpgradeCard';
@@ -166,23 +172,41 @@ function CategoryCard({
 }
 
 // ── メイン画面 ────────────────────────────────────────────────────────────────
+const ALL_TEAMS_LABEL = '全て';
+
 export default function LeaderboardScreen() {
   const leaderboardGate = usePlanGate('leaderboard');
   const userPlan = useUserPlan();
+  const [allGames, setAllGames] = useState<GameState[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState(ALL_TEAMS_LABEL);
   const [leaderboard, setLeaderboard] = useState<LeaderboardData | null>(null);
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
+  const teamOptions = useMemo(
+    () => [ALL_TEAMS_LABEL, ...collectTeamNamesFromGames(allGames)],
+    [allGames],
+  );
+
+  const rebuildLeaderboard = useCallback((games: GameState[], team: string) => {
+    const filter = team === ALL_TEAMS_LABEL ? null : team;
+    setLeaderboard(buildLeaderboard(games, filter));
+  }, []);
+
   const loadData = useCallback(async () => {
     const games = await db.games.getAll();
-    const data  = buildLeaderboard(games);
-    setLeaderboard(data);
+    setAllGames(games);
   }, []);
 
   useEffect(() => {
     loadData().finally(() => setLoading(false));
   }, [loadData]);
+
+  useEffect(() => {
+    if (allGames.length === 0) return;
+    rebuildLeaderboard(allGames, selectedTeam);
+  }, [selectedTeam, allGames, rebuildLeaderboard]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -216,7 +240,7 @@ export default function LeaderboardScreen() {
     );
   }
 
-  if (!leaderboard || leaderboard.categories.length === 0) {
+  if (allGames.length === 0) {
     return (
       <View style={styles.center}>
         <Stack.Screen options={{ title: 'チーム内ランキング' }} />
@@ -237,9 +261,37 @@ export default function LeaderboardScreen() {
         {/* バナー */}
         <View style={styles.banner}>
           <MaterialCommunityIcons name="trophy" size={22} color={Colors.accent} />
-          <Text style={styles.bannerTitle}>BALLPARK RANKING</Text>
-          <Text style={styles.bannerSub}>{leaderboard.gameCount}試合分を集計</Text>
+          <Text style={styles.bannerTitle}>BASELEDGER RANKING</Text>
+          <Text style={styles.bannerSub}>
+            {(leaderboard?.gameCount ?? 0)}試合分を集計
+          </Text>
         </View>
+
+        {/* チーム選択 */}
+        {teamOptions.length > 1 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.teamChipScroll}
+            contentContainerStyle={styles.teamChipRow}
+          >
+            {teamOptions.map((name) => (
+              <TouchableOpacity
+                key={name}
+                style={[styles.teamChip, selectedTeam === name && styles.teamChipActive]}
+                onPress={() => setSelectedTeam(name)}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[styles.teamChipText, selectedTeam === name && styles.teamChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -247,14 +299,22 @@ export default function LeaderboardScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
           }
         >
-          {leaderboard.categories.map((cat) => (
-            <CategoryCard
-              key={cat.id}
-              category={cat}
-              expanded={expandedCategories.has(cat.id)}
-              onToggleExpand={() => toggleExpand(cat.id)}
-            />
-          ))}
+          {(!leaderboard || leaderboard.categories.length === 0) ? (
+            <View style={styles.filteredEmpty}>
+              <Text style={styles.filteredEmptyText}>
+                選択したチームのランキングデータが不足しています
+              </Text>
+            </View>
+          ) : (
+            leaderboard.categories.map((cat) => (
+              <CategoryCard
+                key={cat.id}
+                category={cat}
+                expanded={expandedCategories.has(cat.id)}
+                onToggleExpand={() => toggleExpand(cat.id)}
+              />
+            ))
+          )}
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
@@ -328,9 +388,49 @@ const styles = StyleSheet.create({
     fontSize: Typography.tiny,
     color: 'rgba(255,255,255,0.7)',
   },
+  teamChipScroll: {
+    backgroundColor: Colors.background,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+  },
+  teamChipRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  teamChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceGray,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+  },
+  teamChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  teamChipText: {
+    fontSize: Typography.caption,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  teamChipTextActive: {
+    color: Colors.white,
+  },
   scrollContent: {
     padding: 16,
     gap: 16,
+  },
+  filteredEmpty: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
+  },
+  filteredEmptyText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
 });
 

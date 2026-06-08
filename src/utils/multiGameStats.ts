@@ -9,7 +9,7 @@
  * Players without a `realPlayerId` fall back to their game-scoped Player.id.
  */
 
-import type { GameState, AtBatResult, AtBatLog, PitchResult } from '../types/game';
+import type { GameState, AtBatResult, AtBatLog, PitchResult, Player } from '../types/game';
 import { buildBattingLine, calcWOBA } from '../services/analyticsEngine';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -124,6 +124,77 @@ function calcSLG(
   return (singles + doubles * 2 + triples * 3 + hr * 4) / ab;
 }
 
+/** 記録試合に登場したチーム名一覧（重複なし・五十音順） */
+export function collectTeamNamesFromGames(games: GameState[]): string[] {
+  const names = new Set<string>();
+  for (const g of games) {
+    const away = g.awayTeam.name?.trim();
+    const home = g.homeTeam.name?.trim();
+    if (away) names.add(away);
+    if (home) names.add(home);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
+function getTeamRoster(game: GameState, teamName: string): Player[] | null {
+  const team =
+    game.awayTeam.name === teamName ? game.awayTeam
+    : game.homeTeam.name === teamName ? game.homeTeam
+    : null;
+  if (!team) return null;
+  return [
+    ...team.roster.starters,
+    ...team.roster.bench,
+    ...(team.roster.pitcher ? [team.roster.pitcher] : []),
+  ];
+}
+
+function playerBelongsToTeamInGame(
+  game: GameState,
+  teamName: string,
+  gamePlayerId: string,
+): boolean {
+  const roster = getTeamRoster(game, teamName);
+  if (!roster) return false;
+  return roster.some((p) => p.id === gamePlayerId);
+}
+
+/** 指定チームのロースター選手 (resolvedId → { name, resolvedId }) を収集 */
+function collectPlayersForTeam(
+  games: GameState[],
+  teamName: string,
+): Map<string, { name: string; resolvedId: string }> {
+  const m = new Map<string, { name: string; resolvedId: string }>();
+  for (const g of games) {
+    const roster = getTeamRoster(g, teamName);
+    if (!roster) continue;
+    for (const p of roster) {
+      const key = p.realPlayerId ?? p.id;
+      if (!m.has(key)) m.set(key, { name: p.name, resolvedId: key });
+    }
+  }
+  return m;
+}
+
+/** 指定チームの投手 (resolvedId → name) を収集 */
+function collectPitchersForTeam(games: GameState[], teamName: string): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const g of games) {
+    const roster = getTeamRoster(g, teamName);
+    if (!roster) continue;
+    const rosterIds = new Set(roster.map((p) => p.id));
+    for (const p of g.pitchLogs) {
+      if (!rosterIds.has(p.pitcherId)) continue;
+      const player = roster.find((pl) => pl.id === p.pitcherId);
+      if (player) {
+        const key = player.realPlayerId ?? player.id;
+        if (!m.has(key)) m.set(key, player.name);
+      }
+    }
+  }
+  return m;
+}
+
 /** 全試合から全プレイヤー (resolvedId → { name, resolvedId }) を収集 */
 function collectAllPlayers(games: GameState[]): Map<string, { name: string; resolvedId: string }> {
   const m = new Map<string, { name: string; resolvedId: string }>();
@@ -182,6 +253,7 @@ export function aggregatePlayerBatting(
   playerId: string,
   playerName: string,
   games: GameState[],
+  teamName?: string,
 ): AggregatedBattingStats {
   let gamesPlayed = 0;
   let atBats = 0, hits = 0, singles = 0, doubles = 0, triples = 0, homeRuns = 0;
@@ -192,9 +264,11 @@ export function aggregatePlayerBatting(
 
   for (const game of games) {
     const realPlayerMap = buildRealPlayerMap(game);
-    const myLogs = game.atBatLogs.filter(
-      (l) => realPlayerMap.get(l.batterId) === playerId && l.result !== null,
-    );
+    const myLogs = game.atBatLogs.filter((l) => {
+      if (realPlayerMap.get(l.batterId) !== playerId || l.result === null) return false;
+      if (teamName && !playerBelongsToTeamInGame(game, teamName, l.batterId)) return false;
+      return true;
+    });
     if (myLogs.length === 0) continue;
     gamesPlayed++;
 
@@ -234,7 +308,9 @@ export function aggregatePlayerBatting(
 
     // 盗塁数集計
     for (const sb of (game.stolenBaseLogs ?? [])) {
-      if (realPlayerMap.get(sb.runnerId) === playerId && sb.result === 'safe') stolenBases++;
+      if (realPlayerMap.get(sb.runnerId) !== playerId || sb.result !== 'safe') continue;
+      if (teamName && !playerBelongsToTeamInGame(game, teamName, sb.runnerId)) continue;
+      stolenBases++;
     }
   }
 
@@ -271,6 +347,7 @@ export function aggregatePlayerPitching(
   playerId: string,
   playerName: string,
   games: GameState[],
+  teamName?: string,
 ): AggregatedPitchingStats {
   let gamesPlayed = 0;
   let totalPitches = 0;
@@ -284,7 +361,11 @@ export function aggregatePlayerPitching(
 
   for (const game of games) {
     const realPlayerMap = buildRealPlayerMap(game);
-    const myPitches = game.pitchLogs.filter((p) => realPlayerMap.get(p.pitcherId) === playerId);
+    const myPitches = game.pitchLogs.filter((p) => {
+      if (realPlayerMap.get(p.pitcherId) !== playerId) return false;
+      if (teamName && !playerBelongsToTeamInGame(game, teamName, p.pitcherId)) return false;
+      return true;
+    });
     if (myPitches.length === 0) continue;
     gamesPlayed++;
     totalPitches += myPitches.length;
@@ -304,9 +385,11 @@ export function aggregatePlayerPitching(
     }
 
     // 対戦打者・三振集計
-    const myAtBats = game.atBatLogs.filter(
-      (l) => realPlayerMap.get(l.pitcherId) === playerId && l.result !== null,
-    );
+    const myAtBats = game.atBatLogs.filter((l) => {
+      if (realPlayerMap.get(l.pitcherId) !== playerId || l.result === null) return false;
+      if (teamName && !playerBelongsToTeamInGame(game, teamName, l.pitcherId)) return false;
+      return true;
+    });
     battersFaced += myAtBats.length;
     strikeouts += myAtBats.filter(
       (l) => l.result === 'strikeout' || l.result === 'strikeout_looking',
@@ -377,32 +460,48 @@ function makeCategory(
 
 /**
  * 全試合からチーム内ランキングを生成する
+ * @param teamFilter チーム名。指定時はそのチーム所属選手のデータのみ集計
  */
-export function buildLeaderboard(games: GameState[]): LeaderboardData {
+export function buildLeaderboard(games: GameState[], teamFilter?: string | null): LeaderboardData {
   if (games.length === 0) {
     return { categories: [], gameCount: 0, computedAt: Date.now() };
   }
 
+  const scopedGames = teamFilter
+    ? games.filter((g) => g.awayTeam.name === teamFilter || g.homeTeam.name === teamFilter)
+    : games;
+
+  if (scopedGames.length === 0) {
+    return { categories: [], gameCount: 0, computedAt: Date.now() };
+  }
+
+  const teamName = teamFilter ?? undefined;
+
   // 打者・投手の全プレイヤーを収集
-  const allPlayers  = collectAllPlayers(games);
-  const allPitchers = collectAllPitchers(games);
+  const allPlayers = teamName
+    ? collectPlayersForTeam(scopedGames, teamName)
+    : collectAllPlayers(scopedGames);
+  const allPitchers = teamName
+    ? collectPitchersForTeam(scopedGames, teamName)
+    : collectAllPitchers(scopedGames);
 
   // 全打撃成績を集計 (最小打席数以上のみ)
   const battingAll = Array.from(allPlayers.entries())
-    .map(([id, { name }]) => aggregatePlayerBatting(id, name, games))
+    .map(([id, { name }]) => aggregatePlayerBatting(id, name, scopedGames, teamName))
     .filter((s) => s.atBats >= MIN_AT_BATS);
 
   // 全投球成績を集計 (最小投球数以上のみ)
   const pitchingAll = Array.from(allPitchers.entries())
-    .map(([id, name]) => aggregatePlayerPitching(id, name, games))
+    .map(([id, name]) => aggregatePlayerPitching(id, name, scopedGames, teamName))
     .filter((s) => s.totalPitches >= MIN_PITCHES);
 
   // wOBA 計算用: 打者ごとの AtBatLog を収集
   const playerAtBatLogs = new Map<string, AtBatLog[]>();
-  for (const game of games) {
+  for (const game of scopedGames) {
     const realPlayerMap = buildRealPlayerMap(game);
     for (const log of game.atBatLogs) {
       if (!log.result) continue;
+      if (teamName && !playerBelongsToTeamInGame(game, teamName, log.batterId)) continue;
       const resolvedId = realPlayerMap.get(log.batterId) ?? log.batterId;
       const existing = playerAtBatLogs.get(resolvedId) ?? [];
       existing.push(log);
@@ -572,7 +671,7 @@ export function buildLeaderboard(games: GameState[]): LeaderboardData {
 
   return {
     categories,
-    gameCount: games.length,
+    gameCount: scopedGames.length,
     computedAt: Date.now(),
   };
 }
