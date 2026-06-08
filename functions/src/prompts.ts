@@ -242,10 +242,16 @@ export function deepSanitize<T>(value: T): T {
 // 5. ユーザープロンプト組み立て
 // =============================================================================
 
+const MEMO_FILTER_INSTRUCTION =
+  '野球の打撃・投球分析に直接関連する情報（球種の傾向、コースの特徴、\n' +
+  'スイングの癖、配球パターン等）のみ分析に活用してください。\n' +
+  '身体的特徴・外見・野球と無関係な情報は分析に含めないでください。';
+
 const AT_BAT_MEMO_INTRO =
-  '以下はユーザーが記録した打席メモです。分析の参考にしてください:';
+  '以下はユーザーが記録した打席メモです。\n' + MEMO_FILTER_INSTRUCTION;
+
 const SPOT_MEMO_INTRO =
-  '以下はユーザーが記録したスポット打席メモです。分析の参考にしてください:';
+  '以下はユーザーが記録したスポット打席メモです。\n' + MEMO_FILTER_INSTRUCTION;
 
 function injectAtBatMemos(
   statsJson: Record<string, unknown>,
