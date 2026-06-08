@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,11 +6,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
-import { TextInput, IconButton, Text } from 'react-native-paper';
+import { TextInput, IconButton, Text, Menu } from 'react-native-paper';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import TeamPlayerAssignmentModal from '../../../../src/components/TeamPlayerAssignmentModal';
 import { useTeamDetail } from '../../../../src/hooks/useTeam';
+import { updateTeamIcon } from '../../../../src/services/teamService';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ChatBubble from '../../../../src/components/ChatBubble';
 import { useTeamChat } from '../../../../src/hooks/useTeam';
@@ -65,10 +68,12 @@ function GameAnalyticsCard({
 export default function TeamChatScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const { messages, sendMessage } = useTeamChat(teamId ?? '');
-  const { team } = useTeamDetail(teamId ?? '');
+  const { team, isOwner, refresh } = useTeamDetail(teamId ?? '');
   const { currentUser } = useAuth();
   const [text, setText] = useState('');
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [uploadingIcon, setUploadingIcon] = useState(false);
 
   const handleSend = async () => {
     if (text.trim()) {
@@ -77,20 +82,100 @@ export default function TeamChatScreen() {
     }
   };
 
+  const navigateTo = useCallback((path: string) => {
+    setMenuVisible(false);
+    router.push(path as any);
+  }, []);
+
+  const handleChangeIcon = useCallback(async () => {
+    setMenuVisible(false);
+    if (!currentUser || !teamId || !isOwner) return;
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('権限エラー', 'カメラロールへのアクセスを許可してください');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (result.canceled) return;
+
+    setUploadingIcon(true);
+    try {
+      await updateTeamIcon(teamId, currentUser.uid, result.assets[0].uri);
+      await refresh();
+      Alert.alert('完了', 'チームアイコンを更新しました');
+    } catch (err) {
+      if (__DEV__) console.error('[handleChangeIcon] failed:', err);
+      Alert.alert('エラー', 'アイコンの更新に失敗しました');
+    } finally {
+      setUploadingIcon(false);
+    }
+  }, [currentUser, teamId, isOwner, refresh]);
+
+  const headerMenu = (
+    <View style={styles.headerActions}>
+      <TouchableOpacity
+        onPress={() => setShowAssignmentModal(true)}
+        style={styles.headerBtn}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <MaterialCommunityIcons name="account-switch" size={22} color={Colors.primary} />
+      </TouchableOpacity>
+      <Menu
+        visible={menuVisible}
+        onDismiss={() => setMenuVisible(false)}
+        anchor={
+          <TouchableOpacity
+            onPress={() => setMenuVisible(true)}
+            style={styles.headerBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons name="dots-vertical" size={22} color={Colors.primary} />
+          </TouchableOpacity>
+        }
+      >
+        <Menu.Item
+          leadingIcon="information-outline"
+          onPress={() => navigateTo(`/(tabs)/teams/${teamId}`)}
+          title="チーム情報"
+        />
+        <Menu.Item
+          leadingIcon="chart-bar"
+          onPress={() => navigateTo(`/(tabs)/teams/${teamId}/scores`)}
+          title="スコア"
+        />
+        {isOwner && (
+          <Menu.Item
+            leadingIcon="account-plus"
+            onPress={() => navigateTo(`/(tabs)/teams/${teamId}?openInvite=1`)}
+            title="メンバーを招待"
+          />
+        )}
+        {isOwner && (
+          <Menu.Item
+            leadingIcon="image-edit"
+            onPress={handleChangeIcon}
+            title="アイコンを変更"
+            disabled={uploadingIcon}
+          />
+        )}
+      </Menu>
+    </View>
+  );
+
   return (
     <>
       <Stack.Screen
         options={{
           title: team?.name ?? 'チームチャット',
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={() => setShowAssignmentModal(true)}
-              style={{ padding: 8 }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <MaterialCommunityIcons name="account-switch" size={22} color={Colors.primary} />
-            </TouchableOpacity>
-          ),
+          headerRight: () => headerMenu,
         }}
       />
       <TeamPlayerAssignmentModal
@@ -99,58 +184,66 @@ export default function TeamChatScreen() {
         teamId={teamId ?? ''}
         teamName={team?.name}
       />
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
-    >
-      <FlatList
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
-          if (item.type === 'game_analytics' && item.gameId) {
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={90}
+      >
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            if (item.type === 'game_analytics' && item.gameId) {
+              return (
+                <GameAnalyticsCard
+                  msg={item}
+                  isSent={item.senderId === currentUser?.uid}
+                />
+              );
+            }
             return (
-              <GameAnalyticsCard
-                msg={item}
+              <ChatBubble
+                message={item.content}
                 isSent={item.senderId === currentUser?.uid}
+                senderName={item.senderName}
+                timestamp={item.createdAt?.toDate?.()?.toLocaleTimeString?.() ?? ''}
               />
             );
-          }
-          return (
-            <ChatBubble
-              message={item.content}
-              isSent={item.senderId === currentUser?.uid}
-              senderName={item.senderName}
-              timestamp={item.createdAt?.toDate?.()?.toLocaleTimeString?.() ?? ''}
-            />
-          );
-        }}
-        contentContainerStyle={styles.messagesList}
-        inverted={false}
-      />
-      <View style={styles.inputRow}>
-        <TextInput
-          placeholder="メッセージを入力..."
-          value={text}
-          onChangeText={setText}
-          mode="outlined"
-          style={styles.input}
-          dense
+          }}
+          contentContainerStyle={styles.messagesList}
+          inverted={false}
         />
-        <IconButton
-          icon="send"
-          iconColor={Colors.primary}
-          onPress={handleSend}
-          disabled={!text.trim()}
-        />
-      </View>
-    </KeyboardAvoidingView>
+        <View style={styles.inputRow}>
+          <TextInput
+            placeholder="メッセージを入力..."
+            value={text}
+            onChangeText={setText}
+            mode="outlined"
+            style={styles.input}
+            dense
+          />
+          <IconButton
+            icon="send"
+            iconColor={Colors.primary}
+            onPress={handleSend}
+            disabled={!text.trim()}
+          />
+        </View>
+      </KeyboardAvoidingView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: Spacing.xs,
+  },
+  headerBtn: {
+    padding: 8,
+  },
   messagesList: { padding: Spacing.md },
   inputRow: {
     flexDirection: 'row',

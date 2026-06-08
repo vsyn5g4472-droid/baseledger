@@ -335,6 +335,33 @@ export async function getTeamMembers(
 }
 
 /**
+ * Upload a team icon and update photoURL. Only the owner can update.
+ * @param teamId - Team ID
+ * @param ownerId - Owner user ID
+ * @param imageUri - Local image URI from image picker
+ */
+export async function updateTeamIcon(
+  teamId: string,
+  ownerId: string,
+  imageUri: string,
+): Promise<string> {
+  try {
+    const team = await getTeam(teamId);
+    if (team.ownerId !== ownerId) {
+      throw new AppError('FORBIDDEN', 'Only the team owner can update the icon');
+    }
+
+    const path = `teams/${teamId}/icon.jpg`;
+    const photoURL = await uploadImage(imageUri, path);
+    await updateDoc(doc(db, COLLECTIONS.TEAMS, teamId), { photoURL });
+    return photoURL;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('NETWORK', `Failed to update team icon: ${(error as Error).message}`);
+  }
+}
+
+/**
  * Update team information. Only the owner or admins can update.
  * @param teamId - Team ID
  * @param data - Fields to update

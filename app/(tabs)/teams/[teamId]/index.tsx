@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -30,7 +30,7 @@ const ROLE_LABELS: Record<string, string> = {
 type InviteTab = 'code' | 'search';
 
 export default function TeamDetailScreen() {
-  const { teamId } = useLocalSearchParams<{ teamId: string }>();
+  const { teamId, openInvite } = useLocalSearchParams<{ teamId: string; openInvite?: string }>();
   const { team, members, loading, isOwner, refresh } = useTeamDetail(teamId ?? '');
   const { currentUser } = useAuth();
 
@@ -54,6 +54,12 @@ export default function TeamDetailScreen() {
     setInvitedIds(new Set());
     setShared(false);
   }, []);
+
+  useEffect(() => {
+    if (openInvite === '1' && isOwner) {
+      handleOpenInvite();
+    }
+  }, [openInvite, isOwner, handleOpenInvite]);
 
   const handleSearch = useCallback(async (q: string) => {
     setSearchQuery(q);
@@ -178,7 +184,11 @@ export default function TeamDetailScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
-        <Avatar.Text size={64} label={team.name.charAt(0)} style={styles.avatar} />
+        {team.photoURL ? (
+          <Avatar.Image size={64} source={{ uri: team.photoURL }} style={styles.avatarImage} />
+        ) : (
+          <Avatar.Text size={64} label={team.name.charAt(0)} style={styles.avatar} />
+        )}
         <Text style={styles.teamName}>{team.name}</Text>
         <Text style={styles.description}>{team.description}</Text>
         <View style={styles.metaRow}>
@@ -444,6 +454,7 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.border,
   },
   avatar: { backgroundColor: Colors.primary },
+  avatarImage: { backgroundColor: Colors.surfaceGray },
   teamName: { fontSize: Typography.h2, fontWeight: '700', color: Colors.text, marginTop: Spacing.sm },
   description: { fontSize: Typography.body, color: Colors.textSecondary, textAlign: 'center', marginTop: 4 },
   metaRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md, flexWrap: 'wrap', justifyContent: 'center' },

@@ -109,15 +109,19 @@ function TeamItem({ item }: { item: any }) {
   return (
     <TouchableOpacity
       style={styles.item}
-      onPress={() => router.push(`/(tabs)/teams/${item.id}` as any)}
+      onPress={() => router.push(`/(tabs)/teams/${item.id}/chat` as any)}
       activeOpacity={0.7}
     >
-      <Avatar.Text
-        size={50}
-        label={item.name.charAt(0)}
-        style={styles.teamAvatar}
-        labelStyle={styles.avatarLabel}
-      />
+      {item.photoURL ? (
+        <Avatar.Image size={50} source={{ uri: item.photoURL }} style={styles.teamAvatarImage} />
+      ) : (
+        <Avatar.Text
+          size={50}
+          label={item.name.charAt(0)}
+          style={styles.teamAvatar}
+          labelStyle={styles.avatarLabel}
+        />
+      )}
       <View style={styles.info}>
         <View style={styles.nameRow}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
@@ -373,6 +377,7 @@ const styles = StyleSheet.create({
   groupAvatar: { backgroundColor: Colors.primary },
   dmAvatar: { backgroundColor: Colors.secondary },
   teamAvatar: { backgroundColor: Colors.secondary },
+  teamAvatarImage: { backgroundColor: Colors.surfaceGray },
   avatarLabel: { color: Colors.white, fontWeight: '700' },
   groupBadge: {
     position: 'absolute',
