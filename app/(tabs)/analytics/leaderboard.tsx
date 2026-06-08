@@ -401,11 +401,13 @@ const styles = StyleSheet.create({
   },
   teamChip: {
     paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.surfaceGray,
     borderWidth: 1.5,
     borderColor: Colors.border,
+    minHeight: 34,
+    justifyContent: 'center',
   },
   teamChipActive: {
     backgroundColor: Colors.primary,
@@ -415,6 +417,8 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption,
     fontWeight: '600',
     color: Colors.text,
+    lineHeight: 18,
+    includeFontPadding: false,
   },
   teamChipTextActive: {
     color: Colors.white,

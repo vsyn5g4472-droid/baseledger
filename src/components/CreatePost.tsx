@@ -33,7 +33,7 @@ export default function CreatePost({ onSubmit, onCancel }: CreatePostProps) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
       quality: 0.8,
     });
@@ -109,6 +109,10 @@ export default function CreatePost({ onSubmit, onCancel }: CreatePostProps) {
           mode="flat"
           underlineColor="transparent"
           activeUnderlineColor="transparent"
+          textColor={Colors.text}
+          selectionColor={Colors.primary}
+          cursorColor={Colors.primary}
+          caretHidden={false}
           maxLength={500}
         />
         <Text style={styles.charCount}>{content.length}/500</Text>

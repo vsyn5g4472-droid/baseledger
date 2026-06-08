@@ -49,29 +49,36 @@ export async function createPost(authorId: string, input: CreatePostInput): Prom
     const mediaURLs: string[] = [];
     for (let i = 0; i < input.mediaURIs.length; i++) {
       const uri = input.mediaURIs[i];
-      const isVideo = uri.endsWith('.mp4') || uri.endsWith('.mov') || input.type === 'video';
+      const isVideoFile = uri.endsWith('.mp4') || uri.endsWith('.mov');
       const postMediaId = `${Date.now()}_${i}`;
-      const path = `posts/${postMediaId}/${isVideo ? 'media.mp4' : 'media.jpg'}`;
-      const url = isVideo
+      const imageExt = uri.toLowerCase().endsWith('.png')
+        ? 'png'
+        : uri.toLowerCase().endsWith('.webp')
+          ? 'webp'
+          : uri.toLowerCase().endsWith('.gif')
+            ? 'gif'
+            : 'jpg';
+      const path = `posts/${postMediaId}/${isVideoFile ? 'media.mp4' : `media.${imageExt}`}`;
+      const url = isVideoFile
         ? await uploadVideo(uri, path)
         : await uploadImage(uri, path);
       mediaURLs.push(url);
     }
 
-    const postData = {
+    const postData: Record<string, unknown> = {
       authorId,
       authorName: author.displayName,
-      authorPhotoURL: author.photoURL,
+      authorPhotoURL: author.photoURL ?? null,
       authorPlan: author.plan ?? 'free',
       type: input.type,
       content: input.content,
       mediaURLs,
       externalVideoUrl: input.externalVideoUrl ?? null,
-      statsData: input.statsData,
+      statsData: input.statsData ?? null,
       likesCount: 0,
       commentsCount: 0,
       visibility: input.visibility,
-      teamId: input.teamId,
+      teamId: input.teamId ?? null,
       createdAt: Timestamp.now(),
     };
 

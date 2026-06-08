@@ -883,20 +883,6 @@ export default function LiveScoreScreen() {
           </View>
         </View>
 
-        {/* ===== 直前の打席を修正ボタン ===== */}
-        {game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement && (
-          <TouchableOpacity
-            onPress={() => {
-              revertToPreAdvancement();
-              persist();
-            }}
-            style={styles.revertButton}
-          >
-            <MaterialCommunityIcons name="undo-variant" size={16} color="#FF9800" />
-            <Text style={styles.revertButtonText}>直前の打席を修正</Text>
-          </TouchableOpacity>
-        )}
-
         {/* ===== 球速入力ストリップ ===== */}
         {velocityEnabled && (
           <View style={styles.velocityStrip}>
@@ -984,6 +970,20 @@ export default function LiveScoreScreen() {
               <MaterialCommunityIcons name="cog-outline" size={20} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
+        )}
+
+        {/* ===== 直前の打席を修正ボタン ===== */}
+        {game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement && (
+          <TouchableOpacity
+            onPress={() => {
+              revertToPreAdvancement();
+              persist();
+            }}
+            style={styles.revertButton}
+          >
+            <MaterialCommunityIcons name="undo-variant" size={16} color="#FF9800" />
+            <Text style={styles.revertButtonText}>直前の打席を修正</Text>
+          </TouchableOpacity>
         )}
 
         {/* ===== 球速設定ギア (velocityEnabled=false 時も常にアクセス可能) ===== */}

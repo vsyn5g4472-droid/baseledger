@@ -7,12 +7,31 @@ import {
 import { storage } from './firebase';
 import { AppError } from '../models/types';
 
-/**
- * Convert a local file URI to a Blob for upload.
- */
+/** ローカルURI（file:// 等）を Blob に変換 */
 async function uriToBlob(uri: string): Promise<Blob> {
-  const response = await fetch(uri);
-  return response.blob();
+  try {
+    const response = await fetch(uri);
+    if (response.ok) {
+      return await response.blob();
+    }
+  } catch {
+    // fetch が失敗する環境向けフォールバック
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = () => {
+      if (xhr.response) {
+        resolve(xhr.response as Blob);
+      } else {
+        reject(new Error('画像データの読み込みに失敗しました'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('画像データの読み込みに失敗しました'));
+    xhr.responseType = 'blob';
+    xhr.open('GET', uri);
+    xhr.send();
+  });
 }
 
 /** プロフィール画像を users/{uid}/avatar.jpg にアップロード */
@@ -25,13 +44,21 @@ export async function uploadUserAvatar(uid: string, uri: string): Promise<string
  * @param uri - Local file URI
  * @param path - Storage path (e.g. "users/abc/profile.jpg")
  */
+function imageContentType(blob: Blob, uri: string): string {
+  if (blob.type && blob.type.startsWith('image/')) return blob.type;
+  const lower = uri.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return 'image/jpeg';
+}
+
 export async function uploadImage(uri: string, path: string): Promise<string> {
   try {
-    const response = await fetch(uri);
-    const blob = await response.blob();
+    const blob = await uriToBlob(uri);
     const storageRef = ref(storage, path);
-    const metadata = { contentType: 'image/jpeg' };
-    await uploadBytes(storageRef, blob, metadata);
+    const contentType = imageContentType(blob, uri);
+    await uploadBytes(storageRef, blob, { contentType });
     return await fbGetDownloadURL(storageRef);
   } catch (e: any) {
     console.error('uploadImage error:', e);
