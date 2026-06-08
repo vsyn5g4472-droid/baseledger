@@ -116,6 +116,10 @@ function isBaseDisabled(
   base: BaseTarget,
   advancements: RunnerAdvancement[],
 ): boolean {
+  // 残塁: 元の塁に戻す
+  if (adv.fromBase !== 'batter' && base === adv.fromBase) return false;
+  if (adv.fromBase === 'batter' && base === 'home') return false;
+
   const baseNum = BASE_ORDER[base] ?? 0;
   const fromNum = adv.fromBase === 'batter' ? 0 : (BASE_ORDER[adv.fromBase] ?? 0);
   const minNum  = adv.minBase !== 'out' ? (BASE_ORDER[adv.minBase] ?? 0) : 0;
@@ -124,6 +128,7 @@ function isBaseDisabled(
 }
 
 const PATH_LEG_OFFSET_PX = 6;
+const PATH_STROKE_WIDTH = 2.5;
 
 interface PathLeg {
   segmentKey: string;
@@ -454,12 +459,31 @@ export default function RunnerAdvancementView({
   const handleSafeSelected = useCallback(() => {
     if (!safeOutDialog) return;
     const { runnerId, base } = safeOutDialog;
+    const runner = editableRef.current.find((r) => r.runnerId === runnerId);
+    const destinationChanged = runner != null && runner.targetBase !== base;
+
     updateEditable((prev) =>
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
-        return { ...adv, targetBase: base, outcome: 'safe' as RunnerOutcome, outDetail: undefined };
+        if (!destinationChanged) {
+          return { ...adv, outcome: 'safe' as RunnerOutcome, outDetail: undefined };
+        }
+        return {
+          ...adv,
+          targetBase: base,
+          outcome: 'safe' as RunnerOutcome,
+          outDetail: undefined,
+          action: 'batted_ball' as RunnerAction,
+        };
       }),
     );
+
+    if (destinationChanged) {
+      setExpandedRunner((prev) => (prev === runnerId ? null : prev));
+      if (runner?.fromBase === 'batter') {
+        setBatterAdvancementReasons([]);
+      }
+    }
     setSafeOutDialog(null);
   }, [safeOutDialog, updateEditable]);
 
@@ -686,7 +710,7 @@ export default function RunnerAdvancementView({
                         x2={x2}
                         y2={y2}
                         stroke={runnerColor}
-                        strokeWidth={isLastLeg ? 3.5 : 2}
+                        strokeWidth={PATH_STROKE_WIDTH}
                         opacity={dimmed ? 0.35 : isLastLeg ? 1 : 0.7}
                       />
                     );
