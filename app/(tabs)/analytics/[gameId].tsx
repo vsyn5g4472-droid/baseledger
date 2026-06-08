@@ -239,6 +239,29 @@ export default function GameAnalyticsScreen() {
   const shareGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
 
+  const renderHeaderLeft = useCallback(() => {
+    if (!router.canGoBack()) return null;
+    return (
+      <TouchableOpacity
+        onPress={() => router.back()}
+        style={styles.headerBackBtn}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.primary} />
+        <Text style={styles.headerBackText}>戻る</Text>
+      </TouchableOpacity>
+    );
+  }, []);
+
+  const baseScreenOptions = useMemo(
+    () => ({
+      title: '試合分析' as const,
+      headerBackTitle: '一覧',
+      ...(router.canGoBack() ? { headerLeft: renderHeaderLeft } : {}),
+    }),
+    [renderHeaderLeft],
+  );
+
   useEffect(() => {
     if (!gameId) return;
     let cancelled = false;
@@ -657,17 +680,23 @@ export default function GameAnalyticsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
+      <>
+        <Stack.Screen options={baseScreenOptions} />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </>
     );
   }
 
   if (!game || !analytics) {
     return (
-      <View style={styles.center}>
-        <Text style={{ color: Colors.textSecondary }}>データが見つかりません</Text>
-      </View>
+      <>
+        <Stack.Screen options={baseScreenOptions} />
+        <View style={styles.center}>
+          <Text style={{ color: Colors.textSecondary }}>データが見つかりません</Text>
+        </View>
+      </>
     );
   }
 
@@ -688,8 +717,7 @@ export default function GameAnalyticsScreen() {
     <>
       <Stack.Screen
         options={{
-          title: '試合分析',
-          headerBackTitle: '一覧',
+          ...baseScreenOptions,
           headerRight: () =>
             allowShare ? (
               <View style={styles.headerButtons}>
@@ -1463,6 +1491,17 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
   // Header buttons
+  headerBackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: Spacing.xs,
+    gap: 2,
+  },
+  headerBackText: {
+    fontSize: Typography.body,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
   headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
