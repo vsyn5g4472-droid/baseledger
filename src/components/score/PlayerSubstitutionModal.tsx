@@ -13,6 +13,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { POSITIONS } from '../../types/game';
 import type { Player, Team, GameState, Position } from '../../types/game';
+import { getAvailablePositions } from '../../utils/positionAvailability';
+
+const NEW_PLAYER_ID = '__new_player__';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface NewPlayerData {
@@ -46,11 +49,38 @@ function posLabel(pos: string): string {
 interface QuickRegisterProps {
   playerOutName: string;
   playerOutPosition: string;
+  playerOutId: string;
+  game: GameState;
+  side: 'away' | 'home';
   onConfirm: (data: NewPlayerData) => void;
   onBack: () => void;
 }
 
-function QuickRegisterForm({ playerOutName, playerOutPosition, onConfirm, onBack }: QuickRegisterProps) {
+function rosterEntriesExcluding(
+  game: GameState,
+  side: 'away' | 'home',
+  excludePlayerId: string,
+): { playerId: string; position: Position; isPitcher?: boolean }[] {
+  const team = side === 'away' ? game.awayTeam : game.homeTeam;
+  const hasDH = game.isDH?.[side] ?? false;
+  const entries = team.roster.starters
+    .filter((p) => p.id !== excludePlayerId)
+    .map((p) => ({ playerId: p.id, position: p.position, isPitcher: false }));
+  if (hasDH && team.roster.pitcher && team.roster.pitcher.id !== excludePlayerId) {
+    entries.push({ playerId: team.roster.pitcher.id, position: 'P', isPitcher: true });
+  }
+  return entries;
+}
+
+function QuickRegisterForm({
+  playerOutName,
+  playerOutPosition,
+  playerOutId,
+  game,
+  side,
+  onConfirm,
+  onBack,
+}: QuickRegisterProps) {
   const [name, setName] = useState('');
   const [numberStr, setNumberStr] = useState('');
   const [bats, setBats] = useState<'L' | 'R' | 'S'>('R');
@@ -59,6 +89,15 @@ function QuickRegisterForm({ playerOutName, playerOutPosition, onConfirm, onBack
   const [position, setPosition] = useState<Position>(playerOutPosition as Position);
 
   const canConfirm = name.trim().length > 0;
+  const teamHasDH = game.isDH?.[side] ?? false;
+  const rosterEntries = rosterEntriesExcluding(game, side, playerOutId);
+  const availablePositions = new Set(
+    getAvailablePositions(
+      [...rosterEntries, { playerId: NEW_PLAYER_ID, position, isPitcher: false }],
+      NEW_PLAYER_ID,
+      teamHasDH,
+    ),
+  );
 
   const handleConfirm = () => {
     if (!canConfirm) return;
@@ -101,18 +140,31 @@ function QuickRegisterForm({ playerOutName, playerOutPosition, onConfirm, onBack
       {/* ポジション — 退場選手のポジションがデフォルト、変更可能 */}
       <Text style={styles.qrLabel}>ポジション</Text>
       <View style={styles.positionGrid}>
-        {POSITIONS.map((pos) => (
-          <TouchableOpacity
-            key={pos}
-            style={[styles.posBtn, position === pos && styles.posBtnActive]}
-            onPress={() => setPosition(pos)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.posBtnText, position === pos && styles.posBtnTextActive]}>
-              {pos}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {POSITIONS.map((pos) => {
+          const isAvail = availablePositions.has(pos);
+          return (
+            <TouchableOpacity
+              key={pos}
+              style={[
+                styles.posBtn,
+                position === pos && styles.posBtnActive,
+                !isAvail && styles.posBtnTaken,
+              ]}
+              onPress={() => isAvail && setPosition(pos)}
+              activeOpacity={isAvail ? 0.7 : 1}
+            >
+              <Text
+                style={[
+                  styles.posBtnText,
+                  position === pos && styles.posBtnTextActive,
+                  !isAvail && styles.posBtnTextTaken,
+                ]}
+              >
+                {pos}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* 打席 */}
@@ -352,6 +404,9 @@ export default function PlayerSubstitutionModal({
             <QuickRegisterForm
               playerOutName={playerOut.name}
               playerOutPosition={playerOut.position}
+              playerOutId={playerOut.id}
+              game={game}
+              side={side}
               onConfirm={handleQuickRegisterConfirm}
               onBack={() => setStep('selectIn')}
             />
@@ -560,6 +615,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
+  posBtnTaken: {
+    backgroundColor: Colors.surfaceGray,
+    borderColor: Colors.border,
+    opacity: 0.45,
+  },
   posBtnText: {
     fontSize: 12,
     fontWeight: '700',
@@ -567,6 +627,9 @@ const styles = StyleSheet.create({
   },
   posBtnTextActive: {
     color: Colors.white,
+  },
+  posBtnTextTaken: {
+    color: Colors.textDisabled,
   },
   toggleRow: {
     flexDirection: 'row',
