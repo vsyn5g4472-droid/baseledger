@@ -21,8 +21,18 @@ function formatThrows(throwsHand: Player['throws']): string {
 }
 
 function formatPlayerLine(player: Player, handLabel: string): string {
-  const num = player.number != null ? `#${player.number} ` : '';
-  return `${num}${player.name}　${handLabel}`;
+  return `${player.name}　${handLabel}`;
+}
+
+function formatPitchPrefix(pitch: PitchLog, typeLabel: string): string {
+  const parts: string[] = [];
+  if (pitch.velocity != null) {
+    parts.push(`${pitch.velocity}km/h`);
+  }
+  if (typeLabel) {
+    parts.push(typeLabel);
+  }
+  return parts.join(' ');
 }
 
 interface CurrentAtBatPitchLogProps {
@@ -87,6 +97,7 @@ export default function CurrentAtBatPitchLog({
               fielding,
               isLastInPlay: pitch.id === lastInPlayId,
             });
+            const prefix = formatPitchPrefix(pitch, typeLabel);
             const resultColor = colorForTone(display.tone);
 
             return (
@@ -96,8 +107,8 @@ export default function CurrentAtBatPitchLog({
                 </View>
                 <Text style={styles.pitchLine} numberOfLines={1}>
                   <Text style={styles.pitchPrefix}>
-                    {display.prefix}
-                    {display.prefix ? ' ' : ''}
+                    {prefix}
+                    {prefix ? ' ' : ''}
                   </Text>
                   <Text style={[styles.pitchResult, { color: resultColor }]}>
                     {display.result}
