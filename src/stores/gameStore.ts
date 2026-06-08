@@ -493,28 +493,6 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
   const batter = currentBatter(game);
   const advancements: RunnerAdvancement[] = [];
 
-  // 打席結果による進塁数
-  let advanceBases = 1;
-  switch (result) {
-    case 'double': advanceBases = 2; break;
-    case 'triple': advanceBases = 3; break;
-  }
-
-  // 打者が1塁に行く結果かどうか
-  const batterGoesToFirst = ['single', 'error', 'fielders_choice'].includes(result);
-
-  // フォースチェーン判定: 連続した塁が埋まっている場合のみフォース
-  const isForced: Record<string, boolean> = { first: false, second: false, third: false };
-  if (batterGoesToFirst && game.runners.first) {
-    isForced['first'] = true;
-    if (game.runners.second) {
-      isForced['second'] = true;
-      if (game.runners.third) {
-        isForced['third'] = true;
-      }
-    }
-  }
-
   // ランナーを3塁→2塁→1塁の順で処理 (遠い塁から)
   const runners: { base: 'third' | 'second' | 'first'; player: Player }[] = [];
   if (game.runners.third) runners.push({ base: 'third', player: game.runners.third });
@@ -564,21 +542,22 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
     return advancements;
   }
 
-  // === ホームラン ===
+  // === ホームラン（表示は元の塁、進塁先は記録者がドラッグで指定） ===
   if (result === 'home_run') {
     for (const r of runners) {
+      const curNum = BASE_ORDER[r.base];
       advancements.push({
         runnerId: r.player.id, playerName: r.player.name,
-        fromBase: r.base, targetBase: 'home',
+        fromBase: r.base, targetBase: BASE_FROM_NUM[curNum],
         outcome: 'safe', action: 'batted_ball',
-        isForced: false, minBase: 'home',
+        isForced: false, minBase: BASE_FROM_NUM[curNum],
       });
     }
     advancements.push({
       runnerId: batter.id, playerName: batter.name,
-      fromBase: 'batter', targetBase: 'home',
+      fromBase: 'batter', targetBase: 'first',
       outcome: 'safe', action: 'batted_ball',
-      isForced: false, minBase: 'home',
+      isForced: false, minBase: 'first',
     });
     return advancements;
   }
@@ -625,41 +604,7 @@ function computeDefaultAdvancements(game: GameState, result: AtBatResult): Runne
     return advancements;
   }
 
-  // === ヒット（単打・二塁打・三塁打）: デフォルト進塁先に配置 ===
-  if (['single', 'double', 'triple'].includes(result)) {
-    for (const r of runners) {
-      const curNum = BASE_ORDER[r.base];
-      const defaultTarget = Math.min(curNum + advanceBases, 4);
-      const minNum = isForced[r.base] ? Math.min(curNum + 1, 4) : curNum;
-
-      advancements.push({
-        runnerId: r.player.id,
-        playerName: r.player.name,
-        fromBase: r.base,
-        targetBase: BASE_FROM_NUM[defaultTarget],
-        outcome: 'safe',
-        action: 'batted_ball',
-        isForced: isForced[r.base],
-        minBase: BASE_FROM_NUM[minNum],
-      });
-    }
-
-    const batterTarget = BASE_FROM_NUM[Math.min(advanceBases, 3)];
-    advancements.push({
-      runnerId: batter.id,
-      playerName: batter.name,
-      fromBase: 'batter',
-      targetBase: batterTarget,
-      outcome: 'safe',
-      action: 'batted_ball',
-      isForced: true,
-      minBase: batterTarget,
-    });
-
-    return capBatterTargetBase(advancements);
-  }
-
-  // === エラー・アウト・その他: 全員を元の塁に配置（ユーザーがドラッグで決定） ===
+  // === ヒット・エラー・その他: 全員を元の塁に配置（記録者がドラッグで進塁先を指定） ===
   for (const r of runners) {
     const curNum = BASE_ORDER[r.base];
     advancements.push({

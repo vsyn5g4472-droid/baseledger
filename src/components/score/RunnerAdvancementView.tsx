@@ -45,20 +45,8 @@ const BASE_POS: Record<string, { x: number; y: number }> = {
 
 const BASE_ORDER: Record<string, number> = { first: 1, second: 2, third: 3, home: 4 };
 
-const HIT_ADVANCEMENT_RESULTS: AtBatResult[] = ['single', 'double', 'triple', 'home_run'];
-
-/** ヒット時は進塁先、それ以外は元の塁にランナーを表示 */
-function isHitAdvancementResult(result: AtBatResult | string): boolean {
-  return HIT_ADVANCEMENT_RESULTS.includes(result as AtBatResult);
-}
-
-function getRunnerDisplayBase(adv: RunnerAdvancement, result: AtBatResult | string): string {
-  if (adv.outcome === 'out_tag' || adv.outcome === 'out_force' || adv.targetBase === 'out') {
-    return adv.fromBase;
-  }
-  if (isHitAdvancementResult(result)) {
-    return adv.targetBase;
-  }
+/** ランナー表示位置（常に進塁前の塁） */
+function getRunnerDisplayBase(adv: RunnerAdvancement): string {
   return adv.fromBase;
 }
 
@@ -103,7 +91,7 @@ function findRunnerNear(
 ): RunnerAdvancement | null {
   for (const adv of advancements) {
     if (!isDraggable(adv, result as AtBatResult)) continue;
-    const displayBase = getRunnerDisplayBase(adv, result);
+    const displayBase = getRunnerDisplayBase(adv);
     const p = BASE_POS[displayBase] ?? BASE_POS[adv.fromBase];
     if (p && Math.hypot(x - p.x, y - p.y) <= 25) return adv;
   }
@@ -354,7 +342,7 @@ export default function RunnerAdvancementView({
         }
         draggingRunnerIdRef.current = runner.runnerId;
         setDraggingRunnerId(runner.runnerId);
-        setDragPos(BASE_POS[getRunnerDisplayBase(runner, resultRef.current)] ?? BASE_POS[runner.fromBase]);
+        setDragPos(BASE_POS[getRunnerDisplayBase(runner)] ?? BASE_POS[runner.fromBase]);
       });
     },
 
@@ -666,7 +654,7 @@ export default function RunnerAdvancementView({
               const dimmed = !!draggingRunnerId && !isDraggingThis;
 
               const destOffset = destinationOffsets[adv.runnerId] ?? { dx: 0, dy: 0 };
-              const displayBase = getRunnerDisplayBase(adv, result);
+              const displayBase = getRunnerDisplayBase(adv);
               const displayPosRaw = BASE_POS[displayBase] ?? BASE_POS[adv.fromBase];
               const displayPos = {
                 x: displayPosRaw.x + destOffset.dx,
