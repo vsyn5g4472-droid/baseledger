@@ -51,11 +51,12 @@ export async function createPost(authorId: string, input: CreatePostInput): Prom
       const uri = input.mediaURIs[i];
       const isVideoFile = uri.endsWith('.mp4') || uri.endsWith('.mov');
       const postMediaId = `${Date.now()}_${i}`;
-      const imageExt = uri.toLowerCase().endsWith('.png')
+      const lowerUri = uri.toLowerCase();
+      const imageExt = lowerUri.endsWith('.png')
         ? 'png'
-        : uri.toLowerCase().endsWith('.webp')
+        : lowerUri.endsWith('.webp')
           ? 'webp'
-          : uri.toLowerCase().endsWith('.gif')
+          : lowerUri.endsWith('.gif')
             ? 'gif'
             : 'jpg';
       const path = `posts/${postMediaId}/${isVideoFile ? 'media.mp4' : `media.${imageExt}`}`;

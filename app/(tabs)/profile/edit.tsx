@@ -9,12 +9,7 @@ import { updateUser } from '../../../src/services/userService';
 import { updateAuthorNameInPosts } from '../../../src/services/postService';
 import { uploadUserAvatar } from '../../../src/services/storageService';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
-import {
-  AVATAR_COLOR_OPTIONS,
-  DEFAULT_AVATAR_COLOR,
-  getAvatarColorHex,
-  type AvatarColorId,
-} from '../../../src/constants/avatarColors';
+import { DEFAULT_AVATAR_COLOR, getAvatarColorHex } from '../../../src/constants/avatarColors';
 import type { UserRole } from '../../../src/models/types';
 
 export default function EditProfileScreen() {
@@ -26,12 +21,9 @@ export default function EditProfileScreen() {
   const [role, setRole] = useState<UserRole>(currentUser?.role ?? 'player');
   const [loading, setLoading] = useState(false);
   const [photoURL, setPhotoURL] = useState<string | null>(currentUser?.photoURL ?? null);
-  const [avatarColor, setAvatarColor] = useState<AvatarColorId>(
-    currentUser?.avatarColor ?? DEFAULT_AVATAR_COLOR,
-  );
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  const avatarBg = getAvatarColorHex(avatarColor);
+  const avatarBg = getAvatarColorHex(currentUser?.avatarColor ?? DEFAULT_AVATAR_COLOR);
 
   const uploadPhoto = async (uri: string) => {
     if (!currentUser) return;
@@ -44,7 +36,6 @@ export default function EditProfileScreen() {
         currentUser.uid,
         displayName || currentUser.displayName,
         url,
-        currentUser.plan,
       );
       await refreshUser({ photoURL: url });
     } catch (e: unknown) {
@@ -103,6 +94,7 @@ export default function EditProfileScreen() {
   const handleSave = async () => {
     if (!currentUser) return;
     setLoading(true);
+    let profileSaved = false;
     try {
       await updateUser(currentUser.uid, {
         displayName,
@@ -111,24 +103,33 @@ export default function EditProfileScreen() {
         team,
         role,
         photoURL,
-        avatarColor,
       });
+      profileSaved = true;
+
       const nameChanged = displayName !== currentUser.displayName;
       const photoChanged = photoURL !== currentUser.photoURL;
       if (nameChanged || photoChanged) {
-        await updateAuthorNameInPosts(
-          currentUser.uid,
-          displayName,
-          photoURL,
-          currentUser.plan,
-        );
+        try {
+          await updateAuthorNameInPosts(currentUser.uid, displayName, photoURL);
+        } catch (syncError) {
+          console.warn('updateAuthorNameInPosts failed:', syncError);
+        }
       }
-      await refreshUser({ displayName, bio, position, team, role, photoURL, avatarColor });
+
+      await refreshUser({ displayName, bio, position, team, role, photoURL });
       Alert.alert('保存完了', 'プロフィールを更新しました', [
         { text: 'OK', onPress: () => router.back() },
       ]);
-    } catch {
-      Alert.alert('エラー', 'プロフィールの更新に失敗しました');
+    } catch (error) {
+      console.error('handleSave error:', error);
+      if (profileSaved) {
+        Alert.alert(
+          '一部保存済み',
+          'プロフィールは保存されましたが、投稿への反映に失敗した可能性があります。',
+        );
+      } else {
+        Alert.alert('エラー', 'プロフィールの更新に失敗しました');
+      }
     } finally {
       setLoading(false);
     }
@@ -161,30 +162,6 @@ export default function EditProfileScreen() {
           </View>
         )}
       </TouchableOpacity>
-
-      <Text style={styles.sectionLabel}>アイコンのテーマカラー</Text>
-      <Text style={styles.sectionHint}>画像未設定時の頭文字アイコンに適用されます</Text>
-      <View style={styles.colorRow}>
-        {AVATAR_COLOR_OPTIONS.map((option) => {
-          const selected = avatarColor === option.id;
-          return (
-            <TouchableOpacity
-              key={option.id}
-              style={[
-                styles.colorSwatch,
-                { backgroundColor: option.hex },
-                selected && styles.colorSwatchSelected,
-              ]}
-              onPress={() => setAvatarColor(option.id)}
-              accessibilityLabel={option.label}
-            >
-              {selected && (
-                <MaterialCommunityIcons name="check" size={18} color={Colors.white} />
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
 
       <TextInput label="表示名" value={displayName} onChangeText={setDisplayName} mode="outlined" style={styles.input} />
       <TextInput label="自己紹介" value={bio} onChangeText={setBio} mode="outlined" style={styles.input} multiline numberOfLines={3} />
@@ -254,38 +231,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: 12,
     padding: 4,
-  },
-  sectionLabel: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '700',
-    color: Colors.text,
-    alignSelf: 'flex-start',
-    marginBottom: 4,
-  },
-  sectionHint: {
-    fontSize: Typography.caption,
-    color: Colors.textSecondary,
-    alignSelf: 'flex-start',
-    marginBottom: Spacing.sm,
-  },
-  colorRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
-    alignSelf: 'flex-start',
-  },
-  colorSwatch: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  colorSwatchSelected: {
-    borderColor: Colors.text,
   },
   input: { marginBottom: Spacing.md, backgroundColor: Colors.card, width: '100%' },
   label: { fontSize: Typography.body, fontWeight: '600', color: Colors.text, marginBottom: Spacing.sm, alignSelf: 'flex-start' },
