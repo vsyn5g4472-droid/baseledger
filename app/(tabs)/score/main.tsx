@@ -46,7 +46,6 @@ import {
 } from '../../../src/types/game';
 import FieldView from '../../../src/components/score/FieldView';
 import SignPlayPicker from '../../../src/components/score/SignPlayPicker';
-import PlayConfirmSnack from '../../../src/components/score/PlayConfirmSnack';
 import { useRecordingPreferences, isRecItem } from '../../../src/hooks/useRecordingPreferences';
 import { makeFieldViewFilter, filterPitchResultOptions } from '../../../src/utils/recordingFilters';
 import { mergeRecordingPreferences } from '../../../src/constants/recordingPreferences';
@@ -78,6 +77,32 @@ const SZ_TOP     = BALL_PAD_V;                  // = 44
 const SZ_RIGHT   = BALL_PAD_H + SZ_W;           // = 164
 const SZ_BOT     = BALL_PAD_V + SZ_H;           // = 240
 
+/** ストライクゾーン外周の 1.5 倍相当の移動範囲（各辺 0.25 倍の余白） */
+const ZONE_PAD_X = SZ_W * 0.25;
+const ZONE_PAD_Y = SZ_H * 0.25;
+const CLAMP_LEFT = SZ_LEFT - ZONE_PAD_X;
+const CLAMP_RIGHT = SZ_RIGHT + ZONE_PAD_X;
+const CLAMP_TOP = SZ_TOP - ZONE_PAD_Y;
+const CLAMP_BOT = SZ_BOT + ZONE_PAD_Y;
+
+function isInsideStrikeZone(px: number, py: number): boolean {
+  return px >= SZ_LEFT && px <= SZ_RIGHT && py >= SZ_TOP && py <= SZ_BOT;
+}
+
+function pitchCoordsFromTouch(rawX: number, rawY: number): { px: number; py: number } {
+  return { px: rawX, py: rawY - CURSOR_OFFSET };
+}
+
+function touchFromPitchCoords(px: number, py: number): { rawX: number; rawY: number } {
+  return { rawX: px, rawY: py + CURSOR_OFFSET };
+}
+
+function clampPitchCoords(px: number, py: number): { px: number; py: number } {
+  return {
+    px: Math.max(CLAMP_LEFT, Math.min(CLAMP_RIGHT, px)),
+    py: Math.max(CLAMP_TOP, Math.min(CLAMP_BOT, py)),
+  };
+}
 
 /** タップ座標 (canvas px) → StrikeZone。simple 時は外角4領域を中芯 '5' に寄せる */
 function coordToZone(px: number, py: number, simple: boolean): StrikeZone {
@@ -179,39 +204,6 @@ export default function LiveScoreScreen() {
     }
     setShowBatterStats(true);
   }, [opponentDataGate.allowed]);
-  const [playSnack, setPlaySnack] = useState<{
-    id: string;
-    batter: string;
-    resultLabel: string;
-  } | null>(null);
-  const atBatLogCountRef = useRef(-1);
-
-  // 新しい打席ログが追記されたらメモ用スナックの表示用フラグを立てる
-  useEffect(() => {
-    if (!game) return;
-    if (atBatLogCountRef.current < 0) {
-      atBatLogCountRef.current = game.atBatLogs.length;
-      return;
-    }
-    if (game.atBatLogs.length > atBatLogCountRef.current) {
-      const last = game.atBatLogs[game.atBatLogs.length - 1];
-      if (last?.result) {
-        const team = last.inning.half === 'top' ? game.awayTeam : game.homeTeam;
-        const batter = team.roster.starters.find((p) => p.id === last.batterId);
-        setPlaySnack({
-          id: last.id,
-          batter: batter?.name ?? '',
-          resultLabel: t.atBatResults[last.result],
-        });
-      }
-    }
-    atBatLogCountRef.current = game.atBatLogs.length;
-  }, [game, game?.atBatLogs.length, t]);
-
-  useEffect(() => {
-    atBatLogCountRef.current = -1;
-  }, [game?.id]);
-
   // ── ダイヤモンドタップ盗塁: 結果選択モーダル ──────────────────────────
   const [pendingStealBase, setPendingStealBase] = useState<'first' | 'second' | 'third' | null>(null);
 
@@ -379,6 +371,7 @@ export default function LiveScoreScreen() {
 
   // ── Reanimated カーソル (タッチ中のみ表示・JS再レンダなしで追従) ───
   const [isTouching, setIsTouching] = useState(false);
+  const pitchTouchActiveRef = useRef(false);
   const cursorX = useSharedValue(0);
   const cursorY = useSharedValue(0);
   const cursorStyle = useAnimatedStyle(() => ({
@@ -1142,30 +1135,53 @@ export default function LiveScoreScreen() {
             {/* タップ可能なキャンバス */}
             <View
               style={styles.canvasArea}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
+              onStartShouldSetResponder={(e) => {
+                const { px, py } = pitchCoordsFromTouch(
+                  e.nativeEvent.locationX,
+                  e.nativeEvent.locationY,
+                );
+                return isInsideStrikeZone(px, py);
+              }}
+              onMoveShouldSetResponder={() => pitchTouchActiveRef.current}
               onResponderTerminationRequest={() => false}
               onResponderGrant={(e) => {
-                cursorX.value = e.nativeEvent.locationX;
-                cursorY.value = e.nativeEvent.locationY;
+                const { px, py } = pitchCoordsFromTouch(
+                  e.nativeEvent.locationX,
+                  e.nativeEvent.locationY,
+                );
+                const clamped = clampPitchCoords(px, py);
+                const touch = touchFromPitchCoords(clamped.px, clamped.py);
+                cursorX.value = touch.rawX;
+                cursorY.value = touch.rawY;
+                pitchTouchActiveRef.current = true;
                 setIsTouching(true);
                 setScrollLocked(true);
               }}
               onResponderMove={(e) => {
-                // Reanimated shared value → UIスレッドで更新、JSリレンダなし
-                cursorX.value = e.nativeEvent.locationX;
-                cursorY.value = e.nativeEvent.locationY;
+                if (!pitchTouchActiveRef.current) return;
+                const { px, py } = pitchCoordsFromTouch(
+                  e.nativeEvent.locationX,
+                  e.nativeEvent.locationY,
+                );
+                const clamped = clampPitchCoords(px, py);
+                const touch = touchFromPitchCoords(clamped.px, clamped.py);
+                cursorX.value = touch.rawX;
+                cursorY.value = touch.rawY;
               }}
               onResponderRelease={(e) => {
-                const rawPx = e.nativeEvent.locationX;
-                const rawPy = e.nativeEvent.locationY;
-                const offsetPy = Math.max(0, Math.min(CANVAS_H, rawPy - CURSOR_OFFSET));
-                const offsetPx = Math.max(0, Math.min(CANVAS_W, rawPx));
+                if (!pitchTouchActiveRef.current) return;
+                const { px, py } = pitchCoordsFromTouch(
+                  e.nativeEvent.locationX,
+                  e.nativeEvent.locationY,
+                );
+                const clamped = clampPitchCoords(px, py);
+                pitchTouchActiveRef.current = false;
                 setIsTouching(false);
                 setScrollLocked(false);
-                handleCanvasTap(offsetPx, offsetPy);
+                handleCanvasTap(clamped.px, clamped.py);
               }}
               onResponderTerminate={() => {
+                pitchTouchActiveRef.current = false;
                 setIsTouching(false);
                 setScrollLocked(false);
               }}
@@ -1820,22 +1836,6 @@ export default function LiveScoreScreen() {
           </ScrollView>
         </Modal>
       </Portal>
-
-      <PlayConfirmSnack
-        visible={!!playSnack}
-        batterLabel={playSnack?.batter ?? ''}
-        resultLabel={playSnack?.resultLabel ?? ''}
-        onSaveNote={(note) => {
-          if (!playSnack || !game) return;
-          const log = game.atBatLogs.find((l) => l.id === playSnack.id);
-          if (log && log.result) {
-            editAtBatLog(log.id, log.result, log.rbiCount, note);
-            persist();
-          }
-          setPlaySnack(null);
-        }}
-        onDismiss={() => setPlaySnack(null)}
-      />
 
       {showPitcherStats && (
         <View style={[StyleSheet.absoluteFill, styles.statsOverlay]}>
