@@ -48,7 +48,6 @@ import FieldView from '../../../src/components/score/FieldView';
 import SignPlayPicker from '../../../src/components/score/SignPlayPicker';
 import { useRecordingPreferences, isRecItem } from '../../../src/hooks/useRecordingPreferences';
 import { makeFieldViewFilter, filterPitchResultOptions } from '../../../src/utils/recordingFilters';
-import { mergeRecordingPreferences } from '../../../src/constants/recordingPreferences';
 import RunnerAdvancementView from '../../../src/components/score/RunnerAdvancementView';
 import PlayLogList from '../../../src/components/score/PlayLogList';
 import CurrentAtBatPitchLog from '../../../src/components/score/CurrentAtBatPitchLog';
@@ -126,8 +125,7 @@ export default function LiveScoreScreen() {
   const { prefs, isItemOn } = useRecordingPreferences(currentUser);
   const fieldViewFilter = useMemo(() => makeFieldViewFilter(prefs), [prefs]);
   const pitchResultRows = useMemo(() => filterPitchResultOptions(prefs), [prefs]);
-  const detailMode = mergeRecordingPreferences(prefs).detailMode;
-  const realtimeMemoEnabled = mergeRecordingPreferences(prefs).realtimeMemo === true;
+  const realtimeMemoEnabled = prefs.realtimeMemo === true;
   const game = useGameStore((s) => s.game);
   const recordPitch = useGameStore((s) => s.recordPitch);
   const resolveAtBat = useGameStore((s) => s.resolveAtBat);
