@@ -40,6 +40,12 @@ export default function EditProfileScreen() {
       const url = await uploadUserAvatar(currentUser.uid, uri);
       setPhotoURL(url);
       await updateUser(currentUser.uid, { photoURL: url });
+      await updateAuthorNameInPosts(
+        currentUser.uid,
+        displayName || currentUser.displayName,
+        url,
+        currentUser.plan,
+      );
       await refreshUser({ photoURL: url });
     } catch (e: unknown) {
       console.error('uploadPhoto error:', e);
@@ -107,7 +113,9 @@ export default function EditProfileScreen() {
         photoURL,
         avatarColor,
       });
-      if (displayName !== currentUser.displayName || photoURL !== currentUser.photoURL) {
+      const nameChanged = displayName !== currentUser.displayName;
+      const photoChanged = photoURL !== currentUser.photoURL;
+      if (nameChanged || photoChanged) {
         await updateAuthorNameInPosts(
           currentUser.uid,
           displayName,

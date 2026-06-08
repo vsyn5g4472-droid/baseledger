@@ -158,19 +158,19 @@ export default function UserProfileScreen() {
         </View>
 
         {/* Action buttons */}
-        <View style={styles.actionRow}>
-          <Button
-            mode={isFollowing ? 'outlined' : 'contained'}
-            onPress={toggleFollow}
-            loading={followLoading}
-            icon={isFollowing ? 'account-check' : 'account-plus'}
-            style={styles.followButton}
-            buttonColor={isFollowing ? undefined : Colors.primary}
-            textColor={isFollowing ? Colors.primary : Colors.white}
-          >
-            {isFollowing ? t.profile.followingBtn : t.profile.follow}
-          </Button>
-          {!isOwnProfile && (
+        {!isOwnProfile && (
+          <View style={styles.actionRow}>
+            <Button
+              mode={isFollowing ? 'outlined' : 'contained'}
+              onPress={toggleFollow}
+              loading={followLoading}
+              icon={isFollowing ? 'account-check' : 'account-plus'}
+              style={styles.followButton}
+              buttonColor={isFollowing ? undefined : Colors.primary}
+              textColor={isFollowing ? Colors.primary : Colors.white}
+            >
+              {isFollowing ? t.profile.followingBtn : t.profile.follow}
+            </Button>
             <Button
               mode="outlined"
               onPress={handleMessage}
@@ -182,8 +182,8 @@ export default function UserProfileScreen() {
             >
               {t.profile.message}
             </Button>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* Performance stats card */}
         <Card style={styles.statsCard}>
