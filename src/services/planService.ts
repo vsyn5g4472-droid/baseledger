@@ -52,7 +52,8 @@ export type Feature =
   | 'ad_free'
   | 'ai_prediction'
   | 'share_report'
-  | 'opponent_data';
+  | 'opponent_data'
+  | 'detail_record';
 
 interface FeatureMeta {
   label: string;
@@ -76,6 +77,7 @@ const FEATURE_REGISTRY: Record<Feature, FeatureMeta> = {
   ai_prediction:    { label: 'AI 試合予測',             minPlan: UserPlan.PRO },
   share_report:     { label: 'PDF共有',                minPlan: UserPlan.LIGHT },
   opponent_data:    { label: '試合中 相手データ参照',   minPlan: UserPlan.PRO },
+  detail_record:    { label: '詳細記録モード',           minPlan: UserPlan.PRO },
 };
 
 // =============================================================================
@@ -224,6 +226,7 @@ export const PLAN_COMPARISON: PlanFeatureRow[] = [
   { feature: 'share_report',    label: 'PDF共有',                free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'team_create',     label: 'チーム作成',             free: '-',      light: '-',       standard: '○',       pro: '○' },
   { feature: 'opponent_data',   label: '試合中 相手データ参照',  free: '-',      light: '-',       standard: '-',       pro: '○' },
+  { feature: 'detail_record',   label: '詳細記録モード',         free: '-',      light: '-',       standard: '-',       pro: '○' },
   { feature: 'spray_chart',     label: 'スプレーチャート',       free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'zone_heatmap',    label: 'ゾーンヒートマップ',     free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'leaderboard',     label: 'リーダーボード',         free: '-',      light: '○',       standard: '○',       pro: '○' },

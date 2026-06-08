@@ -207,6 +207,9 @@ interface GameActions {
   // --- 球速記録 ---
   /** 試合中に球速記録のON/OFFを切り替え、永続化する */
   setVelocityEnabled: (enabled: boolean) => Promise<void>;
+
+  /** 進行中打席のメモを更新する */
+  setCurrentAtBatNote: (note: string) => void;
 }
 
 type GameStore = { game: GameState | null; pendingPickoffSafe: PendingPickoffSafe | null } & GameActions;
@@ -857,6 +860,15 @@ export const useGameStore = create<GameStore>()(
         state.game.updatedAt = Date.now();
       });
       await get().persist();
+    },
+
+    setCurrentAtBatNote: (note) => {
+      set((state) => {
+        const g = state.game;
+        if (!g?.currentAtBat) return;
+        g.currentAtBat.note = note.trim() || undefined;
+        g.updatedAt = Date.now();
+      });
     },
 
     // --- 投球記録 ---
