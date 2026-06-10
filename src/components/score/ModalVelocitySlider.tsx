@@ -10,7 +10,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 
-const MODAL_VEL_MIN = 50;
+const MODAL_VEL_MIN = 80;
 const MODAL_VEL_MAX = 160;
 const MODAL_TRACK_W = Dimensions.get('window').width - 80;
 
