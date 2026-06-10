@@ -1,0 +1,20 @@
+---
+alwaysApply: true
+---
+
+# Baseledger Project Rules
+
+## アプリ名
+- 正式名称：Baseledger（Basealdgerは誤字）
+
+## 言語
+- UIテキストはすべて日本語
+- ユーザーに表示される文字列は日本語で実装する
+
+## スタック
+- React Native / Expo / TypeScript
+
+## コーディングルール
+- 既存コードのスタイルを維持する
+- 不要なライブラリを追加しない
+- 変更は指示されたファイルのみに留める

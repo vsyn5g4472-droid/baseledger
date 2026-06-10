@@ -7,7 +7,7 @@ type Variant = 'text' | 'icon' | 'badge';
 
 interface PlanBadgeProps {
   plan: Plan | string | null | undefined;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
   variant?: Variant;
 }
 
@@ -51,9 +51,9 @@ export default function PlanBadge({ plan, size = 'md', variant = 'text' }: PlanB
   // ── badge variant: 全有料プラン共通の野球ボールアイコン ──────────────────────
   if (variant === 'badge') {
     if (normalizedPlan === 'free') return null;
-    const sizePx = size === 'sm' ? 15 : 18;
+    const sizePx = size === 'sm' ? 15 : size === 'lg' ? 28 : 18;
     return (
-      <View style={[s.wrapper, { marginLeft: size === 'sm' ? 3 : 4 }]}>
+      <View style={[s.wrapper, { marginLeft: size === 'sm' ? 3 : size === 'lg' ? 0 : 4 }]}>
         <BaseballBadge plan={normalizedPlan} sizePx={sizePx} />
       </View>
     );
