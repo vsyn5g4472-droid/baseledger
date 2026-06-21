@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db } from '../db';
 import {
   createUserWithEmailAndPassword,
   signOut as fbSignOut,
+  deleteUser as fbDeleteUser,
   onAuthStateChanged,
   updateProfile,
 } from 'firebase/auth';
@@ -10,6 +13,7 @@ import {
   getFirestoreUser,
   getEmailByUsername,
   syncFirestoreUser,
+  deleteFirestoreUserData,
 } from '../services/auth/userAuthService';
 import {
   signInWithGoogleCredential,
@@ -48,9 +52,42 @@ interface AuthContextType {
   signInWithGoogle: (idToken: string | null, accessToken: string | null) => Promise<void>;
   signInWithApple: (identityToken: string, rawNonce: string) => Promise<void>;
   signInAsGuest: () => void;
+  deleteAccount: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// ─── 初回マイグレーション: phase:'live' → 'paused' ─────────────────────────────
+
+const MIGRATION_PAUSED_V1_KEY = 'migration_paused_v1_done';
+
+async function runPausedMigration(): Promise<void> {
+  const done = await AsyncStorage.getItem(MIGRATION_PAUSED_V1_KEY);
+  if (done) return;
+  const ids = await db.games.getAllIds();
+  for (const id of ids) {
+    const game = await db.games.get(id);
+    if (game && (game.phase as string) === 'live') {
+      await db.games.put({ ...game, phase: 'paused' });
+    }
+  }
+  await AsyncStorage.setItem(MIGRATION_PAUSED_V1_KEY, '1');
+}
+
+const MIGRATION_PAUSED_V2_KEY = 'migration_paused_v2_done';
+
+async function runFinishedToPausedMigration(): Promise<void> {
+  const done = await AsyncStorage.getItem(MIGRATION_PAUSED_V2_KEY);
+  if (done) return;
+  const ids = await db.games.getAllIds();
+  for (const id of ids) {
+    const game = await db.games.get(id);
+    if (game && (game.phase as string) === 'finished') {
+      await db.games.put({ ...game, phase: 'paused' });
+    }
+  }
+  await AsyncStorage.setItem(MIGRATION_PAUSED_V2_KEY, '1');
+}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -118,6 +155,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return unsubscribe;
+  }, []);
+
+  // ── 初回マイグレーション（全ユーザー・ゲスト問わず起動時に実行）─────────────
+  useEffect(() => {
+    runPausedMigration()
+      .then(() => runFinishedToPausedMigration())
+      .catch((e) => console.warn('migration error:', e));
   }, []);
 
   // ── ゲームデータ同期 ─────────────────────────────────────────────────────────
@@ -199,6 +243,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsNewUser(false);
   }, []);
 
+  // ── アカウント削除 ────────────────────────────────────────────────────────────
+  // Apple ガイドライン 5.1.1(v) 準拠：Firestore データ削除 → Firebase Auth アカウント削除
+  const deleteAccount = useCallback(async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) throw new Error('ログインしていません');
+
+    // 先に Firestore ユーザードキュメントを削除（Auth セッションが有効なうちに）
+    await deleteFirestoreUserData(firebaseUser.uid);
+
+    // Firebase Auth アカウントを削除（セキュリティ操作：最近の認証が必要な場合あり）
+    await fbDeleteUser(firebaseUser);
+
+    // ローカル状態をクリア
+    await clearBiometricCredentials().catch(() => {});
+    await logoutRevenueCatUser().catch(() => {});
+    setCurrentUser(null);
+    setIsNewUser(false);
+  }, []);
+
   // ── Google ログイン ──────────────────────────────────────────────────────────
   const signInWithGoogle = useCallback(async (idToken: string | null, accessToken: string | null) => {
     setLoading(true);
@@ -267,8 +330,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithGoogle,
       signInWithApple,
       signInAsGuest,
+      deleteAccount,
     }),
-    [currentUser, userPlan, loading, isNewUser, clearNewUser, refreshUser, signIn, signInWithUsername, signUp, signOut, signInWithPasskey, signInWithGoogle, signInWithApple, signInAsGuest],
+    [currentUser, userPlan, loading, isNewUser, clearNewUser, refreshUser, signIn, signInWithUsername, signUp, signOut, signInWithPasskey, signInWithGoogle, signInWithApple, signInAsGuest, deleteAccount],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

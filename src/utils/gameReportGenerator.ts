@@ -1,5 +1,5 @@
 import type { GameState } from '../types/game';
-import type { GameAnalytics } from './gameStatsCalculator';
+import type { GameAnalytics, PlayerPitchingStats } from './gameStatsCalculator';
 import { formatBattingAvg } from './statsCalculator';
 
 function fmtDate(ts: number): string {
@@ -70,7 +70,7 @@ export function generateGameReportHtml(
   };
 
   // ── 3. 投球成績（合計）───────────────────────────────────────────────────────
-  const pitchingTotals = (teamName: string, stats: GameAnalytics['pitching']['homePitcher']): string => {
+  const pitchingTotals = (teamName: string, stats: PlayerPitchingStats | null): string => {
     if (!stats) return '';
     return `
     <h3>${teamName}</h3>
@@ -90,7 +90,7 @@ export function generateGameReportHtml(
   //  1 | 2 | 3
   //  4 | 5 | 6
   //  7 | 8 | 9
-  const zoneGrid = (stats: GameAnalytics['pitching']['homePitcher']): string => {
+  const zoneGrid = (stats: PlayerPitchingStats | null): string => {
     if (!stats) return '';
     const safeZoneStats = stats.zoneStats ?? [];
     const zoneMap = new Map(safeZoneStats.map((z) => [z.zone, z]));
@@ -126,7 +126,7 @@ export function generateGameReportHtml(
   };
 
   // 球種割合
-  const pitchMixTable = (stats: GameAnalytics['pitching']['homePitcher']): string => {
+  const pitchMixTable = (stats: PlayerPitchingStats | null): string => {
     if (!stats) return '';
     const safePitchMix = stats.pitchMix ?? [];
     if (safePitchMix.length === 0) return '';
@@ -140,7 +140,7 @@ export function generateGameReportHtml(
     </table>`;
   };
 
-  const pitchDistSection = (teamName: string, stats: GameAnalytics['pitching']['homePitcher']): string => {
+  const pitchDistSection = (teamName: string, stats: PlayerPitchingStats | null): string => {
     if (!stats) return '';
     return `
     <h3>${teamName}</h3>
@@ -328,13 +328,13 @@ export function generateGameReportHtml(
 
   <!-- 3. 投球成績 -->
   <h2>⚡ 投球成績</h2>
-  ${pitchingTotals(`後攻 ${game.homeTeam.name} 投手`, analytics.pitching?.homePitcher ?? null)}
-  ${pitchingTotals(`先攻 ${game.awayTeam.name} 投手`, analytics.pitching?.awayPitcher ?? null)}
+  ${(analytics.pitching?.homePitchers ?? []).map((p) => pitchingTotals(`後攻 ${game.homeTeam.name} ${p.playerName}`, p)).join('')}
+  ${(analytics.pitching?.awayPitchers ?? []).map((p) => pitchingTotals(`先攻 ${game.awayTeam.name} ${p.playerName}`, p)).join('')}
 
   <!-- 4. 配球分析 -->
   <h2>📊 配球分析</h2>
-  ${pitchDistSection(`後攻 ${game.homeTeam.name} 投手`, analytics.pitching?.homePitcher ?? null)}
-  ${pitchDistSection(`先攻 ${game.awayTeam.name} 投手`, analytics.pitching?.awayPitcher ?? null)}
+  ${(analytics.pitching?.homePitchers ?? []).map((p) => pitchDistSection(`後攻 ${game.homeTeam.name} ${p.playerName}`, p)).join('')}
+  ${(analytics.pitching?.awayPitchers ?? []).map((p) => pitchDistSection(`先攻 ${game.awayTeam.name} ${p.playerName}`, p)).join('')}
 
   <!-- 5. 打球分析 -->
   <h2>🏃 打球分析</h2>

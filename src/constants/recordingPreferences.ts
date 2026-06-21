@@ -19,6 +19,7 @@ const DEFAULT_ITEM_VALUES: Record<RecordingItemId, boolean> = {
   sign_play: false,
   sign_miss: false,
   pitch_zone_detail: true,
+  pitch_entry: true,
   batted_ball_location: true,
   batted_ball_distance: true,
   runner_advancement_detail: true,
@@ -46,6 +47,7 @@ export const RECORDING_ITEM_IDS: RecordingItemId[] = [
   'sign_play',
   'sign_miss',
   'pitch_zone_detail',
+  'pitch_entry',
   'batted_ball_location',
   'batted_ball_distance',
   'runner_advancement_detail',
@@ -60,6 +62,7 @@ export const RECORDING_ITEM_DETAIL_ONLY: Set<RecordingItemId> = new Set([
   'bunt_stance',
   'bunt_detail',
   'sign_play',
+  'pitch_entry',
 ]);
 
 /**

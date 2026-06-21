@@ -59,6 +59,7 @@ export default function PlayLogEditModal({ visible, log, onSave, onClose }: Play
                 onChangeText={(v) => setNote(v.slice(0, NOTE_MAX))}
                 placeholder="打者の特徴・配球・気づきなど自由に記録..."
                 placeholderTextColor={Colors.textSecondary}
+                autoCorrect={false}
                 multiline
                 numberOfLines={3}
                 textAlignVertical="top"

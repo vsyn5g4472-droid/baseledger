@@ -7,6 +7,7 @@ import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constant
 import { useAuth } from '../../../src/contexts/AuthContext';
 import PlanBadge from '../../../src/components/PlanBadge';
 import { getPost, getComments, addComment, getLikes, deletePost, deleteComment } from '../../../src/services/postService';
+import { reportContent, blockUser } from '../../../src/services/blockReportService';
 import type { Post, Comment, User } from '../../../src/models/types';
 
 function formatTimeAgo(date: any): string {
@@ -126,6 +127,45 @@ export default function PostDetailScreen() {
     });
   }, [slideAnim]);
 
+  const handleCommentMenu = useCallback((item: Comment) => {
+    if (!currentUser) return;
+    Alert.alert('', '', [
+      {
+        text: '通報する',
+        onPress: async () => {
+          try {
+            await reportContent(currentUser.uid, item.id, 'comment', item.content);
+            Alert.alert('通報しました', '運営に報告しました。');
+          } catch {}
+        },
+      },
+      {
+        text: 'このユーザーをブロックする',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert(
+            'ブロックしますか？',
+            `${item.authorName}をブロックすると、この方のコメントが表示されなくなります。`,
+            [
+              { text: 'キャンセル', style: 'cancel' },
+              {
+                text: 'ブロックする',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    await blockUser(currentUser.uid, item.authorId);
+                    setComments((prev) => prev.filter((c) => c.authorId !== item.authorId));
+                  } catch {}
+                },
+              },
+            ],
+          );
+        },
+      },
+      { text: 'キャンセル', style: 'cancel' },
+    ]);
+  }, [currentUser]);
+
   const handleSend = useCallback(async () => {
     if (!currentUser || !postId || !comment.trim()) return;
     setSending(true);
@@ -219,14 +259,21 @@ export default function PostDetailScreen() {
               <Text style={styles.commentText}>{item.content}</Text>
               <Text style={styles.commentTime}>{formatTimeAgo(item.createdAt)}</Text>
             </View>
-            {item.authorId === currentUser?.uid && (
+            {item.authorId === currentUser?.uid ? (
               <TouchableOpacity
                 onPress={() => handleDeleteComment(item.id)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <MaterialCommunityIcons name="trash-can-outline" size={16} color={Colors.textSecondary} />
               </TouchableOpacity>
-            )}
+            ) : currentUser ? (
+              <TouchableOpacity
+                onPress={() => handleCommentMenu(item)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="dots-vertical" size={16} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
           </View>
         )}
         contentContainerStyle={styles.listContent}

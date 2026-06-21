@@ -1,7 +1,7 @@
 // ============================================================
 // 守備位置
 // ============================================================
-export const POSITIONS = ['P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'] as const;
+export const POSITIONS = ['', 'P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'] as const;
 export type Position = (typeof POSITIONS)[number];
 
 // ============================================================
@@ -410,6 +410,7 @@ export interface GameMetadata {
 export type GamePhase =
   | 'setup'       // セットアップ中
   | 'live'        // 試合中
+  | 'paused'      // 一時保存中
   | 'finished';   // 試合終了
 
 // ============================================================
@@ -459,6 +460,12 @@ export interface GameState {
     home: number;
   };
 
+  // 現在登板中の投手の球数（投手交代でリセット）
+  currentPitcherPitchCount?: {
+    away: number;
+    home: number;
+  };
+
   // 進塁確認ペンディング
   pendingAdvancement: PendingAdvancement | null;
 
@@ -485,7 +492,7 @@ export interface GameState {
   // DH制 (チームごとに独立)
   isDH?: { away: boolean; home: boolean };
 
-  // 直前の打席進塁確認前のスナップショット（やり直し用）
+  // 直前の打席進塁確認前のスナップショット（やり直し用・旧形式、undoStack に移行）
   preAdvancementSnapshot?: {
     runners: Runners;
     count: Count;
@@ -496,6 +503,32 @@ export interface GameState {
     currentAtBat: AtBatLog | null;
     pendingAdvancement: PendingAdvancement | null;
   };
+
+  /** イニング内プレイ巻き戻し用スタック（メモリ上のみ、DB には保存しない） */
+  undoStack?: GameUndoSnapshot[];
+}
+
+/** 1プレイ巻き戻し用のゲーム状態スナップショット */
+export interface GameUndoSnapshot {
+  inning: InningState;
+  pitchLogs: PitchLog[];
+  atBatLogs: AtBatLog[];
+  pickoffEvents: PickoffEvent[];
+  stolenBaseLogs: StolenBaseLog[];
+  substitutionLogs: SubstitutionLog[];
+  signMissEvents: SignMissEvent[];
+  runners: Runners;
+  count: Count;
+  scoreboard: Scoreboard;
+  currentBatterIndex: { away: number; home: number };
+  currentPitcherId: { away: string; home: string };
+  currentAtBat: AtBatLog | null;
+  totalPitchCount: { away: number; home: number };
+  currentPitcherPitchCount: { away: number; home: number };
+  pendingAdvancement: PendingAdvancement | null;
+  pendingPickoffSafe: PendingPickoffSafe | null;
+  awayTeam: Team;
+  homeTeam: Team;
 }
 
 // ============================================================
@@ -512,6 +545,7 @@ export interface SubstitutionLog {
   playerInId: string;
   playerInName: string;
   timestamp: number;
+  substitutionType?: 'pinch_hitter' | 'pinch_runner';
 }
 
 // ============================================================

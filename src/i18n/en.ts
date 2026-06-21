@@ -58,6 +58,7 @@ export const en: TranslationKeys = {
     },
   },
   positions: {
+    '': 'Unset',
     P: 'Pitcher',
     C: 'Catcher',
     '1B': 'First Base',
@@ -143,6 +144,8 @@ export const en: TranslationKeys = {
     switch: 'S',
     gameSaved: 'Game saved',
     saveFailed: 'Save failed. Please try again.',
+    saveDraft: 'Save Draft',
+    draftSaved: 'Draft saved',
     pickoff: 'Pickoff',
     pickoffBase: 'Select base',
     pickoffResult: 'Pickoff result',

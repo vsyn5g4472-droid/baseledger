@@ -1,43 +1,12 @@
-import React, { useState, useCallback } from 'react';
+import React from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, Button } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
-import { useGameStore } from '../../../src/stores/gameStore';
-import { DRAFT_GAME_KEY } from '../../../src/db';
-
 export default function ScoreIndexScreen() {
   const { t } = useI18n();
-  const loadGame = useGameStore((s) => s.loadGame);
-  const game     = useGameStore((s) => s.game);
-
-  // ── 下書き存在チェック（画面フォーカス時に毎回再確認） ──────────────
-  const [hasDraft, setHasDraft] = useState(false);
-  useFocusEffect(
-    useCallback(() => {
-      AsyncStorage.getItem(DRAFT_GAME_KEY).then((json) => {
-        setHasDraft(!!json);
-      });
-    }, []),
-  );
-
-  const handleResumeDraft = async () => {
-    const json = await AsyncStorage.getItem(DRAFT_GAME_KEY);
-    if (!json) return;
-    try {
-      const { gameId } = JSON.parse(json);
-      if (!game || game.id !== gameId) {
-        await loadGame(gameId);
-      }
-      await AsyncStorage.removeItem(DRAFT_GAME_KEY);
-      setHasDraft(false);
-      router.push('/(tabs)/score/main');
-    } catch {}
-  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -119,21 +88,6 @@ export default function ScoreIndexScreen() {
         </View>
         <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.white} />
       </TouchableOpacity>
-
-      {/* 下書き再開ボタン */}
-      {hasDraft && (
-        <>
-          <TouchableOpacity
-            style={styles.draftResumeBtn}
-            onPress={handleResumeDraft}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="pencil-outline" size={18} color={Colors.primary} />
-            <Text style={styles.draftResumeBtnText}>下書きの試合を再開する</Text>
-          </TouchableOpacity>
-          <Text style={styles.draftResumeNote}>※ 下書きは1試合まで保存できます</Text>
-        </>
-      )}
 
       {/* 履歴リンク */}
       <Button
@@ -226,27 +180,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 6,
-  },
-
-  // 下書き
-  draftResumeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
-    borderRadius: BorderRadius.xl,
-    paddingVertical: Spacing.sm + 2,
-    marginTop: Spacing.sm,
-  },
-  draftResumeBtnText: { fontSize: Typography.bodySmall, fontWeight: '700', color: Colors.primary },
-  draftResumeNote: {
-    fontSize: Typography.tiny,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.sm,
   },
 
   historyLink: { marginTop: Spacing.md },

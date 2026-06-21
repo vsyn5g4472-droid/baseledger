@@ -23,7 +23,9 @@ import { useGameStore } from '../../../src/stores/gameStore';
 import { POSITIONS, type Position, type PlayerInput, type GameSetupInput } from '../../../src/types/game';
 import { PositionDiamondPicker } from '../../../src/components/score/PositionDiamondPicker';
 import RosterPickerModal from '../../../src/components/score/RosterPickerModal';
+import SetupLineupModal from '../../../src/components/score/SetupLineupModal';
 import type { TeamPlayer } from '../../../src/models/types';
+import { addTeamPlayer, getTeamPlayers } from '../../../src/services/teamPlayerService';
 
 // Android LayoutAnimation を有効化
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -34,21 +36,18 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const BATTING_ORDER_POSITIONS = POSITIONS.filter((p) => p !== 'P') as Position[];
 
 /** 空の選手入力を生成 */
-function emptyStarters(isDH: boolean): PlayerInput[] {
-  const defaultPos: Position[] = isDH
-    ? ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH']
-    : ['P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'];
-  return defaultPos.map((pos) => ({
+function emptyStarters(_isDH: boolean): PlayerInput[] {
+  return Array.from({ length: 9 }, () => ({
     name: '',
     number: '',
-    position: pos,
+    position: '' as Position,
     bats: 'R' as const,
     throws: 'R' as const,
   }));
 }
 
 function emptyPitcher(): PlayerInput {
-  return { name: '', number: '', position: 'P', bats: 'R', throws: 'R' };
+  return { name: '', number: '', position: '' as Position, bats: 'R', throws: 'R' };
 }
 
 export default function SetupScreen() {
@@ -87,6 +86,7 @@ export default function SetupScreen() {
   const pitcher = activeTeam === 'away' ? awayPitcher : homePitcher;
   const setPitcher = activeTeam === 'away' ? setAwayPitcher : setHomePitcher;
   const activeTeamId = activeTeam === 'away' ? (params.awayTeamId || '') : (params.homeTeamId || '');
+  const [showSetupLineup, setShowSetupLineup] = useState(false);
 
   const selectFromRoster = useCallback((player: TeamPlayer) => {
     if (!rosterModal) return;
@@ -118,16 +118,7 @@ export default function SetupScreen() {
     const setActiveStarters = activeTeam === 'away' ? setAwayStarters : setHomeStarters;
     const setActivePitcher = activeTeam === 'away' ? setAwayPitcher : setHomePitcher;
     setActiveDH(next);
-    // スタメンのデフォルト守備位置を切り替える (未入力の選手のみリセット)
-    const resetIfEmpty = (players: PlayerInput[], newDefault: boolean): PlayerInput[] =>
-      players.map((p, i) => {
-        const defaultPositions: Position[] = newDefault
-          ? ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH']
-          : ['P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'];
-        if (p.name.trim()) return p; // 入力済みは維持
-        return { ...p, position: defaultPositions[i] ?? p.position };
-      });
-    setActiveStarters((prev) => resetIfEmpty(prev, next));
+    setActiveStarters((prev) => prev);
     if (!next) setActivePitcher(emptyPitcher());
   }, [activeTeam, isAwayDH, isHomeDH]);
 
@@ -268,27 +259,25 @@ export default function SetupScreen() {
 
   /** 仮名でスキップして即座に計測画面へ */
   const handleSkipRegistration = async () => {
-    const defaultPos: Position[] = ['P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'];
-    const makePlaceholders = (): PlayerInput[] =>
-      defaultPos.map((pos, i) => ({
-        name: `選手${i + 1}`,
-        number: `${i + 1}`,
-        position: pos,
-        bats: 'R' as const,
-        throws: 'R' as const,
-        isPlaceholder: true,
-      }));
-
-    const makeDHPlaceholders = (): PlayerInput[] => {
-      const pos: Position[] = ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
-      return pos.map((p, i) => ({
-        name: `選手${i + 1}`,
-        number: `${i + 1}`,
-        position: p,
-        bats: 'R' as const,
-        throws: 'R' as const,
-        isPlaceholder: true,
-      }));
+    const mergeWithPlaceholders = (
+      current: PlayerInput[],
+      isDH: boolean,
+    ): PlayerInput[] => {
+      const fallbackPos: Position[] = isDH
+        ? ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH']
+        : ['P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'];
+      return Array.from({ length: 9 }, (_, i) => {
+        const existing = current[i];
+        if (existing?.name.trim()) return { ...existing, isPlaceholder: false };
+        return {
+          name: `選手${i + 1}`,
+          number: `${i + 1}`,
+          position: fallbackPos[i] as Position,
+          bats: 'R' as const,
+          throws: 'R' as const,
+          isPlaceholder: true,
+        };
+      });
     };
 
     const placeholderPitcher: PlayerInput = {
@@ -307,13 +296,13 @@ export default function SetupScreen() {
       },
       awayTeam: {
         name: params.awayName || 'チームA',
-        starters: isAwayDH ? makeDHPlaceholders() : makePlaceholders(),
+        starters: mergeWithPlaceholders(awayStarters, isAwayDH),
         bench: [],
         ...(isAwayDH ? { pitcher: placeholderPitcher } : {}),
       },
       homeTeam: {
         name: params.homeName || 'チームB',
-        starters: isHomeDH ? makeDHPlaceholders() : makePlaceholders(),
+        starters: mergeWithPlaceholders(homeStarters, isHomeDH),
         bench: [],
         ...(isHomeDH ? { pitcher: placeholderPitcher } : {}),
       },
@@ -332,7 +321,30 @@ export default function SetupScreen() {
     };
 
     await initGame(input);
+    await Promise.all([
+      savePlayersToTeam(params.awayTeamId || '', awayStarters),
+      savePlayersToTeam(params.homeTeamId || '', homeStarters),
+    ]);
     router.replace('/(tabs)/score/main' as any);
+  };
+
+  const savePlayersToTeam = async (teamId: string, players: PlayerInput[]): Promise<void> => {
+    if (!teamId) return;
+    try {
+      const existing = await getTeamPlayers(teamId);
+      const existingNames = new Set(existing.map((p) => p.name));
+      for (const player of players) {
+        if (!player.name.trim() || (player as any).isPlaceholder) continue;
+        if (existingNames.has(player.name.trim())) continue;
+        await addTeamPlayer(teamId, {
+          name: player.name.trim(),
+          number: player.number ? parseInt(player.number, 10) : null,
+          position: player.position || '',
+          bats: player.bats || 'R',
+          throws: player.throws || 'R',
+        });
+      }
+    } catch (_e) {}
   };
 
   const handlePlayBall = async () => {
@@ -374,6 +386,10 @@ export default function SetupScreen() {
     };
 
     await initGame(input);
+    await Promise.all([
+      savePlayersToTeam(params.awayTeamId || '', awayStarters),
+      savePlayersToTeam(params.homeTeamId || '', homeStarters),
+    ]);
     router.replace('/(tabs)/score/main' as any);
   };
 
@@ -449,6 +465,15 @@ export default function SetupScreen() {
         <View style={[styles.teamHeader, { backgroundColor: teamColor }]}>
           <MaterialCommunityIcons name="account-group" size={20} color={Colors.white} />
           <Text style={styles.teamHeaderText}>{teamLabel} - {t.setup.starters}</Text>
+          {activeTeamId ? (
+            <TouchableOpacity
+              style={styles.quickSetupBtn}
+              onPress={() => setShowSetupLineup(true)}
+            >
+              <MaterialCommunityIcons name="lightning-bolt" size={14} color={teamColor} />
+              <Text style={[styles.quickSetupBtnText, { color: teamColor }]}>簡単登録</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {/* スタメン9人 */}
@@ -463,6 +488,7 @@ export default function SetupScreen() {
             t={t}
             teamId={activeTeamId}
             onOpenRoster={(rowIndex) => setRosterModal({ teamId: activeTeamId, rowIndex, target: 'starter' })}
+            isDH={activeTeamIsDH}
           />
         ))}
 
@@ -526,6 +552,32 @@ export default function SetupScreen() {
           onDismiss={() => setRosterModal(null)}
         />
       )}
+      <SetupLineupModal
+        visible={showSetupLineup}
+        teamId={activeTeamId}
+        isDH={activeTeamIsDH}
+        onConfirm={(newStarters) => {
+          if (activeTeam === 'away') {
+            setAwayStarters((prev) => {
+              const merged = [...prev];
+              newStarters.forEach((p, i) => {
+                merged[i] = p;
+              });
+              return merged;
+            });
+          } else {
+            setHomeStarters((prev) => {
+              const merged = [...prev];
+              newStarters.forEach((p, i) => {
+                merged[i] = p;
+              });
+              return merged;
+            });
+          }
+          setShowSetupLineup(false);
+        }}
+        onDismiss={() => setShowSetupLineup(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -543,12 +595,45 @@ interface PlayerRowProps {
   t: any;
   teamId?: string;
   onOpenRoster?: (rowIndex: number) => void;
+  isDH: boolean;
 }
 
-function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t, teamId, onOpenRoster }: PlayerRowProps) {
+function ThrowsMenu({ throws, onUpdate }: { throws: string; onUpdate: (v: string) => void }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <Menu
+      visible={visible}
+      onDismiss={() => setVisible(false)}
+      anchor={
+        <TouchableOpacity
+          style={[styles.batsButton, { borderColor: Colors.secondary + '80' }]}
+          onPress={() => setVisible(true)}
+        >
+          <Text style={[styles.batsText, { color: Colors.secondary }]}>{throws}</Text>
+        </TouchableOpacity>
+      }
+    >
+      {(['R', 'L'] as const).map((th) => (
+        <Menu.Item key={th} onPress={() => { onUpdate(th); setVisible(false); }} title={th} />
+      ))}
+    </Menu>
+  );
+}
+
+function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t, teamId, onOpenRoster, isDH }: PlayerRowProps) {
   const [batsMenuVisible, setBatsMenuVisible] = useState(false);
 
   return (
+    <>
+      {index === 0 && (
+        <View style={styles.columnHeader}>
+          <View style={styles.orderBadge} />
+          <Text style={styles.columnHeaderPos}>守備位置</Text>
+          <Text style={styles.columnHeaderNum}>#</Text>
+          <Text style={styles.columnHeaderName}>氏名</Text>
+          <Text style={styles.columnHeaderBats}>打</Text>
+        </View>
+      )}
     <View style={[styles.playerRow, isDuplicate && styles.playerRowError]}>
       {/* 打順番号 */}
       <View style={styles.orderBadge}>
@@ -611,6 +696,13 @@ function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t
         ))}
       </Menu>
 
+      {player.position === 'P' && (
+        <ThrowsMenu
+          throws={player.throws}
+          onUpdate={(v) => onUpdate(index, 'throws', v)}
+        />
+      )}
+
       {/* 名簿から選択ボタン */}
       {!!teamId && (
         <TouchableOpacity style={styles.rosterBtn} onPress={() => onOpenRoster?.(index)}>
@@ -618,6 +710,7 @@ function PlayerRow({ index, player, onUpdate, isDuplicate, availablePositions, t
         </TouchableOpacity>
       )}
     </View>
+    </>
   );
 }
 
@@ -766,6 +859,21 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 
+  quickSetupBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    marginLeft: 'auto',
+  },
+  quickSetupBtnText: {
+    fontSize: Typography.tiny,
+    fontWeight: '700',
+  },
+
   teamHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -823,6 +931,36 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: Typography.caption,
     fontWeight: '700',
+  },
+  columnHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
+  columnHeaderPos: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    width: 64,
+    textAlign: 'center',
+  },
+  columnHeaderNum: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    width: 48,
+    textAlign: 'center',
+  },
+  columnHeaderName: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    flex: 1,
+    textAlign: 'center',
+  },
+  columnHeaderBats: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    width: 36,
+    textAlign: 'center',
   },
   pitcherBadge: {
     backgroundColor: Colors.secondary,

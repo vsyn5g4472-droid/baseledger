@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, Image, Linking } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Image, Linking, Alert } from 'react-native';
 import { Text, Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Typography, CardShadow } from '../constants/theme';
 import PlanBadge from './PlanBadge';
+import { reportContent, blockUser } from '../services/blockReportService';
 
 interface PostCardProps {
   authorName: string;
@@ -22,6 +23,10 @@ interface PostCardProps {
   onLike?: (isNowLiked: boolean) => void;
   onComment?: () => void;
   requiresAuth?: boolean;
+  postId?: string;
+  authorId?: string;
+  currentUserId?: string;
+  onBlock?: () => void;
 }
 
 // 投稿タイプ → カード左端のアクセントカラー
@@ -51,6 +56,10 @@ export default function PostCard({
   onLike,
   onComment,
   requiresAuth = false,
+  postId,
+  authorId,
+  currentUserId,
+  onBlock,
 }: PostCardProps) {
   const [liked, setLiked] = useState(initialLiked ?? false);
   const [likes, setLikes] = useState(likesCount);
@@ -64,6 +73,49 @@ export default function PostCard({
   };
 
   const accentColor = typeAccentColor[type] ?? Colors.border;
+
+  const handleMenu = () => {
+    Alert.alert('', '', [
+      {
+        text: '通報する',
+        onPress: async () => {
+          if (!currentUserId) return;
+          try {
+            await reportContent(currentUserId, postId ?? authorId ?? '', 'post', content);
+            Alert.alert('通報しました', '運営に報告しました。');
+          } catch {}
+        },
+      },
+      {
+        text: 'このユーザーをブロックする',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert(
+            'ブロックしますか？',
+            `${authorName}をブロックすると、この方の投稿が表示されなくなります。`,
+            [
+              { text: 'キャンセル', style: 'cancel' },
+              {
+                text: 'ブロックする',
+                style: 'destructive',
+                onPress: async () => {
+                  if (!currentUserId || !authorId) return;
+                  try {
+                    await blockUser(currentUserId, authorId);
+                    onBlock?.();
+                  } catch (err) {
+                    console.warn('[BlockUser] failed:', err);
+                    Alert.alert('エラー', 'ブロックに失敗しました。もう一度お試しください。');
+                  }
+                },
+              },
+            ],
+          );
+        },
+      },
+      { text: 'キャンセル', style: 'cancel' },
+    ]);
+  };
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.97}>
@@ -150,6 +202,12 @@ export default function PostCard({
                 <Text style={styles.actionCount}>{commentsCount}</Text>
               ) : null}
             </TouchableOpacity>
+
+            {authorId && currentUserId && authorId !== currentUserId && (
+              <TouchableOpacity style={styles.actionBtn} onPress={handleMenu} activeOpacity={0.6}>
+                <MaterialCommunityIcons name="dots-vertical" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>

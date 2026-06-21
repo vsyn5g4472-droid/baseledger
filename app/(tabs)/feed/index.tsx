@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FlatList, StyleSheet, View, TouchableOpacity } from 'react-native';
 import { FAB, Text, Button } from 'react-native-paper';
 import { router } from 'expo-router';
@@ -13,6 +13,7 @@ import { useFeedPosts, usePublicPosts, usePostActions } from '../../../src/hooks
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { useRequireAuth } from '../../../src/hooks/useRequireAuth';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
+import { getBlockedUserIds } from '../../../src/services/blockReportService';
 
 export default function FeedScreen() {
   const [feedTab, setFeedTab] = useState<'recommend' | 'following'>('recommend');
@@ -20,9 +21,22 @@ export default function FeedScreen() {
   const followingFeed = useFeedPosts();
   const activeFeed = feedTab === 'recommend' ? publicFeed : followingFeed;
   const { posts, loading, refreshing, error, refresh, loadMore, hasMore } = activeFeed;
-  const { currentUser } = useAuth();
+  const { currentUser, userPlan } = useAuth();
   const requireAuth = useRequireAuth();
   const { likePost, unlikePost } = usePostActions();
+  const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!currentUser) return;
+    getBlockedUserIds(currentUser.uid)
+      .then((ids) => setBlockedUserIds(new Set(ids)))
+      .catch(() => {});
+  }, [currentUser]);
+
+  const filteredPosts = useMemo(
+    () => posts.filter((p) => !blockedUserIds.has(p.authorId)),
+    [posts, blockedUserIds],
+  );
 
   if (loading && posts.length === 0) {
     return <LoadingScreen />;
@@ -54,7 +68,7 @@ export default function FeedScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={posts}
+        data={filteredPosts}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <>
@@ -85,9 +99,13 @@ export default function FeedScreen() {
               })}
             </View>
 
-            <AdBanner />
           </>
         }
+        ItemSeparatorComponent={({ leadingItem }) => {
+          const idx = filteredPosts.indexOf(leadingItem);
+          if ((idx + 1) % 3 === 0) return <AdBanner plan={userPlan} />;
+          return null;
+        }}
         renderItem={({ item }) => (
           <PostCard
             authorName={item.authorName}
@@ -111,9 +129,13 @@ export default function FeedScreen() {
               })
             }
             onComment={() => requireAuth(() => router.push(`/(tabs)/feed/${item.id}`))}
+            postId={item.id}
+            authorId={item.authorId}
+            currentUserId={currentUser?.uid}
+            onBlock={() => setBlockedUserIds((prev) => new Set([...prev, item.authorId]))}
           />
         )}
-        contentContainerStyle={posts.length === 0 ? styles.emptyContainer : styles.listContent}
+        contentContainerStyle={filteredPosts.length === 0 ? styles.emptyContainer : styles.listContent}
         ListEmptyComponent={
           <EmptyState
             icon="baseball"

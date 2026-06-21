@@ -38,6 +38,7 @@ import type { PostVisibility } from '../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 import { generateBatteryReportHtml, buildBatterySummaryText } from '../../src/utils/batteryReportGenerator';
 import ShareToChatModal from '../../src/components/ShareToChatModal';
+import { useI18n } from '../../src/i18n';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,10 +76,13 @@ function StatRow({ label, value, sub }: { label: string; value: string; sub?: st
 function PitchTypeBar({
   type, count, pct: p, avgVelocity, total,
 }: { type: string; count: number; pct: number; avgVelocity: number | null; total: number }) {
+  const { t } = useI18n();
   const barW = Math.max(p * 100, 2);
   return (
     <View style={pitchBarStyles.row}>
-      <Text style={pitchBarStyles.type} numberOfLines={1}>{type}</Text>
+      <Text style={pitchBarStyles.type} numberOfLines={1}>
+        {(t.pitchTypes as Record<string, string>)[type] ?? type}
+      </Text>
       <View style={pitchBarStyles.barWrap}>
         <View style={[pitchBarStyles.bar, { width: `${barW}%` as any }]} />
       </View>
@@ -90,6 +94,7 @@ function PitchTypeBar({
 
 /** カウント傾向カード */
 function CountCard({ tendency }: { tendency: CountTendency }) {
+  const { t } = useI18n();
   const key = `${tendency.balls}-${tendency.strikes}`;
   const topPitch = tendency.pitchTypes[0];
   const topZone  = tendency.topZones[0];
@@ -101,7 +106,9 @@ function CountCard({ tendency }: { tendency: CountTendency }) {
       <Text style={countStyles.countBadge}>{tendency.total}球</Text>
       {topPitch ? (
         <>
-          <Text style={countStyles.pitchType} numberOfLines={1}>{topPitch.type}</Text>
+          <Text style={countStyles.pitchType} numberOfLines={1}>
+            {(t.pitchTypes as Record<string, string>)[topPitch.type] ?? topPitch.type}
+          </Text>
           <Text style={countStyles.pitchPct}>{pct(topPitch.pct)}</Text>
         </>
       ) : (
@@ -120,6 +127,7 @@ function CountCard({ tendency }: { tendency: CountTendency }) {
 function FinishRow({
   rank, pitchType, zone, count, p, avgVelocity,
 }: { rank: number; pitchType: string; zone: string; count: number; p: number; avgVelocity: number | null }) {
+  const { t } = useI18n();
   const colors = ['#D4AF37', '#C0C0C0', '#CD7F32', Colors.border, Colors.border];
   return (
     <View style={finishStyles.row}>
@@ -127,7 +135,9 @@ function FinishRow({
         <Text style={finishStyles.rankText}>{rank}</Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={finishStyles.pitchType}>{pitchType}</Text>
+        <Text style={finishStyles.pitchType}>
+            {(t.pitchTypes as Record<string, string>)[pitchType] ?? pitchType}
+          </Text>
         <Text style={finishStyles.detail}>
           ゾーン {ZONE_JP[zone] ?? zone}　{fmtV(avgVelocity)}
         </Text>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -7,6 +7,7 @@ import * as ExpoCrypto from 'expo-crypto';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useI18n } from '../../src/i18n';
 import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/theme';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { UserRole } from '../../src/models/types';
 
 function generateNonce(length = 32): string {
@@ -35,8 +36,13 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<UserRole>('player');
   const [error, setError] = useState('');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const handleRegister = async () => {
+    if (!agreedToTerms) {
+      setError('利用規約とプライバシーポリシーに同意してください');
+      return;
+    }
     if (!displayName || !email || !password) {
       setError(t.auth.errorFill);
       return;
@@ -163,6 +169,35 @@ export default function RegisterScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
+        <TouchableOpacity
+          style={styles.termsRow}
+          onPress={() => setAgreedToTerms((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons
+            name={agreedToTerms ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            size={22}
+            color={agreedToTerms ? Colors.primary : Colors.textSecondary}
+          />
+          <Text style={styles.termsText}>
+            {'利用規約（'}
+            <Text
+              style={styles.termsLink}
+              onPress={() => Linking.openURL('https://vsyn5g4472-droid.github.io/baseledger/terms-of-use.md')}
+            >
+              {'https://vsyn5g4472-droid.github.io/baseledger/terms-of-use.md'}
+            </Text>
+            {'）およびプライバシーポリシー（'}
+            <Text
+              style={styles.termsLink}
+              onPress={() => Linking.openURL('https://vsyn5g4472-droid.github.io/baseledger/privacy-policy.md')}
+            >
+              {'https://vsyn5g4472-droid.github.io/baseledger/privacy-policy.md'}
+            </Text>
+            {'）に同意します'}
+          </Text>
+        </TouchableOpacity>
+
         <Button
           mode="contained"
           onPress={handleRegister}
@@ -219,5 +254,22 @@ const styles = StyleSheet.create({
   dividerText: {
     fontSize: Typography.caption,
     color: Colors.textSecondary,
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  termsText: {
+    flex: 1,
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  termsLink: {
+    color: Colors.primary,
+    textDecorationLine: 'underline',
   },
 });

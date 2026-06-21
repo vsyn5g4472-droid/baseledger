@@ -12,19 +12,19 @@ type TabId = 'myteam' | 'registered' | 'history';
 const TABS: { id: TabId; label: string }[] = [
   { id: 'myteam',     label: 'マイチーム' },
   { id: 'registered', label: '登録済み'   },
-  { id: 'history',    label: '対戦履歴'   },
+  { id: 'history',    label: '履歴'   },
 ];
 
 interface Props {
-  onSelect: (name: string) => void;
+  onSelect: (name: string, teamId?: string) => void;
   side: 'away' | 'home';
 }
 
 export default function TeamQuickSelect({ onSelect }: Props) {
   const { currentUser } = useAuth();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('myteam');
-  const [myTeams, setMyTeams] = useState<string[]>([]);
+  const [myTeams, setMyTeams] = useState<{ id: string; name: string }[]>([]);
   const [historyTeams, setHistoryTeams] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -36,13 +36,13 @@ export default function TeamQuickSelect({ onSelect }: Props) {
       gameService.getUserGames(currentUser.uid),
     ])
       .then(([teams, games]) => {
-        setMyTeams(teams.map((t) => t.name));
+        setMyTeams(teams.map((t) => ({ id: t.id, name: t.name })));
 
         const seen = new Set<string>();
         const names: string[] = [];
         for (const g of games) {
           for (const name of [g.awayTeam.name, g.homeTeam.name]) {
-            if (name && !seen.has(name) && names.length < 5) {
+            if (name && !seen.has(name) && names.length < 20) {
               seen.add(name);
               names.push(name);
             }
@@ -53,13 +53,16 @@ export default function TeamQuickSelect({ onSelect }: Props) {
       .finally(() => setLoading(false));
   }, [currentUser]);
 
-  const names: string[] = activeTab === 'history' ? historyTeams : myTeams;
+  const items: { id?: string; name: string }[] =
+    activeTab === 'history'
+      ? historyTeams.map((name) => ({ name }))
+      : myTeams;
 
   return (
     <View style={styles.container}>
       {/* 折りたたみトグル */}
       <TouchableOpacity style={styles.toggleRow} onPress={() => setExpanded((v) => !v)}>
-        <Text style={styles.toggleLabel}>クイック選択</Text>
+        <Text style={styles.toggleLabel}>履歴から選ぶ</Text>
         <MaterialCommunityIcons
           name={expanded ? 'chevron-up' : 'chevron-down'}
           size={16}
@@ -87,7 +90,7 @@ export default function TeamQuickSelect({ onSelect }: Props) {
           {/* コンテンツ */}
           {loading ? (
             <ActivityIndicator size="small" color={Colors.primary} style={styles.indicator} />
-          ) : names.length === 0 ? (
+          ) : items.length === 0 ? (
             <Text style={styles.empty}>チームがありません</Text>
           ) : (
             <ScrollView
@@ -95,9 +98,9 @@ export default function TeamQuickSelect({ onSelect }: Props) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.chipRow}
             >
-              {names.map((name) => (
-                <TouchableOpacity key={name} style={styles.chip} onPress={() => onSelect(name)}>
-                  <Text style={styles.chipText}>{name}</Text>
+              {items.map((item) => (
+                <TouchableOpacity key={item.name} style={styles.chip} onPress={() => onSelect(item.name, item.id)}>
+                  <Text style={styles.chipText}>{item.name}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>

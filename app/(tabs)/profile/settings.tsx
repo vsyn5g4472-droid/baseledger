@@ -3,6 +3,7 @@ import { View, StyleSheet, TouchableOpacity, Linking, ScrollView, ActivityIndica
 import { Text, Divider, Switch, Button } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { useI18n, type Locale } from '../../../src/i18n';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/contexts/AuthContext';
@@ -37,6 +38,7 @@ const ITEM_LABEL: Record<RecordingItemId, string> = {
   sign_play: 'サイン',
   sign_miss: 'サインミス',
   pitch_zone_detail: '球威ゾーン（高/低/内外の詳細）',
+  pitch_entry: '配球',
   batted_ball_location: '打球の落下位置（フィールド図）',
   batted_ball_distance: '推定飛距離',
   runner_advancement_detail: '進塁の詳細',
@@ -45,9 +47,11 @@ const ITEM_LABEL: Record<RecordingItemId, string> = {
 
 export default function SettingsScreen() {
   const { t, locale, setLocale } = useI18n();
-  const { currentUser, refreshUser } = useAuth();
+  const { currentUser, refreshUser, deleteAccount } = useAuth();
+  const router = useRouter();
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const merged = useMemo(
     () => mergeRecordingPreferences(currentUser?.recordingPreferences),
@@ -120,6 +124,38 @@ export default function SettingsScreen() {
       },
     ]);
   };
+
+  const handleDeleteAccount = useCallback(() => {
+    Alert.alert(
+      'アカウントを削除しますか？',
+      'この操作は取り消せません。すべての試合データ・記録が完全に削除されます。',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '削除する',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await deleteAccount();
+              router.replace('/(auth)/login');
+            } catch (e: unknown) {
+              setDeleting(false);
+              const err = e as { code?: string; message?: string };
+              if (err.code === 'auth/requires-recent-login') {
+                Alert.alert(
+                  '再認証が必要です',
+                  'セキュリティのため、一度サインアウトして再度サインインしてからアカウントを削除してください。',
+                );
+              } else {
+                Alert.alert('削除に失敗しました', err.message ?? '不明なエラーが発生しました。');
+              }
+            }
+          },
+        },
+      ],
+    );
+  }, [deleteAccount, router]);
 
   const visibleItems = useMemo(
     () =>
@@ -258,6 +294,44 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      {/* アカウント管理 */}
+      {currentUser && (
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>アカウント</Text>
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.legalRow}
+              onPress={() => router.push('/profile/block-list' as any)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.legalRowLeft}>
+                <MaterialCommunityIcons name="account-cancel-outline" size={20} color={Colors.textSecondary} />
+                <Text style={styles.legalLabel}>ブロックリスト</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
+
+            <Divider />
+
+            <TouchableOpacity
+              style={styles.deleteRow}
+              onPress={handleDeleteAccount}
+              activeOpacity={0.7}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <ActivityIndicator size="small" color={Colors.error} />
+              ) : (
+                <MaterialCommunityIcons name="delete-outline" size={20} color={Colors.error} />
+              )}
+              <Text style={styles.deleteLabel}>
+                {deleting ? '削除中...' : 'アカウントを削除する'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* アプリ情報 */}
       <View style={styles.section}>
         <View style={styles.versionRow}>
@@ -332,4 +406,12 @@ const styles = StyleSheet.create({
   versionRow: { alignItems: 'center', paddingVertical: Spacing.lg, gap: 4 },
   versionLabel: { fontSize: Typography.bodySmall, fontWeight: '600', color: Colors.textSecondary },
   versionValue: { fontSize: Typography.caption, color: Colors.textSecondary },
+  deleteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+  },
+  deleteLabel: { fontSize: Typography.body, fontWeight: '500', color: Colors.error },
 });

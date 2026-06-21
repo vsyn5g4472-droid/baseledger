@@ -3,6 +3,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
   Timestamp,
   collection,
@@ -227,6 +228,18 @@ export async function getEmailByUsername(username: string): Promise<string | nul
   if (snap.empty) return null;
   const userData = snap.docs[0].data() as User;
   return userData.email ?? null;
+}
+
+/**
+ * Delete the Firestore user document for the given uid.
+ * Called before deleting the Firebase Auth account.
+ */
+export async function deleteFirestoreUserData(uid: string): Promise<void> {
+  try {
+    await withTimeout(deleteDoc(doc(db, COLLECTIONS.USERS, uid)));
+  } catch (error) {
+    throw new AppError('NETWORK', `Failed to delete user data: ${(error as Error).message}`);
+  }
 }
 
 /**

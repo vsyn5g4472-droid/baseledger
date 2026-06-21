@@ -60,6 +60,7 @@ export type RecordingItemId =
   /** 個人のサイン見落とし（戦術 sign_play とは別、選手個別の戦術理解度指標） */
   | 'sign_miss'
   | 'pitch_zone_detail'
+  | 'pitch_entry'
   | 'batted_ball_location'
   | 'batted_ball_distance'
   | 'runner_advancement_detail'

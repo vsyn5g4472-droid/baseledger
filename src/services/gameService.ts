@@ -83,7 +83,8 @@ export async function syncGamesFromFirestore(userId: string): Promise<void> {
 export const gameService = {
   async saveGame(game: GameState, userId: string): Promise<void> {
     const ref = doc(firestoreDb, GAMES, game.id);
-    const data = sanitizeForFirestore({ ...game, ownerId: userId, savedAt: Date.now() });
+    const { undoStack: _undo, ...gameWithoutUndoStack } = game;
+    const data = sanitizeForFirestore({ ...gameWithoutUndoStack, ownerId: userId, savedAt: Date.now() });
     await setDoc(ref, data);
   },
 

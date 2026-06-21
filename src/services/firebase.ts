@@ -79,6 +79,7 @@ export const COLLECTIONS = {
   GROUP_MESSAGES: 'messages',
   AI_REPORTS: 'aiReports',
   SPOT_AT_BATS: 'spotAtBats',
+  BALLPARKS: 'ballparks',
 } as const;
 
 export { app, auth, db, storage, functions };

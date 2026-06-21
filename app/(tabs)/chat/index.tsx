@@ -1,15 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
   TouchableOpacity,
   Pressable,
+  ScrollView,
 } from 'react-native';
-import { Text, Avatar, Divider, Badge, FAB, Button, TextInput, Portal, Modal } from 'react-native-paper';
+import { Text, Avatar, Divider, Badge, FAB, Button, TextInput, Portal, Modal, ActivityIndicator } from 'react-native-paper';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useGroups } from '../../../src/hooks/useGroupChat';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getTeamPlayers, addTeamPlayer, updateTeamPlayer } from '../../../src/services/teamPlayerService';
+import { updateTeam } from '../../../src/services/teamService';
 import { useConversations } from '../../../src/hooks/useMessages';
 import { useTeams } from '../../../src/hooks/useTeam';
 import EmptyState from '../../../src/components/EmptyState';
@@ -17,9 +20,9 @@ import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constant
 import { usePlanGate } from '../../../src/hooks/usePlanGate';
 import { showTeamCreatePlanAlert } from '../../../src/utils/planLimitAlerts';
 import { useI18n } from '../../../src/i18n';
-import { Group, Conversation } from '../../../src/models/types';
+import { Group, Conversation, Team, CreateTeamInput } from '../../../src/models/types';
 
-type TabType = 'groups' | 'teams' | 'dms';
+type TabType = 'roster' | 'teams' | 'dms';
 
 function formatTime(timestamp: any): string {
   if (!timestamp) return '';
@@ -32,43 +35,375 @@ function formatTime(timestamp: any): string {
   return date.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
 }
 
-function GroupItem({ item }: { item: Group }) {
+function RosterTab({
+  teams,
+  createTeam,
+}: {
+  teams: Team[];
+  createTeam: (input: CreateTeamInput) => Promise<string>;
+}) {
+  const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [playersMap, setPlayersMap] = useState<
+    Record<string, { id: string; name: string; number: number | null; position: string }[]>
+  >({});
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
+  const loadedIdsRef = useRef<Set<string>>(new Set());
+
+  const [showAddTeam, setShowAddTeam] = useState(false);
+  const [newTeamName, setNewTeamName] = useState('');
+  const [addingTeam, setAddingTeam] = useState(false);
+
+  const [addPlayerTeamId, setAddPlayerTeamId] = useState<string | null>(null);
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [newPlayerNumber, setNewPlayerNumber] = useState('');
+  const [addingPlayer, setAddingPlayer] = useState(false);
+
+  const [editPlayer, setEditPlayer] = useState<{
+    teamId: string; id: string; name: string; number: string; position: string;
+  } | null>(null);
+  const [savingPlayer, setSavingPlayer] = useState(false);
+
+  const [editTeamId, setEditTeamId] = useState<string | null>(null);
+  const [editTeamName, setEditTeamName] = useState('');
+  const [savingTeam, setSavingTeam] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('roster_starred').then((v) => {
+      if (v) setStarredIds(new Set(JSON.parse(v)));
+    });
+    AsyncStorage.getItem('roster_expanded').then((v) => {
+      if (v) setExpandedIds(new Set(JSON.parse(v)));
+    });
+  }, []);
+
+  const loadPlayers = useCallback(async (teamId: string) => {
+    if (loadedIdsRef.current.has(teamId)) return;
+    loadedIdsRef.current.add(teamId);
+    setLoadingIds((s) => new Set([...s, teamId]));
+    try {
+      const ps = await getTeamPlayers(teamId);
+      setPlayersMap((m) => ({
+        ...m,
+        [teamId]: ps.map((p) => ({ id: p.id, name: p.name, number: p.number, position: p.position })),
+      }));
+    } catch (_e) {
+      loadedIdsRef.current.delete(teamId);
+    } finally {
+      setLoadingIds((s) => { const n = new Set(s); n.delete(teamId); return n; });
+    }
+  }, []);
+
+  const handleToggleExpand = useCallback((teamId: string) => {
+    setExpandedIds((s) => {
+      const n = new Set(s);
+      if (n.has(teamId)) { n.delete(teamId); } else { n.add(teamId); }
+      AsyncStorage.setItem('roster_expanded', JSON.stringify([...n]));
+      return n;
+    });
+    loadPlayers(teamId);
+  }, [loadPlayers]);
+
+  const handleToggleStar = useCallback((teamId: string) => {
+    setStarredIds((s) => {
+      const n = new Set(s);
+      if (n.has(teamId)) { n.delete(teamId); } else { n.add(teamId); }
+      AsyncStorage.setItem('roster_starred', JSON.stringify([...n]));
+      return n;
+    });
+  }, []);
+
+  const handleAddTeam = useCallback(async () => {
+    if (!newTeamName.trim()) return;
+    setAddingTeam(true);
+    try {
+      await createTeam({ name: newTeamName.trim(), description: '', photoURI: null, isPrivate: false });
+      setNewTeamName('');
+      setShowAddTeam(false);
+    } finally {
+      setAddingTeam(false);
+    }
+  }, [newTeamName, createTeam]);
+
+  const handleAddPlayer = useCallback(async () => {
+    const teamId = addPlayerTeamId;
+    if (!teamId || !newPlayerName.trim()) return;
+    setAddingPlayer(true);
+    try {
+      const p = await addTeamPlayer(teamId, {
+        name: newPlayerName.trim(),
+        number: newPlayerNumber.trim() ? parseInt(newPlayerNumber, 10) : null,
+        position: '',
+        bats: 'R',
+        throws: 'R',
+      });
+      setPlayersMap((m) => ({
+        ...m,
+        [teamId]: [...(m[teamId] ?? []), { id: p.id, name: p.name, number: p.number, position: p.position }],
+      }));
+      setNewPlayerName('');
+      setNewPlayerNumber('');
+      setAddPlayerTeamId(null);
+    } finally {
+      setAddingPlayer(false);
+    }
+  }, [addPlayerTeamId, newPlayerName, newPlayerNumber]);
+
+  const handleSavePlayer = useCallback(async () => {
+    if (!editPlayer) return;
+    setSavingPlayer(true);
+    try {
+      await updateTeamPlayer(editPlayer.teamId, editPlayer.id, {
+        name: editPlayer.name.trim(),
+        number: editPlayer.number.trim() ? parseInt(editPlayer.number, 10) : null,
+        position: editPlayer.position.trim(),
+      });
+      setPlayersMap((m) => ({
+        ...m,
+        [editPlayer.teamId]: (m[editPlayer.teamId] ?? []).map((p) =>
+          p.id === editPlayer.id
+            ? { ...p, name: editPlayer.name.trim(), number: editPlayer.number.trim() ? parseInt(editPlayer.number, 10) : null, position: editPlayer.position.trim() }
+            : p
+        ),
+      }));
+      setEditPlayer(null);
+    } finally {
+      setSavingPlayer(false);
+    }
+  }, [editPlayer]);
+
+  const handleSaveTeam = useCallback(async () => {
+    if (!editTeamId || !editTeamName.trim()) return;
+    setSavingTeam(true);
+    try {
+      await updateTeam(editTeamId, { name: editTeamName.trim() });
+      setEditTeamId(null);
+      setEditTeamName('');
+    } finally {
+      setSavingTeam(false);
+    }
+  }, [editTeamId, editTeamName]);
+
+  const starredTeams = teams.filter((t) => starredIds.has(t.id));
+  const otherTeams = teams.filter((t) => !starredIds.has(t.id));
+
+  const renderTeamBlock = (team: Team, alwaysExpanded: boolean) => {
+    const isExpanded = alwaysExpanded || expandedIds.has(team.id);
+    const isLoading = loadingIds.has(team.id);
+    const players = playersMap[team.id] ?? [];
+    const isAddingHere = addPlayerTeamId === team.id;
+
+    return (
+      <View key={team.id} style={rosterStyles.teamBlock}>
+        <TouchableOpacity
+          style={rosterStyles.teamRow}
+          onPress={!alwaysExpanded ? () => handleToggleExpand(team.id) : undefined}
+          activeOpacity={alwaysExpanded ? 1 : 0.7}
+        >
+          <TouchableOpacity style={rosterStyles.starBtn} onPress={() => handleToggleStar(team.id)}>
+            <MaterialCommunityIcons
+              name={starredIds.has(team.id) ? 'star' : 'star-outline'}
+              size={18}
+              color={starredIds.has(team.id) ? Colors.accent : Colors.textSecondary}
+            />
+          </TouchableOpacity>
+          <Text style={rosterStyles.teamName} numberOfLines={1}>{team.name}</Text>
+          <TouchableOpacity style={rosterStyles.editBtn} onPress={() => router.push({ pathname: '/(tabs)/chat/team-edit', params: { teamId: team.id, teamName: team.name } } as any)}>
+            <MaterialCommunityIcons name="pencil" size={15} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <View style={rosterStyles.playerList}>
+            {isLoading ? (
+              <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 8 }} />
+            ) : players.length === 0 ? (
+              <Text style={rosterStyles.noPlayers}>選手が登録されていません</Text>
+            ) : (
+              players.map((p) => (
+                <View key={p.id} style={rosterStyles.playerRow}>
+                  <Text style={rosterStyles.playerNumber}>{p.number != null ? `#${p.number}` : '—'}</Text>
+                  <Text style={rosterStyles.playerName} numberOfLines={1}>{p.name}</Text>
+                  <Text style={rosterStyles.playerPos}>{p.position || '—'}</Text>
+                </View>
+              ))
+            )}
+            {isAddingHere ? (
+              <View style={rosterStyles.addPlayerForm}>
+                <TextInput
+                  label="選手名"
+                  value={newPlayerName}
+                  onChangeText={setNewPlayerName}
+                  mode="outlined"
+                  style={rosterStyles.addPlayerInput}
+                  dense
+                />
+                <TextInput
+                  label="#"
+                  value={newPlayerNumber}
+                  onChangeText={setNewPlayerNumber}
+                  mode="outlined"
+                  style={rosterStyles.addPlayerNumInput}
+                  keyboardType="numeric"
+                  dense
+                />
+                <Button
+                  mode="contained"
+                  onPress={handleAddPlayer}
+                  disabled={!newPlayerName.trim() || addingPlayer}
+                  loading={addingPlayer}
+                  buttonColor={Colors.primary}
+                  compact
+                >
+                  追加
+                </Button>
+                <Button
+                  onPress={() => { setAddPlayerTeamId(null); setNewPlayerName(''); setNewPlayerNumber(''); }}
+                  compact
+                >
+                  キャンセル
+                </Button>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={rosterStyles.addPlayerBtn}
+                onPress={() => { setAddPlayerTeamId(team.id); loadPlayers(team.id); }}
+              >
+                <MaterialCommunityIcons name="account-plus" size={15} color={Colors.primary} />
+                <Text style={rosterStyles.addPlayerBtnText}>＋ 選手追加</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
-    <TouchableOpacity
-      style={styles.item}
-      onPress={() =>
-        router.push({
-          pathname: '/(tabs)/chat/[chatId]',
-          params: { chatId: item.id, type: 'group', title: item.name },
-        } as any)
-      }
-      activeOpacity={0.7}
-    >
-      <View style={styles.avatarWrapper}>
-        <Avatar.Text
-          size={50}
-          label={item.name.charAt(0)}
-          style={styles.groupAvatar}
-          labelStyle={styles.avatarLabel}
-        />
-        <View style={styles.groupBadge}>
-          <MaterialCommunityIcons name="account-group" size={10} color={Colors.white} />
-        </View>
-      </View>
-      <View style={styles.info}>
-        <View style={styles.nameRow}>
-          <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.time}>{formatTime(item.lastMessageAt)}</Text>
-        </View>
-        <Text style={styles.lastMsg} numberOfLines={1}>
-          {item.lastMessage || 'メッセージはまだありません'}
-        </Text>
-        <Text style={styles.memberCount}>
-          <MaterialCommunityIcons name="account-multiple" size={11} color={Colors.textSecondary} />
-          {' '}{item.memberIds.length}人
-        </Text>
-      </View>
-    </TouchableOpacity>
+    <View style={{ flex: 1 }}>
+      <TouchableOpacity style={rosterStyles.addTeamBtn} onPress={() => setShowAddTeam(true)}>
+        <MaterialCommunityIcons name="plus-circle-outline" size={16} color={Colors.primary} />
+        <Text style={rosterStyles.addTeamBtnText}>＋ チーム追加</Text>
+      </TouchableOpacity>
+
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }}>
+        {starredTeams.length > 0 && (
+          <>
+            <View style={rosterStyles.sectionHeader}>
+              <MaterialCommunityIcons name="star" size={13} color={Colors.accent} />
+              <Text style={rosterStyles.sectionLabel}>マイチーム</Text>
+            </View>
+            {starredTeams.map((t) => renderTeamBlock(t, false))}
+          </>
+        )}
+        {otherTeams.length > 0 && (
+          <>
+            {starredTeams.length > 0 && (
+              <View style={rosterStyles.sectionHeader}>
+                <Text style={rosterStyles.sectionLabel}>その他のチーム</Text>
+              </View>
+            )}
+            {otherTeams.map((t) => renderTeamBlock(t, false))}
+          </>
+        )}
+        {teams.length === 0 && (
+          <EmptyState
+            icon="clipboard-list-outline"
+            title="チームがありません"
+            subtitle="＋ チーム追加からチームを作成しましょう"
+          />
+        )}
+      </ScrollView>
+
+      <Portal>
+        <Modal
+          visible={showAddTeam}
+          onDismiss={() => setShowAddTeam(false)}
+          contentContainerStyle={styles.modal}
+        >
+          <Text style={styles.modalTitle}>チームを追加</Text>
+          <TextInput
+            label="チーム名"
+            value={newTeamName}
+            onChangeText={setNewTeamName}
+            mode="outlined"
+            style={styles.modalInput}
+          />
+          <Button
+            mode="contained"
+            onPress={handleAddTeam}
+            disabled={!newTeamName.trim() || addingTeam}
+            loading={addingTeam}
+            buttonColor={Colors.primary}
+          >
+            作成する
+          </Button>
+        </Modal>
+
+        <Modal
+          visible={editPlayer !== null}
+          onDismiss={() => setEditPlayer(null)}
+          contentContainerStyle={styles.modal}
+        >
+          <Text style={styles.modalTitle}>選手を編集</Text>
+          <TextInput
+            label="選手名"
+            value={editPlayer?.name ?? ''}
+            onChangeText={(v) => setEditPlayer((s) => s ? { ...s, name: v } : s)}
+            mode="outlined"
+            style={styles.modalInput}
+          />
+          <TextInput
+            label="背番号"
+            value={editPlayer?.number ?? ''}
+            onChangeText={(v) => setEditPlayer((s) => s ? { ...s, number: v } : s)}
+            mode="outlined"
+            style={styles.modalInput}
+            keyboardType="numeric"
+          />
+          <TextInput
+            label="ポジション"
+            value={editPlayer?.position ?? ''}
+            onChangeText={(v) => setEditPlayer((s) => s ? { ...s, position: v } : s)}
+            mode="outlined"
+            style={styles.modalInput}
+          />
+          <Button
+            mode="contained"
+            onPress={handleSavePlayer}
+            disabled={!editPlayer?.name.trim() || savingPlayer}
+            loading={savingPlayer}
+            buttonColor={Colors.primary}
+          >
+            保存
+          </Button>
+        </Modal>
+
+        <Modal
+          visible={editTeamId !== null}
+          onDismiss={() => setEditTeamId(null)}
+          contentContainerStyle={styles.modal}
+        >
+          <Text style={styles.modalTitle}>チーム名を編集</Text>
+          <TextInput
+            label="チーム名"
+            value={editTeamName}
+            onChangeText={setEditTeamName}
+            mode="outlined"
+            style={styles.modalInput}
+          />
+          <Button
+            mode="contained"
+            onPress={handleSaveTeam}
+            disabled={!editTeamName.trim() || savingTeam}
+            loading={savingTeam}
+            buttonColor={Colors.primary}
+          >
+            保存
+          </Button>
+        </Modal>
+      </Portal>
+    </View>
   );
 }
 
@@ -147,15 +482,14 @@ function TeamItem({ item }: { item: any }) {
 
 export default function ChatIndexScreen() {
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<TabType>('groups');
-  const { groups, loading: groupsLoading } = useGroups();
+  const [activeTab, setActiveTab] = useState<TabType>('roster');
   const { conversations, loading: dmsLoading } = useConversations();
-  const { teams, joinByCode } = useTeams();
+  const { teams, joinByCode, createTeam } = useTeams();
   const teamCreateGate = usePlanGate('team_create');
   const [joinModal, setJoinModal] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
 
-  const isGroups = activeTab === 'groups';
+  const isRoster = activeTab === 'roster';
   const isTeams = activeTab === 'teams';
   const isDMs = activeTab === 'dms';
 
@@ -173,20 +507,17 @@ export default function ChatIndexScreen() {
       <View style={styles.segmentWrapper}>
         <View style={styles.segment}>
           <Pressable
-            style={[styles.segBtn, isGroups && styles.segBtnActive]}
-            onPress={() => setActiveTab('groups')}
+            style={[styles.segBtn, isRoster && styles.segBtnActive]}
+            onPress={() => setActiveTab('roster')}
           >
             <MaterialCommunityIcons
-              name="account-group"
+              name="clipboard-list"
               size={16}
-              color={isGroups ? Colors.white : Colors.textSecondary}
+              color={isRoster ? Colors.white : Colors.textSecondary}
             />
-            <Text style={[styles.segText, isGroups && styles.segTextActive]}>
-              {t.chat.groups}
+            <Text style={[styles.segText, isRoster && styles.segTextActive]}>
+              選手名簿
             </Text>
-            {groups.length > 0 && (
-              <Badge style={styles.countBadge}>{groups.length}</Badge>
-            )}
           </Pressable>
           <Pressable
             style={[styles.segBtn, isTeams && styles.segBtnActive]}
@@ -224,23 +555,8 @@ export default function ChatIndexScreen() {
       </View>
 
       {/* List */}
-      {isGroups ? (
-        <FlatList
-          data={groups}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <GroupItem item={item} />}
-          ItemSeparatorComponent={() => <Divider style={styles.divider} />}
-          contentContainerStyle={groups.length === 0 ? styles.emptyContainer : styles.listContent}
-          ListEmptyComponent={
-            !groupsLoading ? (
-              <EmptyState
-                icon="account-group-outline"
-                title={t.chat.noGroups}
-                subtitle={t.chat.noGroupsSub}
-              />
-            ) : null
-          }
-        />
+      {isRoster ? (
+        <RosterTab teams={teams} createTeam={createTeam} />
       ) : isTeams ? (
         <>
           <FlatList
@@ -434,4 +750,116 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   modalInput: { marginBottom: Spacing.md, backgroundColor: Colors.card },
+});
+
+const rosterStyles = StyleSheet.create({
+  addTeamBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.card,
+  },
+  addTeamBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    backgroundColor: Colors.surfaceGray,
+  },
+  sectionLabel: {
+    fontSize: Typography.caption,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  teamBlock: {
+    backgroundColor: Colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  teamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+    gap: Spacing.sm,
+  },
+  starBtn: { padding: 4 },
+  teamName: {
+    flex: 1,
+    fontSize: Typography.body,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  expandBtn: { padding: 4 },
+  playerList: {
+    paddingLeft: Spacing.xl,
+    paddingRight: Spacing.md,
+    paddingBottom: Spacing.sm,
+    backgroundColor: Colors.surfaceGray,
+  },
+  playerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    gap: Spacing.sm,
+  },
+  playerNumber: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    width: 32,
+  },
+  playerName: {
+    flex: 1,
+    fontSize: Typography.bodySmall,
+    color: Colors.text,
+  },
+  playerPos: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    width: 40,
+    textAlign: 'right',
+  },
+  noPlayers: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    paddingVertical: 8,
+  },
+  addPlayerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+  },
+  addPlayerBtnText: {
+    fontSize: Typography.caption,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  addPlayerForm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingVertical: 6,
+    flexWrap: 'wrap',
+  },
+  addPlayerInput: {
+    flex: 1,
+    backgroundColor: Colors.card,
+    minWidth: 100,
+  },
+  addPlayerNumInput: {
+    width: 60,
+    backgroundColor: Colors.card,
+  },
+  editBtn: { padding: 4 },
 });

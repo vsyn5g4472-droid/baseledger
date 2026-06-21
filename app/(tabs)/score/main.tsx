@@ -18,8 +18,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 import { Text, Button, Modal, Portal, TextInput } from 'react-native-paper';
 import { router } from 'expo-router';
-import { useNavigation, usePreventRemove } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, usePreventRemove, useFocusEffect } from '@react-navigation/native';
 import Svg, { Rect, Line, Text as SvgText, Circle, Path, Ellipse } from 'react-native-svg';
 import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -28,7 +27,7 @@ import { useGameStore } from '../../../src/stores/gameStore';
 import { useI18n } from '../../../src/i18n';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { gameService } from '../../../src/services/gameService';
-import { DRAFT_GAME_KEY } from '../../../src/db';
+import { db } from '../../../src/db';
 import {
   PITCH_TYPES,
   type PitchType,
@@ -43,6 +42,7 @@ import {
   type SignPlayTag,
   type BuntOutcome,
   type BatterAdvancementReason,
+  type StolenBasePitchContext,
 } from '../../../src/types/game';
 import FieldView from '../../../src/components/score/FieldView';
 import SignPlayPicker from '../../../src/components/score/SignPlayPicker';
@@ -54,7 +54,8 @@ import CurrentAtBatPitchLog from '../../../src/components/score/CurrentAtBatPitc
 import VelocityDragMeter from '../../../src/components/score/VelocityDragMeter';
 import ModalVelocitySlider from '../../../src/components/score/ModalVelocitySlider';
 import PlayLogEditModal from '../../../src/components/score/PlayLogEditModal';
-import PlayerSubstitutionModal from '../../../src/components/score/PlayerSubstitutionModal';
+import PositionalSubstitutionModal from '../../../src/components/score/PositionalSubstitutionModal';
+import OffensiveSubstitutionModal from '../../../src/components/score/OffensiveSubstitutionModal';
 import InGameStatsPanel from '../../../src/components/score/InGameStatsPanel';
 import { usePlanGate } from '../../../src/hooks/usePlanGate';
 import { showOpponentDataPlanAlert } from '../../../src/utils/planLimitAlerts';
@@ -70,6 +71,7 @@ const CANVAS_H   = SZ_H + 2 * BALL_PAD_V;      // = 284px
 const BATTER_W   = 100;
 const CURSOR_OFFSET = 50;
 const CURSOR_R   = 10;
+const EMPTY_PITCH_TYPES: string[] = [];
 
 const SZ_LEFT    = BALL_PAD_H;                  // = 52
 const SZ_TOP     = BALL_PAD_V;                  // = 44
@@ -134,29 +136,37 @@ export default function LiveScoreScreen() {
   const fieldViewFilter = useMemo(() => makeFieldViewFilter(prefs), [prefs]);
   const pitchResultRows = useMemo(() => filterPitchResultOptions(prefs), [prefs]);
   const realtimeMemoEnabled = prefs.realtimeMemo === true;
+  const pitchEntryEnabled = isItemOn('pitch_entry');
   const game = useGameStore((s) => s.game);
   const recordPitch = useGameStore((s) => s.recordPitch);
   const resolveAtBat = useGameStore((s) => s.resolveAtBat);
-  const undoLastPitch = useGameStore((s) => s.undoLastPitch);
+  const undoLastPlay = useGameStore((s) => s.undoLastPlay);
+  const canUndo = useGameStore((s) => (s.game?.undoStack?.length ?? 0) > 0);
   const confirmAdvancement = useGameStore((s) => s.confirmAdvancement);
   const cancelAdvancement = useGameStore((s) => s.cancelAdvancement);
   const persist = useGameStore((s) => s.persist);
   const setPhase = useGameStore((s) => s.setPhase);
   const pendingAdvancement = useGameStore((s) => s.game?.pendingAdvancement ?? null);
-  const customPitchTypes = useGameStore((s) => s.game?.customPitchTypes ?? []);
+  const customPitchTypes = useGameStore(
+    (s) => s.game?.customPitchTypes ?? EMPTY_PITCH_TYPES,
+  );
   const addCustomPitchType = useGameStore((s) => s.addCustomPitchType);
   const editAtBatLog = useGameStore((s) => s.editAtBatLog);
   const substitutePlayer = useGameStore((s) => s.substitutePlayer);
   const addBenchAndSubstitute = useGameStore((s) => s.addBenchAndSubstitute);
+  const commitPositionChanges = useGameStore((s) => s.commitPositionChanges);
+  const commitOffensiveSubstitutions = useGameStore((s) => s.commitOffensiveSubstitutions);
+  const addBenchPlayer = useGameStore((s) => s.addBenchPlayer);
   const recordPickoff = useGameStore((s) => s.recordPickoff);
   const pendingPickoffSafe = useGameStore((s) => s.pendingPickoffSafe);
   const confirmPickoffSafeAdvancement = useGameStore((s) => s.confirmPickoffSafeAdvancement);
   const cancelPickoffSafe = useGameStore((s) => s.cancelPickoffSafe);
   const recordStolenBase = useGameStore((s) => s.recordStolenBase);
   const recordCaughtStealing = useGameStore((s) => s.recordCaughtStealing);
+  const addStrikeForFoulInPlay = useGameStore((s) => s.addStrikeForFoulInPlay);
+  const confirmStolenBaseAdvancements = useGameStore((s) => s.confirmStolenBaseAdvancements);
   const recordSignMiss = useGameStore((s) => s.recordSignMiss);
   const updatePlayerBats = useGameStore((s) => s.updatePlayerBats);
-  const revertToPreAdvancement = useGameStore((s) => s.revertToPreAdvancement);
   const setCurrentAtBatNote = useGameStore((s) => s.setCurrentAtBatNote);
 
   // ── バッターの打席（左右反転用） ────────────────────────────────────
@@ -182,10 +192,14 @@ export default function LiveScoreScreen() {
   const [showFieldView, setShowFieldView] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingLog, setEditingLog] = useState<AtBatLog | null>(null);
-  const [subModalVisible, setSubModalVisible] = useState(false);
+  const [posSubModalVisible, setPosSubModalVisible] = useState(false);
   const [subSide, setSubSide] = useState<'away' | 'home'>('home');
+  const [offSubModalVisible, setOffSubModalVisible] = useState(false);
+  const [offSubSide, setOffSubSide] = useState<'away' | 'home'>('home');
   const [showPickoffBase, setShowPickoffBase] = useState(false);
   const [pickoffTargetBase, setPickoffTargetBase] = useState<PickoffBase | null>(null);
+  const [pickoffPending, setPickoffPending] = useState<'first' | 'second' | 'third' | null>(null);
+  const [pickoffSource, setPickoffSource] = useState<'pitcher' | 'catcher' | null>(null);
   const [showSignMissModal, setShowSignMissModal] = useState(false);
   const [signMissToast, setSignMissToast] = useState<string | null>(null);
   const [buntStance, setBuntStance] = useState(false);
@@ -218,6 +232,10 @@ export default function LiveScoreScreen() {
   const [runnerActions, setRunnerActions] = useState<
     Partial<Record<'first' | 'second' | 'third', PitchRunnerAction>>
   >({});
+
+  // ── 盗塁進塁確認ペンディング（ボール/ストライク時の盗塁セーフ）──────────
+  type PendingStealAdv = { advancements: RunnerAdvancement[]; pitchContext: StolenBasePitchContext };
+  const [pendingStealAdv, setPendingStealAdv] = useState<PendingStealAdv | null>(null);
 
   const toggleRunnerAction = useCallback((base: 'first' | 'second' | 'third') => {
     setRunnerActions(prev => {
@@ -285,48 +303,12 @@ export default function LiveScoreScreen() {
   // ── 下書き保存・戻るガード ────────────────────────────────────────
   // game / persist の最新値を ref で保持し beforeRemove クロージャ内で参照
   const gameRef = useRef(game);
+  const isLeavingRef = useRef(false);
   useEffect(() => { gameRef.current = game; });
   const persistRef = useRef(persist);
   useEffect(() => { persistRef.current = persist; }, [persist]);
 
-  const [draftSaved, setDraftSaved] = useState(false);
-  const draftToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // マウント時: 下書き復元チェック (game が null の時のみ)
-  // start.tsx の「下書きを再開する」経由では game がロード済みのためスキップされる
-  useEffect(() => {
-    if (game) return;
-    AsyncStorage.getItem(DRAFT_GAME_KEY).then((json) => {
-      if (!json) return;
-      try {
-        const { gameId } = JSON.parse(json);
-        Alert.alert(
-          '前回の未完了セッション',
-          '前回の未完了セッションがあります。再開しますか？',
-          [
-            {
-              text: '破棄する',
-              style: 'destructive',
-              onPress: () => AsyncStorage.removeItem(DRAFT_GAME_KEY),
-            },
-            {
-              text: '再開する',
-              onPress: async () => {
-                await loadGame(gameId);
-                await AsyncStorage.removeItem(DRAFT_GAME_KEY);
-              },
-            },
-          ],
-          { cancelable: false },
-        );
-      } catch {}
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 戻るガード: 進行中の記録セッション中は確認ダイアログを表示
-  // usePreventRemove により native-stack がスワイプバックを事前に無効化し
-  // 「ネイティブ除去と JS 状態の乖離」による警告を解消する
-  usePreventRemove(!!game && game.phase === 'live', ({ data }) => {
+  const showInterruptRecordingAlert = useCallback((onLeave: () => void) => {
     Alert.alert(
       '記録を中断しますか？',
       '入力中のデータは破棄されます。一時保存して終了することも可能です。',
@@ -335,40 +317,67 @@ export default function LiveScoreScreen() {
         {
           text: '破棄して戻る',
           style: 'destructive',
-          onPress: () => {
-            AsyncStorage.removeItem(DRAFT_GAME_KEY);
-            navigation.dispatch(data.action);
-          },
-        },
-        {
-          text: '下書きに保存して戻る',
           onPress: async () => {
             const currentGame = gameRef.current;
             if (currentGame) {
-              await persistRef.current();
-              await AsyncStorage.setItem(
-                DRAFT_GAME_KEY,
-                JSON.stringify({ gameId: currentGame.id }),
-              );
+              await db.games.remove(currentGame.id);
             }
-            setDraftSaved(true);
-            if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
-            draftToastTimerRef.current = setTimeout(() => {
-              setDraftSaved(false);
-              navigation.dispatch(data.action);
-            }, 1400);
+            isLeavingRef.current = true;
+            onLeave();
+            useGameStore.getState().clearActiveGame();
+          },
+        },
+        {
+          text: '一時保存して戻る',
+          onPress: async () => {
+            try {
+              const currentGame = gameRef.current;
+              if (currentGame) {
+                useGameStore.getState().setPhase('paused');
+                await persistRef.current();
+              }
+              isLeavingRef.current = true;
+              onLeave();
+              useGameStore.getState().clearActiveGame();
+            } catch (error) {
+              if (__DEV__) console.error('[showInterruptRecordingAlert] 保存失敗:', error);
+              Alert.alert(t.live.saveFailed);
+            }
           },
         },
       ],
     );
+  }, [t.live.saveFailed]);
+
+  const handleSaveDraft = useCallback(() => {
+    showInterruptRecordingAlert(() => {
+      router.replace('/(tabs)/analytics' as any);
+    });
+  }, [showInterruptRecordingAlert]);
+
+  // 戻るガード: 進行中の記録セッション中は確認ダイアログを表示
+  // usePreventRemove により native-stack がスワイプバックを事前に無効化し
+  // 「ネイティブ除去と JS 状態の乖離」による警告を解消する
+  usePreventRemove(!!game && game.phase === 'live', ({ data }) => {
+    showInterruptRecordingAlert(() => navigation.dispatch(data.action));
   });
 
-  // draftToastTimer のクリーンアップ
-  useEffect(() => {
-    return () => {
-      if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
-    };
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      const g = useGameStore.getState().game;
+      if (!g || g.phase === 'finished') {
+        if (g?.phase === 'finished') {
+          useGameStore.getState().clearActiveGame();
+        }
+        if (!isLeavingRef.current) {
+          router.replace('/(tabs)/score/' as any);
+        }
+      }
+      return () => {
+        isLeavingRef.current = false;
+      };
+    }, []),
+  );
 
   // ── Reanimated カーソル (タッチ中のみ表示・JS再レンダなしで追従) ───
   const [isTouching, setIsTouching] = useState(false);
@@ -381,32 +390,6 @@ export default function LiveScoreScreen() {
       { translateY: cursorY.value - CURSOR_OFFSET - CURSOR_R },
     ],
   }));
-
-  // ゲームなし
-  if (!game) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.msg}>{t.live.noGame}</Text>
-        <Button mode="contained" onPress={() => router.replace('/(tabs)/score/' as any)}>
-          {t.live.backToSetup}
-        </Button>
-      </View>
-    );
-  }
-
-  const isTop = game.inning.half === 'top';
-  const offSide = isTop ? 'away' : 'home';
-  const defSide = isTop ? 'home' : 'away';
-  const offTeam = isTop ? game.awayTeam : game.homeTeam;
-  const defTeam = isTop ? game.homeTeam : game.awayTeam;
-  const batterIdx = game.currentBatterIndex[offSide];
-  const batter = offTeam.roster.starters[batterIdx];
-  const pitcherId = game.currentPitcherId[defSide];
-  const pitcher = defTeam.roster.starters.find((p) => p.id === pitcherId) ?? defTeam.roster.starters[0];
-  const catcher = defTeam.roster.starters.find((p) => p.position === 'C');
-
-  const inningLabel = `${game.inning.number}${t.common.inning}${isTop ? t.common.top : t.common.bottom}`;
-  const lastPitch = game.pitchLogs.length > 0 ? game.pitchLogs[game.pitchLogs.length - 1] : null;
 
   const simpleZone = !isRecItem(prefs, 'pitch_zone_detail');
 
@@ -427,7 +410,8 @@ export default function LiveScoreScreen() {
   }, [simpleZone, measuredVelocity]);
 
   const handleResultSelect = useCallback((result: PitchResult) => {
-    if (!pendingZone) return;
+    const g = useGameStore.getState().game;
+    if (!g) return;
     setResultModalVisible(false);
     const normX = pendingCoords?.x;
     const normY = pendingCoords?.y;
@@ -436,12 +420,18 @@ export default function LiveScoreScreen() {
     const actionsToApply = { ...runnerActions };
     setRunnerActions({});
 
+    // 牽制ペンディングをキャプチャしてリセット
+    const capturedPickoff = pickoffPending;
+    setPickoffPending(null);
+    const PICKOFF_SKIP_RESULTS: PitchResult[] = ['in_play', 'foul', 'foul_tip', 'hit_by_pitch'];
+    const shouldTriggerPickoff = capturedPickoff !== null && !PICKOFF_SKIP_RESULTS.includes(result);
+
     const applyRunnerActions = (pitchResult: typeof result, vel: number | undefined) => {
       const pitchContext: Parameters<typeof recordStolenBase>[1] = {
         pitchType:     selectedPitch,
         pitchZone:     pendingZone ?? undefined,
         pitchVelocity: vel,
-        countBefore:   game.count,
+        countBefore:   g.count,
         pitchResult,
         ...(isItemOn('sign_play') && stealSign !== 'none' ? { signPlay: stealSign as SignPlayTag } : {}),
       };
@@ -477,7 +467,7 @@ export default function LiveScoreScreen() {
     }
 
     if (result === 'in_play') {
-      recordPitch(selectedPitch, pendingZone, 'in_play', velocity, normX, normY, pitchExtra);
+      recordPitch(selectedPitch, pendingZone ?? '5', 'in_play', velocity, normX, normY, pitchExtra);
       applyRunnerActions('in_play', velocity);
       setPendingZone(null);
       setPendingCoords(null);
@@ -488,7 +478,52 @@ export default function LiveScoreScreen() {
       return;
     }
 
-    recordPitch(selectedPitch, pendingZone, result, velocity, normX, normY, pitchExtra);
+    // 盗塁セーフ + ボール/見逃し/空振り → 進塁確認画面へ
+    const STEAL_CONFIRM_RESULTS: PitchResult[] = ['ball', 'strike_called', 'strike_swinging'];
+    const safeStealEntries = Object.entries(actionsToApply).filter(([, a]) => a?.result === 'safe');
+    if (safeStealEntries.length > 0 && STEAL_CONFIRM_RESULTS.includes(result)) {
+      recordPitch(selectedPitch, pendingZone ?? '5', result, velocity, normX, normY, pitchExtra);
+      const pitchCtx: StolenBasePitchContext = {
+        pitchType: selectedPitch,
+        pitchZone: pendingZone ?? undefined,
+        pitchVelocity: velocity,
+        countBefore: g.count,
+        pitchResult: result,
+        ...(isItemOn('sign_play') && stealSign !== 'none' ? { signPlay: stealSign as SignPlayTag } : {}),
+      };
+      // アウトの盗塁は即時確定
+      for (const [base, action] of Object.entries(actionsToApply)) {
+        if (action?.result === 'out') {
+          recordCaughtStealing(base as 'first' | 'second' | 'third', pitchCtx);
+        }
+      }
+      // セーフ盗塁の進塁確認データを構築
+      const liveGame = useGameStore.getState().game!;
+      const advancements: RunnerAdvancement[] = safeStealEntries.map(([base]) => {
+        const fromBase = base as 'first' | 'second' | 'third';
+        const runner = liveGame.runners[fromBase];
+        const toBase = fromBase === 'first' ? 'second' : fromBase === 'second' ? 'third' : 'home';
+        return {
+          runnerId: runner?.id ?? '',
+          playerName: runner?.name ?? '',
+          fromBase,
+          targetBase: toBase as any,
+          outcome: 'safe' as const,
+          action: 'stolen_base' as const,
+          isForced: false,
+          minBase: toBase as any,
+        };
+      });
+      setPendingStealAdv({ advancements, pitchContext: pitchCtx });
+      setPendingZone(null);
+      setPendingCoords(null);
+      setTapCoord(null);
+      setStealSign('none');
+      setBuntStance(false);
+      return;
+    }
+
+    recordPitch(selectedPitch, pendingZone ?? '5', result, velocity, normX, normY, pitchExtra);
     applyRunnerActions(result, velocity);
     setPendingZone(null);
     setPendingCoords(null);
@@ -496,7 +531,8 @@ export default function LiveScoreScreen() {
     setStealSign('none');
     setBuntStance(false);
     persist();
-  }, [pendingZone, pendingCoords, selectedPitch, recordPitch, recordStolenBase, recordCaughtStealing, persist, runnerActions, measuredVelocity, game.count, buntStance, isItemOn, stealSign, modalVelocity, modalVelocityEnabled]);
+    if (shouldTriggerPickoff) { setPickoffSource('catcher'); setPickoffTargetBase(capturedPickoff!); }
+  }, [pendingZone, pendingCoords, selectedPitch, recordPitch, recordStolenBase, recordCaughtStealing, persist, runnerActions, measuredVelocity, game?.count, buntStance, isItemOn, stealSign, modalVelocity, modalVelocityEnabled, pickoffPending]);
 
   const handleFieldConfirm = useCallback((result: AtBatResult, battedBall: BattedBall, buntType?: BuntType) => {
     const g = useGameStore.getState().game;
@@ -530,16 +566,27 @@ export default function LiveScoreScreen() {
     setShowFieldView(true);
   }, [cancelAdvancement, persist, setShowFieldView]);
 
+  const handleStealAdvancementConfirm = useCallback((finalAdvancements: RunnerAdvancement[]) => {
+    if (!pendingStealAdv) return;
+    confirmStolenBaseAdvancements(finalAdvancements, pendingStealAdv.pitchContext);
+    setPendingStealAdv(null);
+    persist();
+  }, [pendingStealAdv, confirmStolenBaseAdvancements, persist]);
+
+  const handleStealAdvancementCancel = useCallback(() => {
+    setPendingStealAdv(null);
+  }, []);
+
   const handleFieldCancel = useCallback(() => {
     setShowFieldView(false);
-    undoLastPitch();
+    undoLastPlay();
     persist();
-  }, [undoLastPitch, persist]);
+  }, [undoLastPlay, persist]);
 
   const handleUndo = useCallback(() => {
-    undoLastPitch();
+    undoLastPlay();
     persist();
-  }, [undoLastPitch, persist]);
+  }, [undoLastPlay, persist]);
 
   const handleEndGame = useCallback(() => {
     Alert.alert(t.live.endGame, t.live.endGameConfirm, [
@@ -550,14 +597,14 @@ export default function LiveScoreScreen() {
         onPress: async () => {
           try {
             setPhase('finished');
+            setIsTiebreakMode(false);
             await persist();
             // Firebase保存 (ログイン中の場合)
             const latestGame = useGameStore.getState().game;
             if (currentUser && latestGame) {
               await gameService.saveGame(latestGame, currentUser.uid);
             }
-            // 保存完了 → 試合一覧（アナリティクス）へ遷移
-            router.replace('/(tabs)/analytics' as any);
+            router.replace('/(tabs)/score/result' as any);
           } catch (error) {
             if (__DEV__) console.error('[handleEndGame] 保存失敗:', error);
             Alert.alert(t.live.saveFailed ?? '保存に失敗しました');
@@ -566,6 +613,188 @@ export default function LiveScoreScreen() {
       },
     ]);
   }, [setPhase, persist, currentUser, t.live]);
+
+  // 延長モーダルから呼ぶ試合終了確認(キャンセル時は3択に戻る)
+  const handleEndGameFromExtraModal = useCallback(() => {
+    Alert.alert(t.live.endGame, t.live.endGameConfirm, [
+      {
+        text: t.live.cancel,
+        style: 'cancel',
+        onPress: () => {
+          tie9EndCheckedRef.current = null;
+          setShowExtraInningModal(true);
+        },
+      },
+      {
+        text: t.live.end,
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setPhase('finished');
+            setIsTiebreakMode(false);
+            await persist();
+            const latestGame = useGameStore.getState().game;
+            if (currentUser && latestGame) {
+              await gameService.saveGame(latestGame, currentUser.uid);
+            }
+            router.replace('/(tabs)/score/result' as any);
+          } catch (error) {
+            if (__DEV__) console.error('[handleEndGameFromExtraModal] 保存失敗:', error);
+            Alert.alert(t.live.saveFailed ?? '保存に失敗しました');
+          }
+        },
+      },
+    ]);
+  }, [setPhase, persist, currentUser, t.live]);
+
+  // タイブレーク: 無死1・2塁でイニング開始(打順継続)
+  const handleTiebreak = useCallback(() => {
+    if (!game) return;
+    const offSide = game.inning.half === 'top' ? 'away' : 'home';
+    const offTeam = game.inning.half === 'top' ? game.awayTeam : game.homeTeam;
+    const starters = offTeam.roster.starters;
+    const currentIdx = game.currentBatterIndex[offSide];
+
+    // 1塁ランナー: 打者の1つ前
+    const firstIdx = (currentIdx - 1 + 9) % 9;
+    // 2塁ランナー: 打者の2つ前
+    const secondIdx = (currentIdx - 2 + 9) % 9;
+
+    const firstRunner = starters[firstIdx];
+    const secondRunner = starters[secondIdx];
+
+    if (!firstRunner || !secondRunner) return;
+
+    setIsTiebreakMode(true);
+    setTiebreakRunners({
+      first: { id: firstRunner.id, name: firstRunner.name },
+      second: { id: secondRunner.id, name: secondRunner.name },
+    });
+  }, [game]);
+
+  // 9回表終了時: 後攻リードなら試合終了確認を自動表示
+  const top9EndCheckedRef = useRef<string | null>(null);
+  const tie9EndCheckedRef = useRef<string | null>(null);
+  const walkoffCheckedRef = useRef<string | null>(null);
+  const [showExtraInningModal, setShowExtraInningModal] = useState(false);
+  const [tiebreakRunners, setTiebreakRunners] = useState<{
+    first: { id: string; name: string };
+    second: { id: string; name: string };
+  } | null>(null);
+  const [isTiebreakMode, setIsTiebreakMode] = useState(false);
+  useEffect(() => {
+    if (!game) return;
+    if (game.phase === 'finished') return;
+    if (game.inning.number === 9 && game.inning.half === 'bottom' && game.count.outs === 0) {
+      // 同じ試合で既にチェック済みなら何もしない
+      if (top9EndCheckedRef.current === game.id) return;
+
+      if (game.scoreboard.homeTotal > game.scoreboard.awayTotal) {
+        top9EndCheckedRef.current = game.id;
+        handleEndGame();
+      }
+    }
+  }, [game?.id, game?.inning.number, game?.inning.half, game?.count.outs, game?.phase, handleEndGame]);
+
+  // 9回裏終了時: 同点なら延長モーダル、決着済みなら試合終了確認
+  useEffect(() => {
+    if (!game) return;
+    if (game.phase === 'finished') return;
+    // 10回表に入った瞬間(= 9回裏終了直後)を検知
+    if (game.inning.number >= 10 && game.inning.half === 'top' && game.count.outs === 0) {
+      const inningKey = `${game.id}-${game.inning.number}`;
+      if (tie9EndCheckedRef.current === inningKey) return;
+      const { awayTotal, homeTotal } = game.scoreboard;
+      if (awayTotal === homeTotal) {
+        // 同点 → 延長モーダルを表示
+        tie9EndCheckedRef.current = inningKey;
+        setShowExtraInningModal(true);
+      } else {
+        // 決着済み(通常は9回裏中に決まるはずだが念のため)
+        tie9EndCheckedRef.current = inningKey;
+        handleEndGame();
+      }
+    }
+  }, [game?.id, game?.inning.number, game?.inning.half, game?.count.outs, game?.phase, game?.scoreboard.awayTotal, game?.scoreboard.homeTotal, handleEndGame]);
+
+  // サヨナラ判定: 9回裏以降の裏イニングで後攻がリードした瞬間に試合終了確認
+  useEffect(() => {
+    if (!game) return;
+    if (game.phase === 'finished') return;
+    // 9回以降の裏イニングのみ対象
+    if (game.inning.number < 9 || game.inning.half !== 'bottom') return;
+
+    const { awayTotal, homeTotal } = game.scoreboard;
+    // 後攻リード = サヨナラの条件
+    if (homeTotal <= awayTotal) return;
+
+    // 同じ試合・同じスコア状態で重複発火しない
+    const checkKey = `${game.id}-${homeTotal}-${awayTotal}`;
+    if (walkoffCheckedRef.current === checkKey) return;
+    walkoffCheckedRef.current = checkKey;
+
+    handleEndGame();
+  }, [game?.id, game?.inning.number, game?.inning.half, game?.scoreboard.homeTotal, game?.scoreboard.awayTotal, game?.phase, handleEndGame]);
+
+  // タイブレーク: ランナー配置を実行
+  useEffect(() => {
+    if (!tiebreakRunners || !game) return;
+    useGameStore.setState((state) => {
+      const g = state.game;
+      if (!g) return state;
+      return {
+        ...state,
+        game: {
+          ...g,
+          runners: {
+            first: { id: tiebreakRunners.first.id, name: tiebreakRunners.first.name, number: '' },
+            second: { id: tiebreakRunners.second.id, name: tiebreakRunners.second.name, number: '' },
+            third: null,
+          },
+          count: { balls: 0, strikes: 0, outs: 0 },
+        },
+      };
+    });
+    setTiebreakRunners(null);
+  }, [tiebreakRunners]);
+
+  // タイブレークモード: 各イニング開始時に自動で無死1・2塁をセット
+  useEffect(() => {
+    if (!isTiebreakMode) return;
+    if (!game) return;
+    if (game.phase === 'finished') return;
+    if (game.count.outs !== 0) return;
+    if (game.runners.first || game.runners.second) return;
+
+    const offSide = game.inning.half === 'top' ? 'away' : 'home';
+    const offTeam = game.inning.half === 'top' ? game.awayTeam : game.homeTeam;
+    const starters = offTeam.roster.starters;
+    const currentIdx = game.currentBatterIndex[offSide];
+
+    const firstIdx = (currentIdx - 1 + 9) % 9;
+    const secondIdx = (currentIdx - 2 + 9) % 9;
+
+    const firstRunner = starters[firstIdx];
+    const secondRunner = starters[secondIdx];
+
+    if (!firstRunner || !secondRunner) return;
+
+    useGameStore.setState((state) => {
+      const g = state.game;
+      if (!g) return state;
+      return {
+        ...state,
+        game: {
+          ...g,
+          runners: {
+            first: { id: firstRunner.id, name: firstRunner.name, number: '' },
+            second: { id: secondRunner.id, name: secondRunner.name, number: '' },
+            third: null,
+          },
+        },
+      };
+    });
+  }, [isTiebreakMode, game?.inning.number, game?.inning.half, game?.count.outs, game?.runners.first, game?.runners.second]);
 
   const handleEditLog = useCallback((logId: string) => {
     const log = game?.atBatLogs.find((l) => l.id === logId) ?? null;
@@ -584,6 +813,7 @@ export default function LiveScoreScreen() {
     if (!game) return;
     const hasRunners = game.runners.first || game.runners.second || game.runners.third;
     if (!hasRunners) return;
+    setPickoffSource('pitcher');
     setShowPickoffBase(true);
   }, [game]);
 
@@ -594,8 +824,10 @@ export default function LiveScoreScreen() {
 
   const handlePickoffResult = useCallback((result: PickoffResult) => {
     if (!pickoffTargetBase) return;
-    recordPickoff(pickoffTargetBase, result);
+    const target = pickoffTargetBase;
     setPickoffTargetBase(null);
+    setPickoffSource(null);
+    recordPickoff(target, result);
     persist();
   }, [pickoffTargetBase, recordPickoff, persist]);
 
@@ -647,6 +879,36 @@ export default function LiveScoreScreen() {
     setPendingStealBase(null);
   }, [pendingStealBase]);
 
+  if (!game) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.msg}>{t.live.noGame}</Text>
+        <Button mode="contained" onPress={() => router.replace('/(tabs)/score/' as any)}>
+          {t.live.backToSetup}
+        </Button>
+      </View>
+    );
+  }
+
+  const isTop = game.inning.half === 'top';
+  const offSide = isTop ? 'away' : 'home';
+  const defSide = isTop ? 'home' : 'away';
+  const offTeam = isTop ? game.awayTeam : game.homeTeam;
+  const defTeam = isTop ? game.homeTeam : game.awayTeam;
+  const batterIdx = game.currentBatterIndex[offSide];
+  const batter = offTeam.roster.starters[batterIdx];
+  const pitcherId = game.currentPitcherId[defSide];
+  const pitcher =
+    defTeam.roster.starters.find((p) => p.id === pitcherId)
+    ?? (defTeam.roster.pitcher?.id === pitcherId ? defTeam.roster.pitcher : undefined)
+    ?? defTeam.roster.starters.find((p) => p.position === 'P')
+    ?? defTeam.roster.pitcher
+    ?? defTeam.roster.starters[0];
+  const catcher = defTeam.roster.starters.find((p) => p.position === 'C');
+
+  const inningLabel = `${game.inning.number}${t.common.inning}${isTop ? t.common.top : t.common.bottom}`;
+  const lastPitch = game.pitchLogs.length > 0 ? game.pitchLogs[game.pitchLogs.length - 1] : null;
+
   if (showFieldView) {
     return (
       <View style={styles.container}>
@@ -673,6 +935,11 @@ export default function LiveScoreScreen() {
               buntDetailEnabled={isItemOn('bunt_detail')}
               fieldLocationEnabled={isItemOn('batted_ball_location')}
               fieldDistanceLabelEnabled={isItemOn('batted_ball_distance')}
+              onFoulDrop={() => {
+                addStrikeForFoulInPlay();
+                setShowFieldView(false);
+                persist();
+              }}
             />
             {isItemOn('sign_play') && (
               <View style={{ paddingHorizontal: 12, paddingBottom: 8, backgroundColor: Colors.background }}>
@@ -738,6 +1005,32 @@ export default function LiveScoreScreen() {
           result="pickoff_safe"
           onConfirm={handlePickoffSafeConfirm}
           onCancel={cancelPickoffSafe}
+        />
+      </View>
+    );
+  }
+
+  if (pendingStealAdv) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.scoreBar}>
+          <View style={styles.teamScore}>
+            <Text style={[styles.teamName, isTop && styles.teamNameActive]}>{game.awayTeam.name}</Text>
+            <Text style={styles.score}>{game.scoreboard.awayTotal}</Text>
+          </View>
+          <View style={styles.inningBadge}>
+            <Text style={styles.inningText}>{inningLabel}</Text>
+          </View>
+          <View style={styles.teamScore}>
+            <Text style={[styles.teamName, !isTop && styles.teamNameActive]}>{game.homeTeam.name}</Text>
+            <Text style={styles.score}>{game.scoreboard.homeTotal}</Text>
+          </View>
+        </View>
+        <RunnerAdvancementView
+          advancements={pendingStealAdv.advancements}
+          result="stolen_base"
+          onConfirm={handleStealAdvancementConfirm}
+          onCancel={handleStealAdvancementCancel}
         />
       </View>
     );
@@ -839,7 +1132,7 @@ export default function LiveScoreScreen() {
             <Text style={styles.matchupRole}>{t.live.pitcher}</Text>
             <Text style={styles.matchupName}>{pitcher.number != null ? `#${pitcher.number} ` : ''}{pitcher.name}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.matchupStat}>{game.totalPitchCount[defSide]}{t.live.pitchCount}</Text>
+              <Text style={styles.matchupStat}>{game.currentPitcherPitchCount?.[defSide] ?? game.totalPitchCount[defSide]}{t.live.pitchCount}</Text>
               <TouchableOpacity
                 style={[styles.detailBtn, !opponentDataGate.allowed && styles.detailBtnDisabled]}
                 onPress={openPitcherStats}
@@ -952,38 +1245,23 @@ export default function LiveScoreScreen() {
           </View>
         )}
 
-        {/* ===== 直前の打席を修正 + リアルタイムメモ ===== */}
-        {((game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement)
-          || realtimeMemoEnabled) && (
+        {/* ===== リアルタイムメモ ===== */}
+        {realtimeMemoEnabled && (
           <View style={styles.revertRow}>
-            {game?.preAdvancementSnapshot && !showFieldView && !pendingAdvancement && (
-              <TouchableOpacity
-                onPress={() => {
-                  revertToPreAdvancement();
-                  persist();
-                }}
-                style={styles.revertButton}
-              >
-                <MaterialCommunityIcons name="undo-variant" size={16} color="#FF9800" />
-                <Text style={styles.revertButtonText}>直前の打席を修正</Text>
-              </TouchableOpacity>
-            )}
-            {realtimeMemoEnabled && (
-              <TextInput
-                mode="outlined"
-                placeholder="メモ"
-                value={game.currentAtBat?.note ?? ''}
-                onChangeText={setCurrentAtBatNote}
-                style={styles.atBatMemoInput}
-                dense
-                outlineColor={Colors.border}
-                activeOutlineColor={Colors.primary}
-                textColor={Colors.text}
-                selectionColor={Colors.primary}
-                cursorColor={Colors.primary}
-                maxLength={200}
-              />
-            )}
+            <TextInput
+              mode="outlined"
+              placeholder="メモ"
+              value={game.currentAtBat?.note ?? ''}
+              onChangeText={setCurrentAtBatNote}
+              style={styles.atBatMemoInput}
+              dense
+              outlineColor={Colors.border}
+              activeOutlineColor={Colors.primary}
+              textColor={Colors.text}
+              selectionColor={Colors.primary}
+              cursorColor={Colors.primary}
+              maxLength={200}
+            />
           </View>
         )}
 
@@ -999,6 +1277,7 @@ export default function LiveScoreScreen() {
         )}
 
         {/* ===== メインゾーンエリア: [球種縦列] + [バッター+キャンバス] ===== */}
+        {pitchEntryEnabled ? (
         <View style={[styles.zoneSection, { flexDirection: isLeftBatter ? 'row-reverse' : 'row' }]}>
 
           {/* ---- 球種選択: 縦ボタン列 (左側サイドメニュー) ---- */}
@@ -1166,6 +1445,28 @@ export default function LiveScoreScreen() {
             )}
           </View>
         </View>
+        ) : null}
+
+        {!pitchEntryEnabled && (
+          <View style={styles.inlineResultSection}>
+            <Text style={styles.runnerEventLabel}>投球結果</Text>
+            <View style={styles.resultGrid}>
+              {pitchResultRows.map(({ result, color, label }) => (
+                <TouchableOpacity
+                  key={result}
+                  style={[styles.resultBtn, { backgroundColor: color }]}
+                  onPress={() => {
+                    setPendingZone(null);
+                    setPendingCoords(null);
+                    handleResultSelect(result);
+                  }}
+                >
+                  <Text style={styles.resultBtnText}>{label ?? t.pitchResults[result]}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* ===== 直前の投球 + Undo + 牽制 ===== */}
         <View style={styles.lastPitchRow}>
@@ -1192,7 +1493,7 @@ export default function LiveScoreScreen() {
                 <Text style={styles.signMissBtnText}>サインミス</Text>
               </TouchableOpacity>
             )}
-            {game.pitchLogs.length > 0 && (
+            {canUndo && (
               <TouchableOpacity style={styles.undoBtn} onPress={handleUndo}>
                 <MaterialCommunityIcons name="undo" size={18} color={Colors.white} />
                 <Text style={styles.undoBtnText}>{t.live.undo}</Text>
@@ -1207,7 +1508,16 @@ export default function LiveScoreScreen() {
           <Button
             mode="outlined"
             icon="account-switch-outline"
-            onPress={() => { setSubSide('away'); setSubModalVisible(true); }}
+            onPress={() => {
+              const offSide = game.inning.half === 'top' ? 'away' : 'home';
+              if ('away' === offSide) {
+                setOffSubSide('away');
+                setOffSubModalVisible(true);
+              } else {
+                setSubSide('away');
+                setPosSubModalVisible(true);
+              }
+            }}
             style={styles.subButton}
             textColor={Colors.primary}
           >
@@ -1216,7 +1526,16 @@ export default function LiveScoreScreen() {
           <Button
             mode="outlined"
             icon="account-switch-outline"
-            onPress={() => { setSubSide('home'); setSubModalVisible(true); }}
+            onPress={() => {
+              const offSide = game.inning.half === 'top' ? 'away' : 'home';
+              if ('home' === offSide) {
+                setOffSubSide('home');
+                setOffSubModalVisible(true);
+              } else {
+                setSubSide('home');
+                setPosSubModalVisible(true);
+              }
+            }}
             style={styles.subButton}
             textColor={Colors.primary}
           >
@@ -1225,15 +1544,25 @@ export default function LiveScoreScreen() {
         </View>
         )}
 
-        {/* ===== 試合終了ボタン ===== */}
-        <Button
-          mode="outlined"
-          onPress={handleEndGame}
-          style={styles.endButton}
-          textColor={Colors.error}
-        >
-          {t.live.endGame}
-        </Button>
+        {/* ===== 一時保存 / 試合終了ボタン ===== */}
+        <View style={styles.gameActionRow}>
+          <Button
+            mode="outlined"
+            onPress={handleSaveDraft}
+            style={styles.draftButton}
+            textColor={Colors.primary}
+          >
+            {t.live.saveDraft}
+          </Button>
+          <Button
+            mode="outlined"
+            onPress={handleEndGame}
+            style={styles.endButtonHalf}
+            textColor={Colors.error}
+          >
+            {t.live.endGame}
+          </Button>
+        </View>
 
         {/* ===== 現在打席の投球ログ ===== */}
         {game.currentAtBat && (
@@ -1259,14 +1588,30 @@ export default function LiveScoreScreen() {
         )}
       </ScrollView>
 
-      {/* 選手交代モーダル */}
-      <PlayerSubstitutionModal
-        visible={subModalVisible}
+      {/* ポジション変更・交代モーダル */}
+      <PositionalSubstitutionModal
+        visible={posSubModalVisible}
         side={subSide}
         game={game}
-        onClose={() => setSubModalVisible(false)}
-        onSubstitute={substitutePlayer}
-        onSubstituteWithNew={addBenchAndSubstitute}
+        onClose={() => setPosSubModalVisible(false)}
+        onCommit={(side, starterPositions, substitutions) => {
+          commitPositionChanges(side, starterPositions, substitutions);
+          setPosSubModalVisible(false);
+        }}
+        onAddBench={(side, data) => addBenchPlayer(side, data)}
+      />
+
+      {/* 攻撃時選手交代モーダル（代打・代走） */}
+      <OffensiveSubstitutionModal
+        visible={offSubModalVisible}
+        side={offSubSide}
+        game={game}
+        onClose={() => setOffSubModalVisible(false)}
+        onCommit={(side, substitutions) => {
+          commitOffensiveSubstitutions(side, substitutions);
+          setOffSubModalVisible(false);
+        }}
+        onAddBench={(side, data) => addBenchPlayer(side, data)}
       />
 
       {/* プレイログ編集モーダル */}
@@ -1279,7 +1624,7 @@ export default function LiveScoreScreen() {
 
       {/* ===== 牽制: 塁選択モーダル ===== */}
       <Portal>
-        <Modal visible={showPickoffBase} onDismiss={() => setShowPickoffBase(false)} contentContainerStyle={styles.modal}>
+        <Modal visible={showPickoffBase} onDismiss={() => { setShowPickoffBase(false); setPickoffSource(null); }} contentContainerStyle={styles.modal}>
           <View>
             <Text style={styles.modalTitle}>{t.live.pickoffBase}</Text>
             <View style={styles.resultGrid}>
@@ -1305,7 +1650,7 @@ export default function LiveScoreScreen() {
 
       {/* ===== 牽制: 結果選択モーダル ===== */}
       <Portal>
-        <Modal visible={!!pickoffTargetBase} onDismiss={() => setPickoffTargetBase(null)} contentContainerStyle={styles.modal}>
+        <Modal visible={!!pickoffTargetBase} onDismiss={() => { setPickoffTargetBase(null); setPickoffSource(null); }} contentContainerStyle={styles.modal}>
           <View>
             <Text style={styles.modalTitle}>{t.live.pickoffResult}</Text>
             <View style={styles.resultGrid}>
@@ -1315,7 +1660,7 @@ export default function LiveScoreScreen() {
               <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#E53935' }]} onPress={() => handlePickoffResult('out')}>
                 <Text style={styles.resultBtnText}>{t.live.pickoffOut}</Text>
               </TouchableOpacity>
-              {isItemOn('pickoff_balk') && (
+              {isItemOn('pickoff_balk') && pickoffSource === 'pitcher' && (
                 <TouchableOpacity style={[styles.resultBtn, { backgroundColor: '#FB8C00' }]} onPress={() => handlePickoffResult('balk')}>
                   <Text style={styles.resultBtnText}>{t.live.pickoffBalk}</Text>
                 </TouchableOpacity>
@@ -1330,6 +1675,50 @@ export default function LiveScoreScreen() {
         </Modal>
       </Portal>
 
+      {/* ===== 延長/タイブレーク選択モーダル ===== */}
+      <Portal>
+        <Modal
+          visible={showExtraInningModal}
+          onDismiss={() => {}}
+          contentContainerStyle={styles.modal}
+        >
+          <View>
+            <Text style={styles.modalTitle}>同点のため延長戦です</Text>
+            <Text style={[styles.modalTitle, { fontSize: 14, fontWeight: '400', marginBottom: 16 }]}>
+              試合の続きを選択してください
+            </Text>
+            <View style={styles.resultGrid}>
+              <TouchableOpacity
+                style={[styles.resultBtn, { backgroundColor: '#1565C0' }]}
+                onPress={() => {
+                  setShowExtraInningModal(false);
+                  setIsTiebreakMode(false);
+                }}
+              >
+                <Text style={styles.resultBtnText}>延長</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.resultBtn, { backgroundColor: '#E65100' }]}
+                onPress={() => {
+                  setShowExtraInningModal(false);
+                  handleTiebreak();
+                }}
+              >
+                <Text style={styles.resultBtnText}>タイブレーク</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.resultBtn, { backgroundColor: '#616161' }]}
+                onPress={() => {
+                  setShowExtraInningModal(false);
+                  handleEndGameFromExtraModal();
+                }}
+              >
+                <Text style={styles.resultBtnText}>試合終了</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
 
       {/* ===== ダイヤモンドタップ盗塁: 結果選択モーダル ===== */}
       <Portal>
@@ -1476,16 +1865,6 @@ export default function LiveScoreScreen() {
         </Modal>
       </Portal>
 
-      {/* ===== 下書き保存トースト ===== */}
-      <Portal>
-        {draftSaved && (
-          <View style={styles.draftToast} pointerEvents="none">
-            <MaterialCommunityIcons name="content-save-check-outline" size={18} color={Colors.white} />
-            <Text style={styles.draftToastText}>下書きに保存しました</Text>
-          </View>
-        )}
-      </Portal>
-
       {/* ===== サインミス: 選手選択モーダル ===== */}
       <Portal>
         <Modal
@@ -1613,6 +1992,7 @@ export default function LiveScoreScreen() {
             setPendingCoords(null);
             setTapCoord(null);
             setRunnerActions({});
+            setPickoffPending(null);
             setModalVelocity(130);
             setModalVelocityEnabled(true);
             setModalScrollLocked(false);
@@ -1627,16 +2007,17 @@ export default function LiveScoreScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 }}>
               <TouchableOpacity
                 onPress={() => {
-                  if (!game?.currentAtBat?.pitches?.length) return;
-                  undoLastPitch();
+                  if (!canUndo) return;
+                  undoLastPlay();
                   persist();
                   setResultModalVisible(false);
                   setPendingZone(null);
                   setPendingCoords(null);
+                  setTapCoord(null);
                 }}
-                disabled={!game?.currentAtBat?.pitches?.length}
+                disabled={!canUndo}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                style={{ opacity: game?.currentAtBat?.pitches?.length ? 1 : 0.3 }}
+                style={{ opacity: canUndo ? 1 : 0.3 }}
               >
                 <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.textSecondary} />
               </TouchableOpacity>
@@ -1662,10 +2043,41 @@ export default function LiveScoreScreen() {
                           {baseLabel}·{runner.name.slice(0, 4)}
                         </Text>
                       </View>
+                      {/* 牽制ボタン */}
+                      <TouchableOpacity
+                        style={[
+                          styles.stealActionBtn,
+                          pickoffPending === base && styles.stealActionBtnActive,
+                          !!runnerActions[base] && { opacity: 0.4 },
+                        ]}
+                        onPress={() => {
+                          if (runnerActions[base]) return;
+                          setPickoffPending(prev => prev === base ? null : base);
+                        }}
+                        disabled={!!runnerActions[base]}
+                        activeOpacity={0.75}
+                      >
+                        <MaterialCommunityIcons
+                          name="hand-back-left"
+                          size={12}
+                          color={pickoffPending === base ? '#fff' : Colors.primary}
+                        />
+                        <Text style={[styles.stealActionBtnText, pickoffPending === base && styles.stealActionBtnTextActive]}>
+                          牽制
+                        </Text>
+                      </TouchableOpacity>
                       {/* 盗塁ボタン */}
                       <TouchableOpacity
-                        style={[styles.stealActionBtn, action && styles.stealActionBtnActive]}
-                        onPress={() => toggleRunnerAction(base)}
+                        style={[
+                          styles.stealActionBtn,
+                          action && styles.stealActionBtnActive,
+                          pickoffPending === base && { opacity: 0.4 },
+                        ]}
+                        onPress={() => {
+                          if (pickoffPending === base) return;
+                          toggleRunnerAction(base);
+                        }}
+                        disabled={pickoffPending === base}
                         activeOpacity={0.75}
                       >
                         <MaterialCommunityIcons
@@ -1752,6 +2164,32 @@ export default function LiveScoreScreen() {
                   <Text style={styles.resultBtnText}>{label ?? t.pitchResults[result]}</Text>
                 </TouchableOpacity>
               ))}
+            </View>
+
+            {/* ── 球種選択セクション ── */}
+            <View style={styles.modalPitchSection}>
+              <Text style={styles.runnerEventLabel}>球種</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
+                {allPitchTypes.map((pt) => {
+                  const isCustom = !PITCH_TYPES.includes(pt as PitchType);
+                  const isActive = selectedPitch === pt;
+                  return (
+                    <TouchableOpacity
+                      key={pt}
+                      style={[
+                        styles.modalPitchBtn,
+                        isActive && styles.pitchColBtnActive,
+                        isCustom && !isActive && styles.pitchColBtnCustom,
+                      ]}
+                      onPress={() => setSelectedPitch(pt)}
+                    >
+                      <Text style={[styles.modalPitchLabel, isActive && styles.pitchColLabelActive]}>
+                        {(t.pitchTypes as Record<string, string>)[pt] ?? pt}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
 
             {/* ── 球速スライダーセクション ── */}
@@ -2390,8 +2828,18 @@ const styles = StyleSheet.create({
     flex: 1,
     borderColor: Colors.primary,
   },
-  endButton: {
-    margin: Spacing.md,
+  gameActionRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  draftButton: {
+    flex: 1,
+    borderColor: Colors.primary,
+  },
+  endButtonHalf: {
+    flex: 1,
     borderColor: Colors.error,
   },
 
@@ -2470,6 +2918,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.white,
     textAlign: 'center',
+  },
+
+  // ── モーダル内球種選択 ──────────────────────────────────────
+  modalPitchSection: {
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 8,
+  },
+  modalPitchBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginRight: 6,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  modalPitchLabel: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: Colors.text,
   },
 
   // ── 走者アクション セクション ──────────────────────────────
@@ -2814,5 +3285,9 @@ const styles = StyleSheet.create({
     fontSize: Typography.bodySmall,
     fontWeight: '700',
     color: Colors.white,
+  },
+  inlineResultSection: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
 });

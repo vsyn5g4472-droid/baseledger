@@ -51,6 +51,10 @@ export default function ScoreLayout() {
         name="normal"
         options={{ headerShown: false }}
       />
+      <Stack.Screen
+        name="result"
+        options={{ headerShown: false }}
+      />
     </Stack>
   );
 }

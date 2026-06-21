@@ -1,22 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, TextInput, Button, Menu } from 'react-native-paper';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
 import { useI18n } from '../../../src/i18n';
-import { useGameStore } from '../../../src/stores/gameStore';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
 import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 import { showGameUsageLimitAlert } from '../../../src/utils/planLimitAlerts';
 import type { GameCategory } from '../../../src/types/game';
-import { DRAFT_GAME_KEY } from '../../../src/db';
 import { useAuth } from '../../../src/contexts/AuthContext';
-import { getUserTeams } from '../../../src/services/teamService';
+import { getUserTeams, createTeam } from '../../../src/services/teamService';
 import type { Team } from '../../../src/models/types';
 import TeamQuickSelect from '../../../src/components/score/TeamQuickSelect';
+import { getUserBallparks, addBallpark } from '../../../src/services/ballparkService';
+import type { Ballpark } from '../../../src/services/ballparkService';
 
 const CATEGORIES: GameCategory[] = ['practice', 'official', 'tournament', 'other'];
 
@@ -27,9 +26,6 @@ export default function NormalModeScreen() {
   const { currentUser } = useAuth();
   const userPlan = useUserPlan();
   const [gameUsage, setGameUsage] = useState<UsageCheckResult | null>(null);
-  const loadGame = useGameStore((s) => s.loadGame);
-  const game    = useGameStore((s) => s.game);
-
   useEffect(() => {
     checkGameUsage(userPlan).then(setGameUsage);
   }, [userPlan]);
@@ -45,6 +41,11 @@ export default function NormalModeScreen() {
     getUserTeams(currentUser.uid).then(setMyTeams);
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    getUserBallparks(currentUser.uid).then(setMyBallparks).catch(() => {});
+  }, [currentUser]);
+
   const [category, setCategory]           = useState<GameCategory>('practice');
   const [tournamentName, setTournamentName] = useState('');
   const [awayName, setAwayName]           = useState('');
@@ -53,23 +54,20 @@ export default function NormalModeScreen() {
   const [fenceLeft, setFenceLeft]         = useState('');
   const [fenceCenter, setFenceCenter]     = useState('');
   const [fenceRight, setFenceRight]       = useState('');
+  const [myBallparks, setMyBallparks]     = useState<Ballpark[]>([]);
+  const [showBallparkPicker, setShowBallparkPicker] = useState(false);
+
+  const handleSelectBallpark = useCallback((bp: Ballpark) => {
+    setBallparkName(bp.name);
+    setFenceLeft(bp.fenceLeft);
+    setFenceCenter(bp.fenceCenter);
+    setFenceRight(bp.fenceRight);
+    setShowBallparkPicker(false);
+  }, []);
 
   const { settings: velocitySettings, update: updateVelocity } = useVelocitySettings();
   const velocityEnabled    = velocitySettings.enabled;
   const pitchDistanceMode  = velocitySettings.pitchDistanceM === 16.00 ? 'youth' : 'standard';
-
-  const handleResumeDraft = async () => {
-    const json = await AsyncStorage.getItem(DRAFT_GAME_KEY);
-    if (!json) return;
-    try {
-      const { gameId } = JSON.parse(json);
-      if (!game || game.id !== gameId) {
-        await loadGame(gameId);
-      }
-      await AsyncStorage.removeItem(DRAFT_GAME_KEY);
-      router.push('/(tabs)/score/main');
-    } catch {}
-  };
 
   const navigateToSetup = async (isScout: boolean) => {
     if (gameUsage && !gameUsage.allowed) {
@@ -80,6 +78,54 @@ export default function NormalModeScreen() {
       Alert.alert(t.setup.validation.teamNameRequired);
       return;
     }
+    let resolvedAwayTeamId = awayTeamId.trim();
+    let resolvedHomeTeamId = homeTeamId.trim();
+
+    if (!resolvedAwayTeamId && awayName.trim() && currentUser) {
+      try {
+        const team = await createTeam(currentUser.uid, {
+          name: awayName.trim(),
+          description: '',
+          photoURI: null,
+          isPrivate: false,
+        });
+        resolvedAwayTeamId = team.id;
+      } catch (_e) {
+        // 保存失敗しても試合は続行
+      }
+    }
+
+    if (!resolvedHomeTeamId && homeName.trim() && currentUser) {
+      try {
+        const team = await createTeam(currentUser.uid, {
+          name: homeName.trim(),
+          description: '',
+          photoURI: null,
+          isPrivate: false,
+        });
+        resolvedHomeTeamId = team.id;
+      } catch (_e) {
+        // 保存失敗しても試合は続行
+      }
+    }
+
+    if (ballparkName.trim() && currentUser) {
+      const exists = myBallparks.some(
+        (bp) => bp.name === ballparkName.trim()
+          && bp.fenceLeft === fenceLeft
+          && bp.fenceCenter === fenceCenter
+          && bp.fenceRight === fenceRight,
+      );
+      if (!exists) {
+        addBallpark(currentUser.uid, {
+          name: ballparkName.trim(),
+          fenceLeft,
+          fenceCenter,
+          fenceRight,
+        }).then((bp) => setMyBallparks((prev) => [bp, ...prev])).catch(() => {});
+      }
+    }
+
     const setupParams = {
       awayName:        awayName.trim(),
       homeName:        homeName.trim(),
@@ -91,30 +137,10 @@ export default function NormalModeScreen() {
       tournamentName:  tournamentName.trim(),
       velocityEnabled: velocitySettings.enabled ? 'true' : 'false',
       pitchDistanceM:  String(velocitySettings.pitchDistanceM),
-      awayTeamId:      awayTeamId.trim(),
-      homeTeamId:      homeTeamId.trim(),
+      awayTeamId:      resolvedAwayTeamId,
+      homeTeamId:      resolvedHomeTeamId,
       ...(isScout ? { isScout: 'true' } : {}),
     };
-    const draftJson = await AsyncStorage.getItem(DRAFT_GAME_KEY);
-    if (draftJson) {
-      Alert.alert(
-        '下書きが保存されています',
-        '新しい試合を開始すると、保存中の下書きは削除されます。',
-        [
-          { text: 'キャンセル', style: 'cancel' },
-          { text: '下書きを再開する', onPress: handleResumeDraft },
-          {
-            text: isScout ? '偵察モードを開始する' : '新しい試合を開始する',
-            style: 'destructive',
-            onPress: async () => {
-              await AsyncStorage.removeItem(DRAFT_GAME_KEY);
-              router.push({ pathname: '/(tabs)/score/setup', params: setupParams } as any);
-            },
-          },
-        ],
-      );
-      return;
-    }
     router.push({ pathname: '/(tabs)/score/setup', params: setupParams } as any);
   };
 
@@ -167,7 +193,6 @@ export default function NormalModeScreen() {
           <View style={[styles.teamBadge, { backgroundColor: Colors.primary }]}>
             <Text style={styles.teamBadgeText}>{t.setup.awayTeam}</Text>
           </View>
-          <TeamQuickSelect side="away" onSelect={setAwayName} />
           <TextInput
             mode="outlined"
             placeholder={t.setup.teamName}
@@ -176,6 +201,7 @@ export default function NormalModeScreen() {
             style={styles.input}
             dense
           />
+          <TeamQuickSelect side="away" onSelect={(name, teamId) => { setAwayName(name); if (teamId) setAwayTeamId(teamId); }} />
           {myTeams.length > 0 && (
             <Menu
               visible={awayTeamMenuVisible}
@@ -217,7 +243,6 @@ export default function NormalModeScreen() {
           <View style={[styles.teamBadge, { backgroundColor: Colors.secondary }]}>
             <Text style={styles.teamBadgeText}>{t.setup.homeTeam}</Text>
           </View>
-          <TeamQuickSelect side="home" onSelect={setHomeName} />
           <TextInput
             mode="outlined"
             placeholder={t.setup.teamName}
@@ -226,6 +251,7 @@ export default function NormalModeScreen() {
             style={styles.input}
             dense
           />
+          <TeamQuickSelect side="home" onSelect={(name, teamId) => { setHomeName(name); if (teamId) setHomeTeamId(teamId); }} />
           {myTeams.length > 0 && (
             <Menu
               visible={homeTeamMenuVisible}
@@ -273,6 +299,31 @@ export default function NormalModeScreen() {
             left={<TextInput.Icon icon="map-marker" />}
             dense
           />
+          {myBallparks.length > 0 && (
+            <TouchableOpacity
+              style={styles.ballparkPickerBtn}
+              onPress={() => setShowBallparkPicker((v) => !v)}
+            >
+              <MaterialCommunityIcons name="history" size={16} color={Colors.primary} />
+              <Text style={styles.ballparkPickerBtnText}>履歴から選択</Text>
+            </TouchableOpacity>
+          )}
+          {showBallparkPicker && (
+            <View style={styles.ballparkDropdown}>
+              {myBallparks.map((bp) => (
+                <TouchableOpacity
+                  key={bp.id}
+                  style={styles.ballparkDropdownItem}
+                  onPress={() => handleSelectBallpark(bp)}
+                >
+                  <Text style={styles.ballparkDropdownName}>{bp.name}</Text>
+                  <Text style={styles.ballparkDropdownSub}>
+                    両翼{bp.fenceLeft}m・中{bp.fenceCenter}m
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           <Text style={styles.fieldLabel}>{t.setup.fenceDistance}</Text>
           <View style={styles.fenceRow}>
@@ -509,4 +560,12 @@ const styles = StyleSheet.create({
   cardTextWrap: { gap: 2, flex: 1 },
   cardTitle:    { fontSize: Typography.h4, fontWeight: '800', color: Colors.white },
   cardSub:      { fontSize: Typography.caption, color: 'rgba(255,255,255,0.85)' },
+
+  // 球場履歴ピッカー
+  ballparkPickerBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
+  ballparkPickerBtnText: { fontSize: 13, color: Colors.primary },
+  ballparkDropdown: { backgroundColor: Colors.surfaceGray, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, marginBottom: 8 },
+  ballparkDropdownItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  ballparkDropdownName: { fontSize: 14, color: Colors.text, fontWeight: '600' },
+  ballparkDropdownSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
 });

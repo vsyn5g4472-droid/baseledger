@@ -166,7 +166,7 @@ export default function PlayLogList({
       </TouchableOpacity>
       {expanded && (
         <FlatList
-          data={logs}
+          data={[...logs].reverse()}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           scrollEnabled={false}

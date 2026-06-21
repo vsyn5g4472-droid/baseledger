@@ -132,6 +132,7 @@ function PitchingSection({
   stats: PlayerPitchingStats | null;
   teamName: string;
 }) {
+  const { t } = useI18n();
   if (!stats || stats.totalPitches === 0) {
     return (
       <View style={styles.emptySection}>
@@ -160,7 +161,9 @@ function PitchingSection({
       <Text style={styles.subSectionTitle}>球種割合</Text>
       {stats.pitchMix.map((m) => (
         <View key={m.pitchType} style={styles.mixRow}>
-          <Text style={styles.mixName} numberOfLines={1}>{m.pitchType}</Text>
+          <Text style={styles.mixName} numberOfLines={1}>
+            {(t.pitchTypes as Record<string, string>)[m.pitchType] ?? m.pitchType}
+          </Text>
           <View style={styles.mixTrack}>
             <View
               style={[
@@ -205,6 +208,7 @@ export default function GameAnalyticsScreen() {
   const [gameCanReshare, setGameCanReshare] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('batting');
   const [heatmapTeam, setHeatmapTeam] = useState<'away' | 'home'>('home');
+  const [heatmapPitcherId, setHeatmapPitcherId] = useState<string | null>(null);
   const [sprayTeam, setSprayTeam] = useState<'away' | 'home'>('away');
   const [sharing, setSharing] = useState(false);
   // ── 試合サマリー共有 ──────────────────────────────────────────────────────────
@@ -489,17 +493,19 @@ export default function GameAnalyticsScreen() {
           lines.push(`本塁打: ${parts.join('、')}`);
         }
       }
-      if (checks.homePitcher && analytics.pitching.homePitcher) {
-        const p = analytics.pitching.homePitcher;
-        lines.push(
-          `${game.homeTeam.name} 先発: ${p.playerName} (${p.totalPitches}球 ストライク率${Math.round(p.strikeRate * 100)}%)`,
-        );
+      if (checks.homePitcher && analytics.pitching.homePitchers.length > 0) {
+        analytics.pitching.homePitchers.forEach((p) => {
+          lines.push(
+            `${game.homeTeam.name}: ${p.playerName} (${p.totalPitches}球 ストライク率${Math.round(p.strikeRate * 100)}%)`,
+          );
+        });
       }
-      if (checks.awayPitcher && analytics.pitching.awayPitcher) {
-        const p = analytics.pitching.awayPitcher;
-        lines.push(
-          `${game.awayTeam.name} 先発: ${p.playerName} (${p.totalPitches}球 ストライク率${Math.round(p.strikeRate * 100)}%)`,
-        );
+      if (checks.awayPitcher && analytics.pitching.awayPitchers.length > 0) {
+        analytics.pitching.awayPitchers.forEach((p) => {
+          lines.push(
+            `${game.awayTeam.name}: ${p.playerName} (${p.totalPitches}球 ストライク率${Math.round(p.strikeRate * 100)}%)`,
+          );
+        });
       }
       return lines.join('\n');
     },
@@ -678,6 +684,16 @@ export default function GameAnalyticsScreen() {
     }
   }, [game, analytics, playerPreviewText, playerVisibility, createPost]);
 
+  // heatmapPitchLogs を early return より前に配置（フック順序を保証）
+  const heatmapPitchLogs = useMemo(() => {
+    if (!game) return [];
+    const allPitchLogs = game.pitchLogs ?? [];
+    const base = heatmapTeam === 'home'
+      ? allPitchLogs.filter((p) => p.inning.half === 'top')
+      : allPitchLogs.filter((p) => p.inning.half === 'bottom');
+    return heatmapPitcherId ? base.filter((p) => p.pitcherId === heatmapPitcherId) : base;
+  }, [game, heatmapTeam, heatmapPitcherId]);
+
   if (loading) {
     return (
       <>
@@ -711,6 +727,7 @@ export default function GameAnalyticsScreen() {
   const homePitchLogs = (game.pitchLogs ?? []).filter((p) => p.inning.half === 'top');
   const awayPitchLogs = (game.pitchLogs ?? []).filter((p) => p.inning.half === 'bottom');
   const safeAtBatLogs = game.atBatLogs ?? [];
+
   const allowShare = gameCanReshare;
 
   return (
@@ -812,8 +829,8 @@ export default function GameAnalyticsScreen() {
                   [
                     { key: 'hits',        label: '総ヒット数',                      disabled: false },
                     { key: 'homeRuns',    label: '本塁打者名',                      disabled: false },
-                    { key: 'homePitcher', label: `${game.homeTeam.name} 先発投手`,  disabled: !analytics.pitching.homePitcher },
-                    { key: 'awayPitcher', label: `${game.awayTeam.name} 先発投手`,  disabled: !analytics.pitching.awayPitcher },
+                    { key: 'homePitcher', label: `${game.homeTeam.name} 投手`,       disabled: analytics.pitching.homePitchers.length === 0 },
+                    { key: 'awayPitcher', label: `${game.awayTeam.name} 投手`,       disabled: analytics.pitching.awayPitchers.length === 0 },
                     { key: 'opponentName',label: '相手チーム名（対戦メモ）',        disabled: false },
                   ] as { key: keyof typeof summaryChecks; label: string; disabled: boolean }[]
                 ).map(({ key, label, disabled }) => (
@@ -1014,43 +1031,45 @@ export default function GameAnalyticsScreen() {
                   ) : (
                     <>
                       {/* 投手タブ */}
-                      {analytics.pitching.awayPitcher && (
+                      {analytics.pitching.awayPitchers.map((pitcher) => (
                         <TouchableOpacity
+                          key={pitcher.playerId}
                           style={styles.playerListItem}
-                          onPress={() => handleSelectPitcher(analytics.pitching.awayPitcher!, 'away')}
+                          onPress={() => handleSelectPitcher(pitcher, 'away')}
                           activeOpacity={0.7}
                         >
                           <View style={{ flex: 1 }}>
                             <View style={styles.playerListNameRow}>
-                              <Text style={styles.playerListName}>{analytics.pitching.awayPitcher.playerName}</Text>
+                              <Text style={styles.playerListName}>{pitcher.playerName}</Text>
                               <Text style={styles.playerListTeamBadge}>{game.awayTeam.name}（先攻）</Text>
                             </View>
                             <Text style={styles.playerListSub}>
-                              {analytics.pitching.awayPitcher.totalPitches}球 / ストライク率{Math.round(analytics.pitching.awayPitcher.strikeRate * 100)}%
+                              {pitcher.totalPitches}球 / ストライク率{Math.round(pitcher.strikeRate * 100)}%
                             </Text>
                           </View>
                           <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textSecondary} />
                         </TouchableOpacity>
-                      )}
-                      {analytics.pitching.homePitcher && (
+                      ))}
+                      {analytics.pitching.homePitchers.map((pitcher) => (
                         <TouchableOpacity
+                          key={pitcher.playerId}
                           style={styles.playerListItem}
-                          onPress={() => handleSelectPitcher(analytics.pitching.homePitcher!, 'home')}
+                          onPress={() => handleSelectPitcher(pitcher, 'home')}
                           activeOpacity={0.7}
                         >
                           <View style={{ flex: 1 }}>
                             <View style={styles.playerListNameRow}>
-                              <Text style={styles.playerListName}>{analytics.pitching.homePitcher.playerName}</Text>
+                              <Text style={styles.playerListName}>{pitcher.playerName}</Text>
                               <Text style={styles.playerListTeamBadge}>{game.homeTeam.name}（後攻）</Text>
                             </View>
                             <Text style={styles.playerListSub}>
-                              {analytics.pitching.homePitcher.totalPitches}球 / ストライク率{Math.round(analytics.pitching.homePitcher.strikeRate * 100)}%
+                              {pitcher.totalPitches}球 / ストライク率{Math.round(pitcher.strikeRate * 100)}%
                             </Text>
                           </View>
                           <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textSecondary} />
                         </TouchableOpacity>
-                      )}
-                      {!analytics.pitching.awayPitcher && !analytics.pitching.homePitcher && (
+                      ))}
+                      {analytics.pitching.awayPitchers.length === 0 && analytics.pitching.homePitchers.length === 0 && (
                         <Text style={styles.playerListEmpty}>投球データがありません</Text>
                       )}
                     </>
@@ -1273,15 +1292,31 @@ export default function GameAnalyticsScreen() {
           {/* ─ Pitching ─ */}
           {activeTab === 'pitching' && (
             <>
-              <PitchingSection
-                stats={analytics.pitching.homePitcher}
-                teamName={`${t.analytics.home} ${game.homeTeam.name}`}
-              />
+              {analytics.pitching.homePitchers.length > 0
+                ? analytics.pitching.homePitchers.map((pitcher) => (
+                    <React.Fragment key={pitcher.playerId}>
+                      <PitchingSection
+                        stats={pitcher}
+                        teamName={`${t.analytics.home} ${game.homeTeam.name}`}
+                      />
+                      <View style={{ height: Spacing.sm }} />
+                    </React.Fragment>
+                  ))
+                : <PitchingSection stats={null} teamName={`${t.analytics.home} ${game.homeTeam.name}`} />
+              }
               <View style={{ height: Spacing.md }} />
-              <PitchingSection
-                stats={analytics.pitching.awayPitcher}
-                teamName={`${t.analytics.away} ${game.awayTeam.name}`}
-              />
+              {analytics.pitching.awayPitchers.length > 0
+                ? analytics.pitching.awayPitchers.map((pitcher) => (
+                    <React.Fragment key={pitcher.playerId}>
+                      <PitchingSection
+                        stats={pitcher}
+                        teamName={`${t.analytics.away} ${game.awayTeam.name}`}
+                      />
+                      <View style={{ height: Spacing.sm }} />
+                    </React.Fragment>
+                  ))
+                : <PitchingSection stats={null} teamName={`${t.analytics.away} ${game.awayTeam.name}`} />
+              }
             </>
           )}
 
@@ -1295,7 +1330,7 @@ export default function GameAnalyticsScreen() {
                     styles.toggleBtn,
                     heatmapTeam === 'home' && styles.toggleBtnActive,
                   ]}
-                  onPress={() => setHeatmapTeam('home')}
+                  onPress={() => { setHeatmapTeam('home'); setHeatmapPitcherId(null); }}
                 >
                   <Text
                     style={[
@@ -1311,7 +1346,7 @@ export default function GameAnalyticsScreen() {
                     styles.toggleBtn,
                     heatmapTeam === 'away' && styles.toggleBtnActive,
                   ]}
-                  onPress={() => setHeatmapTeam('away')}
+                  onPress={() => { setHeatmapTeam('away'); setHeatmapPitcherId(null); }}
                 >
                   <Text
                     style={[
@@ -1324,10 +1359,44 @@ export default function GameAnalyticsScreen() {
                 </TouchableOpacity>
               </View>
 
+              {/* Pitcher selector (2人以上の場合のみ表示) */}
+              {(() => {
+                const pitchers = heatmapTeam === 'home'
+                  ? analytics.pitching.homePitchers
+                  : analytics.pitching.awayPitchers;
+                if (pitchers.length < 2) return null;
+                return (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ marginBottom: Spacing.sm }}
+                    contentContainerStyle={{ gap: Spacing.xs }}
+                  >
+                    <TouchableOpacity
+                      style={[styles.toggleBtn, !heatmapPitcherId && styles.toggleBtnActive]}
+                      onPress={() => setHeatmapPitcherId(null)}
+                    >
+                      <Text style={[styles.toggleText, !heatmapPitcherId && styles.toggleTextActive]}>
+                        全投手
+                      </Text>
+                    </TouchableOpacity>
+                    {pitchers.map((p) => (
+                      <TouchableOpacity
+                        key={p.playerId}
+                        style={[styles.toggleBtn, heatmapPitcherId === p.playerId && styles.toggleBtnActive]}
+                        onPress={() => setHeatmapPitcherId(p.playerId)}
+                      >
+                        <Text style={[styles.toggleText, heatmapPitcherId === p.playerId && styles.toggleTextActive]}>
+                          {p.playerName}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                );
+              })()}
+
               <View style={styles.chartCard}>
-                <PitchHeatmap
-                  pitchLogs={heatmapTeam === 'home' ? homePitchLogs : awayPitchLogs}
-                />
+                <PitchHeatmap pitchLogs={heatmapPitchLogs} />
               </View>
 
               <Legend
@@ -1343,8 +1412,11 @@ export default function GameAnalyticsScreen() {
 
               {/* Pitch total */}
               <Text style={styles.heatmapNote}>
-                {heatmapTeam === 'home' ? game.homeTeam.name : game.awayTeam.name}:
-                {' '}{heatmapTeam === 'home' ? homePitchLogs.length : awayPitchLogs.length}球
+                {heatmapPitcherId
+                  ? (heatmapTeam === 'home' ? analytics.pitching.homePitchers : analytics.pitching.awayPitchers)
+                      .find((p) => p.playerId === heatmapPitcherId)?.playerName ?? ''
+                  : (heatmapTeam === 'home' ? game.homeTeam.name : game.awayTeam.name)
+                }:{' '}{heatmapPitchLogs.length}球
               </Text>
             </>
           )}

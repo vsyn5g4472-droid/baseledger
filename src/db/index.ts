@@ -4,8 +4,6 @@ import type { GameState } from '../types/game';
 const GAME_PREFIX = '@ballpark/game/';
 const GAME_LIST_KEY = '@ballpark/gameIds';
 
-export const DRAFT_GAME_KEY = 'BASELEDGER_DRAFT_SESSION';
-
 /**
  * BallPark オフラインDB (AsyncStorage ベース)
  *

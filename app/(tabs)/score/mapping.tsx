@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,8 +9,8 @@ import {
   Alert,
   Switch,
 } from 'react-native';
-import { Text, TextInput } from 'react-native-paper';
-import { router } from 'expo-router';
+import { Text, TextInput, Menu } from 'react-native-paper';
+import { router, useNavigation } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
 import { useGameStore } from '../../../src/stores/gameStore';
@@ -27,6 +27,8 @@ interface PlayerRow {
   number: string;
   position: Position;
   isPitcher: boolean;
+  throws: 'L' | 'R';
+  bats: 'L' | 'R' | 'S';
 }
 
 function selectablePositions(teamHasDH: boolean): Position[] {
@@ -48,6 +50,50 @@ function findDuplicatePosition(
   return null;
 }
 
+function ThrowsMenuButton({ throws, onUpdate }: { throws: 'L' | 'R'; onUpdate: (v: string) => void }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <Menu
+      visible={visible}
+      onDismiss={() => setVisible(false)}
+      anchor={
+        <TouchableOpacity
+          style={styles.throwsButton}
+          onPress={() => setVisible(true)}
+        >
+          <Text style={styles.throwsButtonText}>{throws}</Text>
+        </TouchableOpacity>
+      }
+    >
+      {(['R', 'L'] as const).map((th) => (
+        <Menu.Item key={th} onPress={() => { onUpdate(th); setVisible(false); }} title={th} />
+      ))}
+    </Menu>
+  );
+}
+
+function BatsMenuButton({ bats, onUpdate }: { bats: 'L' | 'R' | 'S'; onUpdate: (v: string) => void }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <Menu
+      visible={visible}
+      onDismiss={() => setVisible(false)}
+      anchor={
+        <TouchableOpacity
+          style={styles.batsButton}
+          onPress={() => setVisible(true)}
+        >
+          <Text style={styles.batsButtonText}>{bats}</Text>
+        </TouchableOpacity>
+      }
+    >
+      {(['R', 'L', 'S'] as const).map((b) => (
+        <Menu.Item key={b} onPress={() => { onUpdate(b); setVisible(false); }} title={b} />
+      ))}
+    </Menu>
+  );
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 export default function PlayerMappingScreen() {
   const game = useGameStore((s) => s.game);
@@ -62,23 +108,105 @@ export default function PlayerMappingScreen() {
     if (!game) return [];
     const rows: PlayerRow[] = [];
     game.awayTeam.roster.starters.forEach((p, i) => {
-      rows.push({ player: p, side: 'away', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false });
+      rows.push({ player: p, side: 'away', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
     });
     if (game.isDH?.away && game.awayTeam.roster.pitcher) {
       const p = game.awayTeam.roster.pitcher;
-      rows.push({ player: p, side: 'away', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true });
+      rows.push({ player: p, side: 'away', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
     }
     game.homeTeam.roster.starters.forEach((p, i) => {
-      rows.push({ player: p, side: 'home', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false });
+      rows.push({ player: p, side: 'home', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
     });
     if (game.isDH?.home && game.homeTeam.roster.pitcher) {
       const p = game.homeTeam.roster.pitcher;
-      rows.push({ player: p, side: 'home', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true });
+      rows.push({ player: p, side: 'home', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
     }
     return rows;
   }, [game]);
 
   const [rows, setRows] = useState<PlayerRow[]>(initialRows);
+
+  const awayRows = rows.filter((r) => r.side === 'away');
+  const homeRows = rows.filter((r) => r.side === 'home');
+
+  const navigation = useNavigation();
+
+  const executeSave = useCallback(async () => {
+    setGameDH('away', awayDH);
+    setGameDH('home', homeDH);
+    const mappings = rows
+      .filter((r) =>
+        r.name.trim() ||
+        r.position !== r.player.position ||
+        r.number !== String(r.player.number ?? '') ||
+        r.throws !== (r.player.throws ?? 'R') ||
+        r.bats !== (r.player.bats ?? 'R'),
+      )
+      .map((r) => ({
+        playerId: r.player.id,
+        newName: r.name,
+        newNumber: r.number,
+        newPosition: r.isPitcher ? undefined : r.position,
+        newThrows: r.throws,
+        newBats: r.bats,
+        isPitcher: r.isPitcher,
+        side: r.side,
+      }));
+    await updatePlayerMapping(mappings);
+  }, [rows, awayDH, homeDH, setGameDH, updatePlayerMapping]);
+
+  const hasChanges = useMemo(() => {
+    return rows.some(
+      (r) =>
+        r.name.trim() !== (r.player.name ?? '') ||
+        r.position !== r.player.position ||
+        r.number !== String(r.player.number ?? '') ||
+        r.throws !== (r.player.throws ?? 'R') ||
+        r.bats !== (r.player.bats ?? 'R'),
+    );
+  }, [rows]);
+
+  const handleBack = useCallback(() => {
+    if (!hasChanges) {
+      router.back();
+      return;
+    }
+    Alert.alert(
+      '変更を保存しますか？',
+      '選手情報に変更があります。保存して戻りますか？',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        { text: '保存せず戻る', style: 'destructive', onPress: () => router.back() },
+        {
+          text: '保存して戻る',
+          onPress: async () => {
+            const currentAwayRows = rows.filter((r) => r.side === 'away');
+            const currentHomeRows = rows.filter((r) => r.side === 'home');
+            const awayEntries = currentAwayRows.map((r) => ({ playerId: r.player.id, position: r.position, isPitcher: r.isPitcher }));
+            const homeEntries = currentHomeRows.map((r) => ({ playerId: r.player.id, position: r.position, isPitcher: r.isPitcher }));
+            const duplicatePosition = findDuplicatePosition(awayEntries) ?? findDuplicatePosition(homeEntries);
+            if (duplicatePosition) {
+              const posName = t.positions[duplicatePosition] ?? duplicatePosition;
+              Alert.alert('ポジションが重複しています', `${posName}が複数の選手に割り当てられています。修正してください。`, [{ text: 'OK' }]);
+              return;
+            }
+            await executeSave();
+            router.back();
+          },
+        },
+      ],
+    );
+  }, [hasChanges, executeSave, rows, t.positions]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity onPress={handleBack} style={{ paddingHorizontal: 8 }}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color={Colors.primary} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, handleBack]);
 
   if (!game) {
     return (
@@ -104,6 +232,8 @@ export default function PlayerMappingScreen() {
           player: tempPlayer, side, order: 0,
           name: tempPlayer.name, number: String(tempPlayer.number ?? ''),
           position: 'P' as Position, isPitcher: true,
+          throws: tempPlayer.throws ?? 'R',
+          bats: tempPlayer.bats ?? 'R',
         }];
       });
     } else {
@@ -111,7 +241,7 @@ export default function PlayerMappingScreen() {
     }
   };
 
-  const updateRow = (playerId: string, field: 'name' | 'number' | 'position', value: string) => {
+  const updateRow = (playerId: string, field: 'name' | 'number' | 'position' | 'throws' | 'bats', value: string) => {
     setRows((prev) =>
       prev.map((r) => (r.player.id === playerId ? { ...r, [field]: value } : r))
     );
@@ -139,32 +269,9 @@ export default function PlayerMappingScreen() {
       );
       return;
     }
-
-    // DH状態を確定（投手プレースホルダーの作成・削除）
-    setGameDH('away', awayDH);
-    setGameDH('home', homeDH);
-
-    const mappings = rows
-      .filter(
-        (r) =>
-          r.name.trim() ||
-          r.position !== r.player.position ||
-          r.number !== String(r.player.number ?? ''),
-      )
-      .map((r) => ({
-        playerId: r.player.id,
-        newName: r.name,
-        newNumber: r.number,
-        newPosition: r.isPitcher ? undefined : r.position,
-        isPitcher: r.isPitcher,
-        side: r.side,
-      }));
-    await updatePlayerMapping(mappings);
+    await executeSave();
     Alert.alert('保存完了', '選手情報を更新しました', [{ text: 'OK', onPress: () => router.back() }]);
   };
-
-  const awayRows = rows.filter((r) => r.side === 'away');
-  const homeRows = rows.filter((r) => r.side === 'home');
 
   const toPositionEntries = (sideRows: PlayerRow[]) =>
     sideRows.map((r) => ({ playerId: r.player.id, position: r.position, isPitcher: r.isPitcher }));
@@ -209,7 +316,7 @@ export default function PlayerMappingScreen() {
               availablePositions={selectablePositions(teamHasDH)}
               onChange={(pos) => updateRow(row.player.id, 'position', pos)}
               isDuplicate={duplicateIds.has(row.player.id)}
-              label={row.position}
+              label={row.position || '未設定'}
               positionLabels={t.positions}
             />
           )}
@@ -221,6 +328,7 @@ export default function PlayerMappingScreen() {
             onChangeText={(v) => updateRow(row.player.id, 'name', v)}
             placeholder="選手名"
             placeholderTextColor={Colors.textSecondary}
+            selectTextOnFocus
             mode="outlined"
             outlineColor={Colors.border}
             activeOutlineColor={Colors.primary}
@@ -235,6 +343,7 @@ export default function PlayerMappingScreen() {
             onChangeText={(v) => updateRow(row.player.id, 'number', v)}
             placeholder="背番号"
             placeholderTextColor={Colors.textSecondary}
+            selectTextOnFocus
             keyboardType="number-pad"
             mode="outlined"
             outlineColor={Colors.border}
@@ -242,6 +351,27 @@ export default function PlayerMappingScreen() {
             dense
             label="#"
           />
+
+          {/* 投/打 セレクター */}
+          <View style={styles.handednessGroup}>
+            {/* 投げ方: ピッチャーのみ表示 */}
+            {(row.isPitcher || row.position === 'P') && (
+              <View style={styles.handednessItem}>
+                <Text style={styles.handednessLabel}>投</Text>
+                <ThrowsMenuButton
+                  throws={row.throws}
+                  onUpdate={(v) => updateRow(row.player.id, 'throws', v)}
+                />
+              </View>
+            )}
+            <View style={styles.handednessItem}>
+              <Text style={styles.handednessLabel}>打</Text>
+              <BatsMenuButton
+                bats={row.bats}
+                onUpdate={(v) => updateRow(row.player.id, 'bats', v)}
+              />
+            </View>
+          </View>
         </View>
       ))}
     </View>
@@ -399,6 +529,49 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     fontSize: Typography.bodySmall,
     height: 44,
+  },
+  handednessGroup: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  handednessItem: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  handednessLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  throwsButton: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.secondary + '80',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  throwsButtonText: {
+    fontSize: Typography.caption,
+    fontWeight: '600',
+    color: Colors.secondary,
+  },
+  batsButton: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.primary + '80',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  batsButtonText: {
+    fontSize: Typography.caption,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 
   footer: {

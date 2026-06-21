@@ -3,9 +3,7 @@
     "updates": {
       "url": "https://u.expo.dev/231a57a2-356a-4309-8a4d-634156eac428"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "name": "BaseLedger",
     "slug": "ballpark",
     "version": "1.0.0",
@@ -18,6 +16,11 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1B3A5C"
+    },
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -57,12 +60,6 @@
         }
       ],
       [
-        "expo-local-authentication",
-        {
-          "faceIDPermission": "BallPark uses Face ID to sign you in securely."
-        }
-      ],
-      [
         "expo-apple-authentication"
       ],
       [
@@ -72,6 +69,13 @@
             "useFrameworks": "static",
             "buildReactNativeFromSource": false
           }
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-2314368742124091~8782154941",
+          "iosAppId": "ca-app-pub-2314368742124091~8782154941"
         }
       ]
     ],

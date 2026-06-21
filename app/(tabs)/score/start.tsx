@@ -10,23 +10,21 @@ import {
 } from 'react-native';
 import { Text, TextInput, ActivityIndicator } from 'react-native-paper';
 import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
 import { useGameStore } from '../../../src/stores/gameStore';
+import TeamQuickSelect from '../../../src/components/score/TeamQuickSelect';
 import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
 import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, incrementGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 import { showGameUsageLimitAlert } from '../../../src/utils/planLimitAlerts';
-import { DRAFT_GAME_KEY } from '../../../src/db';
-
 export default function ScoreStartScreen() {
   const quickStartGame = useGameStore((s) => s.quickStartGame);
-  const loadGame = useGameStore((s) => s.loadGame);
-  const game = useGameStore((s) => s.game);
   const userPlan = useUserPlan();
   const [awayName, setAwayName] = useState('');
   const [homeName, setHomeName] = useState('');
+  const [awayTeamId, setAwayTeamId] = useState('');
+  const [homeTeamId, setHomeTeamId] = useState('');
   const [fenceWing, setFenceWing]     = useState('');
   const [fenceCenter, setFenceCenter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,23 +38,9 @@ export default function ScoreStartScreen() {
   const velocityEnabled = velocitySettings.enabled;
   const pitchDistanceMode = velocitySettings.pitchDistanceM === 16.00 ? 'youth' : 'standard';
 
-  const handleResumeDraft = async () => {
-    const json = await AsyncStorage.getItem(DRAFT_GAME_KEY);
-    if (!json) return;
-    try {
-      const { gameId } = JSON.parse(json);
-      if (!game || game.id !== gameId) {
-        await loadGame(gameId);
-      }
-      await AsyncStorage.removeItem(DRAFT_GAME_KEY);
-      router.push('/(tabs)/score/main');
-    } catch {}
-  };
-
   const startNewQuickGame = async () => {
     setLoading(true);
     try {
-      await AsyncStorage.removeItem(DRAFT_GAME_KEY);
       const parsedWing   = parseInt(fenceWing,   10);
       const parsedCenter = parseInt(fenceCenter, 10);
       await quickStartGame({
@@ -77,19 +61,6 @@ export default function ScoreStartScreen() {
   const handleQuickStart = async () => {
     if (gameUsage && !gameUsage.allowed) {
       showGameUsageLimitAlert(userPlan, gameUsage.limit);
-      return;
-    }
-    const draftJson = await AsyncStorage.getItem(DRAFT_GAME_KEY);
-    if (draftJson) {
-      Alert.alert(
-        '下書きが保存されています',
-        '新しい試合を開始すると、保存中の下書きは削除されます。',
-        [
-          { text: 'キャンセル', style: 'cancel' },
-          { text: '下書きを再開する', onPress: handleResumeDraft },
-          { text: '新しい試合を開始する', style: 'destructive', onPress: startNewQuickGame },
-        ],
-      );
       return;
     }
     await startNewQuickGame();
@@ -133,6 +104,7 @@ export default function ScoreStartScreen() {
               dense
             />
           </View>
+          <TeamQuickSelect side="away" onSelect={(name, teamId) => { setAwayName(name); setAwayTeamId(teamId ?? ''); }} />
           <View style={styles.teamRow}>
             <View style={[styles.teamBadge, { backgroundColor: Colors.secondary }]}>
               <Text style={styles.teamBadgeText}>後攻</Text>
@@ -149,6 +121,7 @@ export default function ScoreStartScreen() {
               dense
             />
           </View>
+          <TeamQuickSelect side="home" onSelect={(name, teamId) => { setHomeName(name); setHomeTeamId(teamId ?? ''); }} />
           <Text style={styles.hint}>
             選手名は「1番」「2番」…で仮登録されます。試合中・終了後に実名へ変更できます。
           </Text>

@@ -16,6 +16,7 @@ export default function ChatLayout() {
     >
       <Stack.Screen name="index" options={{ title: 'チャット' }} />
       <Stack.Screen name="[chatId]" options={{ title: '' }} />
+      <Stack.Screen name="team-edit" options={{ headerShown: false }} />
     </Stack>
   );
 }

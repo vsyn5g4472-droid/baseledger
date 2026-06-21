@@ -1,0 +1,10 @@
+node_modules/
+.git/
+exec -l /bin/zsh/google-cloud-sdk/
+.cursor/
+ios/Pods/
+ios/build/
+android/build/
+android/.gradle/
+*.md
+!README.md

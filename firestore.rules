@@ -131,6 +131,11 @@ service cloud.firestore {
               || request.auth.uid == get(/databases/$(database)/documents/teams/$(teamId)).data.ownerId);
       }
 
+      match /players/{playerId} {
+        allow read, create, update, delete: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.memberIds;
+      }
+
       match /playerAssignments/{assignmentId} {
         allow read, create, update, delete: if isSignedIn()
           && request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.memberIds;
@@ -231,6 +236,27 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isSignedIn()
         && resource.data.userId == request.auth.uid;
+    }
+
+    // ─── ballparks ────────────────────────────────────────────
+    match /ballparks/{ballparkId} {
+      allow read, update, delete: if isSignedIn()
+        && request.auth.uid == resource.data.ownerId;
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.ownerId;
+    }
+
+    // ─── blockedUsers ─────────────────────────────────────────
+    match /blockedUsers/{blockerId}/blocking/{blockedUserId} {
+      allow read: if isOwner(blockerId);
+      allow create, delete: if isOwner(blockerId);
+    }
+
+    // ─── reports ──────────────────────────────────────────────
+    match /reports/{reportId} {
+      allow create: if isSignedIn()
+        && request.resource.data.reporterId == request.auth.uid;
+      allow read: if false;
     }
   }
 }

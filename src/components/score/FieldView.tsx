@@ -82,7 +82,6 @@ const OUT_RESULTS: { result: AtBatResult; color: string }[] = [
 ];
 const FOUL_RESULTS: { result: AtBatResult; color: string }[] = [
   { result: 'flyout', color: '#E53935' },
-  { result: 'error', color: '#795548' },
 ];
 
 // ============================================================
@@ -239,6 +238,8 @@ interface FieldViewProps {
   fieldLocationEnabled?: boolean;
   /** false のとき推定飛距離を非表示 */
   fieldDistanceLabelEnabled?: boolean;
+  /** ファウルゾーンで落球（不捕球）が選択されたとき */
+  onFoulDrop?: () => void;
 }
 
 // ============================================================
@@ -255,6 +256,7 @@ export default function FieldView({
   buntDetailEnabled = false,
   fieldLocationEnabled = true,
   fieldDistanceLabelEnabled = true,
+  onFoulDrop,
 }: FieldViewProps) {
   const { t } = useI18n();
 
@@ -627,6 +629,14 @@ export default function FieldView({
                     <Text style={styles.resultBtnText}>{t.atBatResults[result]}</Text>
                   </TouchableOpacity>
                 ))}
+                {onFoulDrop && (
+                  <TouchableOpacity
+                    style={[styles.resultBtn, { backgroundColor: '#795548' }]}
+                    onPress={onFoulDrop}
+                  >
+                    <Text style={styles.resultBtnText}>落球</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </>
           )}

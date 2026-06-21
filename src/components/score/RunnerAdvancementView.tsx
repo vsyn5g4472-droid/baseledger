@@ -263,6 +263,7 @@ const ADVANCEMENT_REASONS: {
   outcome: RunnerOutcome;
   labelKey: string;
   color: string;
+  outDetail?: OutDetail;
 }[] = [
   { action: 'batted_ball',   outcome: 'safe',           labelKey: 'battedBall',    color: '#4CAF50' },
   { action: 'tag_up',        outcome: 'safe',           labelKey: 'tagUp',         color: '#2E7D32' },
@@ -271,7 +272,20 @@ const ADVANCEMENT_REASONS: {
   { action: 'stolen_base',   outcome: 'safe',           labelKey: 'stolenBase',    color: '#00ACC1' },
   { action: 'batted_ball',   outcome: 'out_force',      labelKey: 'outForce',      color: '#E53935' },
   { action: 'batted_ball',   outcome: 'out_tag',        labelKey: 'outTag',        color: '#F44336' },
+  { action: 'tag_up',        outcome: 'out_tag',        labelKey: 'tagUpFail',     color: '#C62828', outDetail: 'tag_up_fail' },
 ];
+
+function isReasonActive(
+  adv: RunnerAdvancement,
+  reason: (typeof ADVANCEMENT_REASONS)[number],
+): boolean {
+  if (adv.action !== reason.action || adv.outcome !== reason.outcome) return false;
+  if (reason.outDetail) return adv.outDetail === reason.outDetail;
+  if (reason.outcome === 'out_tag' && reason.action === 'batted_ball') {
+    return adv.outDetail !== 'tag_up_fail';
+  }
+  return adv.outDetail === undefined;
+}
 
 // ============================================================
 // Props
@@ -429,28 +443,56 @@ export default function RunnerAdvancementView({
     updateEditable((prev) =>
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
-        const newAction: RunnerAction = adv.action === 'tag_up' ? 'batted_ball' : 'tag_up';
-        return { ...adv, action: newAction };
+        if (adv.action === 'tag_up') {
+          return { ...adv, action: 'batted_ball' as RunnerAction, outDetail: undefined };
+        }
+        const curNum = BASE_ORDER[adv.fromBase] ?? 0;
+        const restoreBase: BaseTarget = adv.targetBase === 'out'
+          ? (adv.minBase !== 'out'
+            ? adv.minBase
+            : (['first', 'second', 'third'] as const)[Math.min(curNum, 2)] ?? 'first')
+          : adv.targetBase;
+        return {
+          ...adv,
+          action: 'tag_up' as RunnerAction,
+          outcome: 'safe' as RunnerOutcome,
+          outDetail: undefined,
+          targetBase: restoreBase,
+        };
       }),
     );
   }, [updateEditable]);
 
   // 理由変更 (action + outcome を同時設定)
-  const setReason = useCallback((runnerId: string, action: RunnerAction, outcome: RunnerOutcome) => {
+  const setReason = useCallback((
+    runnerId: string,
+    action: RunnerAction,
+    outcome: RunnerOutcome,
+    outDetail?: OutDetail,
+  ) => {
     updateEditable((prev) =>
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
         if (outcome === 'out_tag' || outcome === 'out_force') {
-          return { ...adv, outcome, action, targetBase: 'out' as const };
+          const resolvedDetail = outcome === 'out_tag'
+            ? (outDetail ?? (action === 'tag_up' ? 'tag_up_fail' as OutDetail : undefined))
+            : undefined;
+          return {
+            ...adv,
+            outcome,
+            action,
+            targetBase: 'out' as const,
+            outDetail: resolvedDetail,
+          };
         }
         if (adv.targetBase === 'out') {
           const curNum = BASE_ORDER[adv.fromBase] ?? 0;
           const minNum = BASE_ORDER[adv.minBase] ?? 1;
           const restoreNum = Math.max(minNum, curNum + 1);
           const restoreBase = restoreNum >= 4 ? 'home' : (['first', 'second', 'third'] as const)[restoreNum - 1];
-          return { ...adv, outcome, action, targetBase: restoreBase };
+          return { ...adv, outcome, action, targetBase: restoreBase, outDetail: undefined };
         }
-        return { ...adv, outcome, action };
+        return { ...adv, outcome, action, outDetail: undefined };
       }),
     );
   }, [updateEditable]);
@@ -473,7 +515,7 @@ export default function RunnerAdvancementView({
           targetBase: base,
           outcome: 'safe' as RunnerOutcome,
           outDetail: undefined,
-          action: 'batted_ball' as RunnerAction,
+          action: (adv.action === 'tag_up' ? 'tag_up' : 'batted_ball') as RunnerAction,
         };
       }),
     );
@@ -503,9 +545,18 @@ export default function RunnerAdvancementView({
       prev.map((adv) => {
         if (adv.runnerId !== runnerId) return adv;
         if (detail === 'force_out') {
-        return { ...adv, targetBase: 'out' as BaseTarget, outcome: 'out_force' as RunnerOutcome, outDetail: undefined };
-      }
-      return { ...adv, targetBase: 'out' as BaseTarget, outcome: 'out_tag' as RunnerOutcome, outDetail: detail };
+          return { ...adv, targetBase: 'out' as BaseTarget, outcome: 'out_force' as RunnerOutcome, outDetail: undefined };
+        }
+        const action: RunnerAction = detail === 'tag_up_fail' && adv.action === 'tag_up'
+          ? 'tag_up'
+          : adv.action;
+        return {
+          ...adv,
+          targetBase: 'out' as BaseTarget,
+          outcome: 'out_tag' as RunnerOutcome,
+          outDetail: detail,
+          action,
+        };
       }),
     );
     setOutDetailDialog(null);
@@ -596,14 +647,20 @@ export default function RunnerAdvancementView({
     return t.advancement.battedBall;
   };
 
+  // 進塁理由がデフォルト(打球進塁)以外に選択されているかを判定
+  const isReasonSelected = (adv: RunnerAdvancement): boolean => {
+    return adv.action !== 'batted_ball' ||
+           adv.outcome === 'out_tag' ||
+           adv.outcome === 'out_force' ||
+           adv.outcome === 'error_advance';
+  };
+
   const reasonColor = (adv: RunnerAdvancement): string => {
     if (adv.fromBase === 'batter' && adv.action === 'batted_ball' &&
         (adv.outcome === 'out_tag' || adv.outcome === 'out_force')) {
       return '#E53935';
     }
-    const match = ADVANCEMENT_REASONS.find(
-      (r) => r.action === adv.action && r.outcome === adv.outcome,
-    );
+    const match = ADVANCEMENT_REASONS.find((r) => isReasonActive(adv, r));
     return match?.color ?? '#4CAF50';
   };
 
@@ -820,9 +877,22 @@ export default function RunnerAdvancementView({
                     </Text>
                   </Text>
                 </View>
-                <View style={[styles.outcomeBadge, { backgroundColor: reasonColor(adv) }]}>
-                  <Text style={styles.outcomeText}>{reasonLabel(adv)}</Text>
-                </View>
+                {/* 進塁理由が選択済みの場合はその理由を表示、未選択は「詳細」ボタン */}
+                {!isBatterOut && !isBatterRegularOut && (
+                  <TouchableOpacity
+                    style={[styles.outcomeBadge, isExpanded && { backgroundColor: Colors.primary }]}
+                    onPress={() => setExpandedRunner(isExpanded ? null : adv.runnerId)}
+                  >
+                    <Text style={[styles.outcomeText, isExpanded && { color: '#fff' }]}>
+                      {isReasonSelected(adv) ? reasonLabel(adv) : `詳細 ${isExpanded ? '▲' : '▼'}`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {(isBatterOut || isBatterRegularOut) && (
+                  <View style={[styles.outcomeBadge, { backgroundColor: reasonColor(adv) }]}>
+                    <Text style={styles.outcomeText}>{reasonLabel(adv)}</Text>
+                  </View>
+                )}
                 {/* タッチアップ: フライ系のみ */}
                 {canTagUp && (
                   <TouchableOpacity
@@ -857,22 +927,22 @@ export default function RunnerAdvancementView({
                 </View>
               )}
 
-              {/* 理由サブメニュー (展開時) — ヒット時の打者超過進塁はダイヤモンド下で選択 */}
-              {(isExpanded || (beyondMinBase && !(isHitResult && adv.fromBase === 'batter'))) && !isBatterOut && !isBatterRegularOut && (
+              {/* 理由サブメニュー — フライアウト走者は常時表示、ヒット時の打者超過進塁はダイヤモンド下で選択 */}
+              {isExpanded && !isBatterOut && !isBatterRegularOut && (
                 <View style={styles.subMenu}>
                   <Text style={styles.subLabel}>{t.advancement.title}:</Text>
                   <View style={styles.subRow}>
                     {ADVANCEMENT_REASONS.map((reason) => {
-                      const isActive = adv.action === reason.action && adv.outcome === reason.outcome;
+                      const isActive = isReasonActive(adv, reason);
                       return (
                         <TouchableOpacity
-                          key={reason.labelKey}
+                          key={`${reason.action}-${reason.outcome}-${reason.labelKey}`}
                           style={[
                             styles.subBtn,
                             { borderColor: reason.color },
                             isActive && { backgroundColor: reason.color },
                           ]}
-                          onPress={() => setReason(adv.runnerId, reason.action, reason.outcome)}
+                          onPress={() => setReason(adv.runnerId, reason.action, reason.outcome, reason.outDetail)}
                         >
                           <Text style={[
                             styles.subBtnText,
@@ -942,17 +1012,29 @@ export default function RunnerAdvancementView({
           contentContainerStyle={styles.dialogContainer}
         >
           <Text style={styles.dialogTitle}>{t.advancement.outDetailTitle}</Text>
-          {OUT_DETAILS.map(({ key, labelKey }) => (
-            <TouchableOpacity
-              key={key}
-              style={styles.outDetailBtn}
-              onPress={() => handleOutDetailSelected(key)}
-            >
-              <Text style={styles.outDetailBtnText}>
-                {(t.advancement as Record<string, string>)[labelKey]}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {(() => {
+            const runner = outDetailDialog
+              ? editable.find((r) => r.runnerId === outDetailDialog.runnerId)
+              : null;
+            const details = runner?.action === 'tag_up'
+              ? [...OUT_DETAILS].sort((a, b) => {
+                  if (a.key === 'tag_up_fail') return -1;
+                  if (b.key === 'tag_up_fail') return 1;
+                  return 0;
+                })
+              : OUT_DETAILS;
+            return details.map(({ key, labelKey }) => (
+              <TouchableOpacity
+                key={key}
+                style={styles.outDetailBtn}
+                onPress={() => handleOutDetailSelected(key)}
+              >
+                <Text style={styles.outDetailBtnText}>
+                  {(t.advancement as Record<string, string>)[labelKey]}
+                </Text>
+              </TouchableOpacity>
+            ));
+          })()}
           <TouchableOpacity style={styles.outDetailCancelBtn} onPress={() => setOutDetailDialog(null)}>
             <Text style={styles.cancelText}>{t.advancement.cancel}</Text>
           </TouchableOpacity>

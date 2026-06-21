@@ -87,10 +87,10 @@ export interface GameAnalytics {
     home: PlayerBattingStats[];
   };
   pitching: {
-    /** 後攻(home)投手 = top innings の投球 */
-    homePitcher: PlayerPitchingStats | null;
-    /** 先攻(away)投手 = bottom innings の投球 */
-    awayPitcher: PlayerPitchingStats | null;
+    /** 後攻(home)投手一覧 = top innings の投球（先発→中継ぎ順） */
+    homePitchers: PlayerPitchingStats[];
+    /** 先攻(away)投手一覧 = bottom innings の投球（先発→中継ぎ順） */
+    awayPitchers: PlayerPitchingStats[];
   };
 }
 
@@ -225,8 +225,9 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
   const topPitches    = safePitchLogs.filter((p) => p.inning.half === 'top');
   const bottomPitches = safePitchLogs.filter((p) => p.inning.half === 'bottom');
 
-  const homePitcherId = topPitches[0]?.pitcherId;
-  const awayPitcherId = bottomPitches[0]?.pitcherId;
+  // 登板した全投手IDを出現順で抽出（重複除去）
+  const homePitcherIds = [...new Set(topPitches.map((p) => p.pitcherId).filter(Boolean))] as string[];
+  const awayPitcherIds = [...new Set(bottomPitches.map((p) => p.pitcherId).filter(Boolean))] as string[];
 
   const homeAllPlayers = [
     ...(game.homeTeam?.roster?.starters ?? []),
@@ -239,19 +240,15 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
     ...(game.awayTeam?.roster?.pitcher  ? [game.awayTeam.roster.pitcher] : []),
   ];
 
-  const homePitcherPlayer = homePitcherId
-    ? homeAllPlayers.find((p) => p.id === homePitcherId)
-    : null;
-  const awayPitcherPlayer = awayPitcherId
-    ? awayAllPlayers.find((p) => p.id === awayPitcherId)
-    : null;
+  const homePitchers = homePitcherIds
+    .map((id) => homeAllPlayers.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => p != null)
+    .map((p) => calcPitcherStats(p.id, p.name, safePitchLogs, safeAtBatLogs));
 
-  const homePitcherStats = homePitcherPlayer
-    ? calcPitcherStats(homePitcherPlayer.id, homePitcherPlayer.name, safePitchLogs, safeAtBatLogs)
-    : null;
-  const awayPitcherStats = awayPitcherPlayer
-    ? calcPitcherStats(awayPitcherPlayer.id, awayPitcherPlayer.name, safePitchLogs, safeAtBatLogs)
-    : null;
+  const awayPitchers = awayPitcherIds
+    .map((id) => awayAllPlayers.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => p != null)
+    .map((p) => calcPitcherStats(p.id, p.name, safePitchLogs, safeAtBatLogs));
 
   const inningNums = (game.scoreboard?.innings ?? []).map((i) => i.inning);
   const totalInnings = Math.max(...inningNums, game.inning?.number ?? 1, 1);
@@ -267,6 +264,6 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
     createdAt: game.createdAt,
     totalInnings,
     batting: { away: awayBatting, home: homeBatting },
-    pitching: { homePitcher: homePitcherStats, awayPitcher: awayPitcherStats },
+    pitching: { homePitchers, awayPitchers },
   };
 }
