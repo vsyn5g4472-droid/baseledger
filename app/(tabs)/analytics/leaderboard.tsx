@@ -26,6 +26,12 @@ import {
   type LeaderboardCategory,
 } from '../../../src/utils/multiGameStats';
 import type { GameState } from '../../../src/types/game';
+import { useAuth } from '../../../src/contexts/AuthContext';
+import {
+  loadPlayerMergeMap,
+  EMPTY_MERGE_MAP,
+  type PlayerMergeMap,
+} from '../../../src/services/playerMergeService';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../../src/constants/theme';
 import { usePlanGate, useUserPlan } from '../../../src/hooks/usePlanGate';
 import PlanUpgradeCard from '../../../src/components/PlanUpgradeCard';
@@ -177,12 +183,14 @@ const ALL_TEAMS_LABEL = '全て';
 export default function LeaderboardScreen() {
   const leaderboardGate = usePlanGate('leaderboard');
   const userPlan = useUserPlan();
+  const { currentUser } = useAuth();
   const [allGames, setAllGames] = useState<GameState[]>([]);
   const [selectedTeam, setSelectedTeam] = useState(ALL_TEAMS_LABEL);
   const [leaderboard, setLeaderboard] = useState<LeaderboardData | null>(null);
   const [loading, setLoading]         = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [mergeMap, setMergeMap] = useState<PlayerMergeMap>(EMPTY_MERGE_MAP);
 
   const teamOptions = useMemo(
     () => [ALL_TEAMS_LABEL, ...collectTeamNamesFromGames(allGames)],
@@ -191,13 +199,17 @@ export default function LeaderboardScreen() {
 
   const rebuildLeaderboard = useCallback((games: GameState[], team: string) => {
     const filter = team === ALL_TEAMS_LABEL ? null : team;
-    setLeaderboard(buildLeaderboard(games, filter));
-  }, []);
+    setLeaderboard(buildLeaderboard(games, filter, mergeMap));
+  }, [mergeMap]);
 
   const loadData = useCallback(async () => {
-    const games = await db.games.getAll();
+    const [games, merges] = await Promise.all([
+      db.games.getAll(),
+      loadPlayerMergeMap(currentUser?.uid),
+    ]);
+    setMergeMap(merges);
     setAllGames(games);
-  }, []);
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     loadData().finally(() => setLoading(false));

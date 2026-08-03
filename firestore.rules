@@ -258,5 +258,18 @@ service cloud.firestore {
         && request.resource.data.reporterId == request.auth.uid;
       allow read: if false;
     }
+
+    // ─── playerMerges (自分専用の選手名寄せメモ) ──────────────
+    // docId = uid。本人以外は読み書き不可。
+    match /playerMerges/{docId} {
+      allow read: if isSignedIn()
+        && docId == request.auth.uid;
+      allow create, update: if isSignedIn()
+        && docId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn()
+        && docId == request.auth.uid;
+    }
+
   }
 }

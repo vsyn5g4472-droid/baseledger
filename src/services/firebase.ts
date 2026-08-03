@@ -80,6 +80,7 @@ export const COLLECTIONS = {
   AI_REPORTS: 'aiReports',
   SPOT_AT_BATS: 'spotAtBats',
   BALLPARKS: 'ballparks',
+  PLAYER_MERGES: 'playerMerges',
 } as const;
 
 export { app, auth, db, storage, functions };

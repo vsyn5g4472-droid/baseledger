@@ -35,6 +35,8 @@ import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan } from '../../src/hooks/usePlanGate';
 import { checkAIReportUsage } from '../../src/services/planService';
 import { showAIUsageLimitAlert } from '../../src/utils/planLimitAlerts';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { loadPlayerMergeMap } from '../../src/services/playerMergeService';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 import { useI18n } from '../../src/i18n';
 
@@ -158,6 +160,7 @@ export default function PitcherReportScreen() {
     useLocalSearchParams<{ pitcherId: string; pitcherName: string }>();
 
   const userPlan = useUserPlan();
+  const { currentUser } = useAuth();
 
   const [profile, setProfile]     = useState<PitcherProfile | null>(null);
   const [loading, setLoading]     = useState(true);
@@ -179,21 +182,24 @@ export default function PitcherReportScreen() {
     } finally {
       setAiLoading(false);
     }
-  }, [userPlan, pitcherId]);
+  }, [userPlan, pitcherId, currentUser?.uid]);
 
   useEffect(() => {
     setAiReport(null);
     (async () => {
-      const games = await db.games.getAll();
+      const [games, mergeMap] = await Promise.all([
+        db.games.getAll(),
+        loadPlayerMergeMap(currentUser?.uid),
+      ]);
       gamesRef.current = games;
-      const p = buildPitcherProfile(games, pitcherId);
+      const p = buildPitcherProfile(games, pitcherId, mergeMap);
       setProfile(p);
       setLoading(false);
       if (p && p.totalPitches > 0) {
         await loadAIReport(p);
       }
     })();
-  }, [pitcherId, loadAIReport]);
+  }, [pitcherId, loadAIReport, currentUser?.uid]);
 
   const title = pitcherName ? `${pitcherName} 投手分析` : '投手分析';
 

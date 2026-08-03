@@ -33,6 +33,8 @@ import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan, usePlanGate } from '../../src/hooks/usePlanGate';
 import { checkAIReportUsage } from '../../src/services/planService';
 import { showAIUsageLimitAlert, showPdfSharePlanAlert } from '../../src/utils/planLimitAlerts';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { loadPlayerMergeMap } from '../../src/services/playerMergeService';
 import { usePostActions } from '../../src/hooks/usePosts';
 import type { PostVisibility } from '../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
@@ -160,6 +162,7 @@ export default function BatteryReportScreen() {
     }>();
 
   const userPlan = useUserPlan();
+  const { currentUser } = useAuth();
   const pdfGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
 
@@ -193,7 +196,7 @@ export default function BatteryReportScreen() {
     } finally {
       setAiLoading(false);
     }
-  }, [userPlan, pitcherId, catcherId]);
+  }, [userPlan, pitcherId, catcherId, currentUser?.uid]);
 
   const handleOpenShare = useCallback(() => {
     if (!profile) return;
@@ -277,16 +280,19 @@ export default function BatteryReportScreen() {
   useEffect(() => {
     setAiReport(null);
     (async () => {
-      const games = await db.games.getAll();
+      const [games, mergeMap] = await Promise.all([
+        db.games.getAll(),
+        loadPlayerMergeMap(currentUser?.uid),
+      ]);
       gamesRef.current = games;
-      const p = buildBatteryProfile(games, pitcherId, catcherId);
+      const p = buildBatteryProfile(games, pitcherId, catcherId, mergeMap);
       setProfile(p);
       setLoading(false);
       if (p && p.totalPitches > 0) {
         await loadAIReport(p);
       }
     })();
-  }, [pitcherId, catcherId, loadAIReport]);
+  }, [pitcherId, catcherId, loadAIReport, currentUser?.uid]);
 
   const title = pitcherName && catcherName
     ? `${pitcherName} × ${catcherName}`

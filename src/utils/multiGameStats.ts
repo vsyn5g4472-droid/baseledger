@@ -11,6 +11,7 @@
 
 import type { GameState, AtBatResult, AtBatLog, PitchResult, Player } from '../types/game';
 import { buildBattingLine, calcWOBA } from '../services/analyticsEngine';
+import type { PlayerMergeMap } from '../services/playerMergeService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -159,17 +160,32 @@ function playerBelongsToTeamInGame(
   return roster.some((p) => p.id === gamePlayerId);
 }
 
+/**
+ * Player を通算集計キー (resolvedId) に変換する唯一の入口。
+ *
+ * 基本は `realPlayerId ?? id`。名寄せメモ (mergeMap) が渡された場合は
+ * さらに canonicalId まで畳み込む。mergeMap 未指定時は従来挙動と完全に同一。
+ */
+export function resolvePlayerId(
+  p: { id: string; realPlayerId?: string },
+  mergeMap?: PlayerMergeMap,
+): string {
+  const base = p.realPlayerId ?? p.id;
+  return mergeMap?.get(base) ?? base;
+}
+
 /** 指定チームのロースター選手 (resolvedId → { name, resolvedId }) を収集 */
 function collectPlayersForTeam(
   games: GameState[],
   teamName: string,
+  mergeMap?: PlayerMergeMap,
 ): Map<string, { name: string; resolvedId: string }> {
   const m = new Map<string, { name: string; resolvedId: string }>();
   for (const g of games) {
     const roster = getTeamRoster(g, teamName);
     if (!roster) continue;
     for (const p of roster) {
-      const key = p.realPlayerId ?? p.id;
+      const key = resolvePlayerId(p, mergeMap);
       if (!m.has(key)) m.set(key, { name: p.name, resolvedId: key });
     }
   }
@@ -177,7 +193,11 @@ function collectPlayersForTeam(
 }
 
 /** 指定チームの投手 (resolvedId → name) を収集 */
-function collectPitchersForTeam(games: GameState[], teamName: string): Map<string, string> {
+function collectPitchersForTeam(
+  games: GameState[],
+  teamName: string,
+  mergeMap?: PlayerMergeMap,
+): Map<string, string> {
   const m = new Map<string, string>();
   for (const g of games) {
     const roster = getTeamRoster(g, teamName);
@@ -187,7 +207,7 @@ function collectPitchersForTeam(games: GameState[], teamName: string): Map<strin
       if (!rosterIds.has(p.pitcherId)) continue;
       const player = roster.find((pl) => pl.id === p.pitcherId);
       if (player) {
-        const key = player.realPlayerId ?? player.id;
+        const key = resolvePlayerId(player, mergeMap);
         if (!m.has(key)) m.set(key, player.name);
       }
     }
@@ -196,12 +216,20 @@ function collectPitchersForTeam(games: GameState[], teamName: string): Map<strin
 }
 
 /** 全試合から全プレイヤー (resolvedId → { name, resolvedId }) を収集 */
-function collectAllPlayers(games: GameState[]): Map<string, { name: string; resolvedId: string }> {
+function collectAllPlayers(
+  games: GameState[],
+  mergeMap?: PlayerMergeMap,
+): Map<string, { name: string; resolvedId: string }> {
   const m = new Map<string, { name: string; resolvedId: string }>();
   for (const g of games) {
     for (const team of [g.awayTeam, g.homeTeam]) {
-      for (const p of [...team.roster.starters, ...team.roster.bench]) {
-        const key = p.realPlayerId ?? p.id;
+      const players = [
+        ...team.roster.starters,
+        ...team.roster.bench,
+        ...(team.roster.pitcher ? [team.roster.pitcher] : []),
+      ];
+      for (const p of players) {
+        const key = resolvePlayerId(p, mergeMap);
         if (!m.has(key)) m.set(key, { name: p.name, resolvedId: key });
       }
     }
@@ -210,19 +238,24 @@ function collectAllPlayers(games: GameState[]): Map<string, { name: string; reso
 }
 
 /** 全試合から全投手 (resolvedId → name) を収集 — pitchLogs を基にする */
-function collectAllPitchers(games: GameState[]): Map<string, string> {
+function collectAllPitchers(
+  games: GameState[],
+  mergeMap?: PlayerMergeMap,
+): Map<string, string> {
   const m = new Map<string, string>();
   for (const g of games) {
     const allPlayers = [
       ...g.awayTeam.roster.starters,
       ...g.awayTeam.roster.bench,
+      ...(g.awayTeam.roster.pitcher ? [g.awayTeam.roster.pitcher] : []),
       ...g.homeTeam.roster.starters,
       ...g.homeTeam.roster.bench,
+      ...(g.homeTeam.roster.pitcher ? [g.homeTeam.roster.pitcher] : []),
     ];
     for (const p of g.pitchLogs) {
       const player = allPlayers.find((pl) => pl.id === p.pitcherId);
       if (player) {
-        const key = player.realPlayerId ?? player.id;
+        const key = resolvePlayerId(player, mergeMap);
         if (!m.has(key)) m.set(key, player.name);
       }
     }
@@ -233,12 +266,22 @@ function collectAllPitchers(games: GameState[]): Map<string, string> {
 /**
  * 1試合内の Player.id → resolvedId (realPlayerId or Player.id) マップを生成する
  * atBatLog.batterId / pitchLog.pitcherId を集計キーに変換するために使う
+ *
+ * mergeMap は事前ロード済みの名寄せメモ。同期関数を保つため引数で受け取る。
  */
-function buildRealPlayerMap(game: GameState): Map<string, string> {
+export function buildRealPlayerMap(
+  game: GameState,
+  mergeMap?: PlayerMergeMap,
+): Map<string, string> {
   const m = new Map<string, string>();
   for (const team of [game.awayTeam, game.homeTeam]) {
-    for (const p of [...team.roster.starters, ...team.roster.bench]) {
-      m.set(p.id, p.realPlayerId ?? p.id);
+    const players = [
+      ...team.roster.starters,
+      ...team.roster.bench,
+      ...(team.roster.pitcher ? [team.roster.pitcher] : []),
+    ];
+    for (const p of players) {
+      m.set(p.id, resolvePlayerId(p, mergeMap));
     }
   }
   return m;
@@ -254,6 +297,7 @@ export function aggregatePlayerBatting(
   playerName: string,
   games: GameState[],
   teamName?: string,
+  mergeMap?: PlayerMergeMap,
 ): AggregatedBattingStats {
   let gamesPlayed = 0;
   let atBats = 0, hits = 0, singles = 0, doubles = 0, triples = 0, homeRuns = 0;
@@ -263,7 +307,7 @@ export function aggregatePlayerBatting(
   const hitDistances: number[] = [];
 
   for (const game of games) {
-    const realPlayerMap = buildRealPlayerMap(game);
+    const realPlayerMap = buildRealPlayerMap(game, mergeMap);
     const myLogs = game.atBatLogs.filter((l) => {
       if (realPlayerMap.get(l.batterId) !== playerId || l.result === null) return false;
       if (teamName && !playerBelongsToTeamInGame(game, teamName, l.batterId)) return false;
@@ -348,6 +392,7 @@ export function aggregatePlayerPitching(
   playerName: string,
   games: GameState[],
   teamName?: string,
+  mergeMap?: PlayerMergeMap,
 ): AggregatedPitchingStats {
   let gamesPlayed = 0;
   let totalPitches = 0;
@@ -360,7 +405,7 @@ export function aggregatePlayerPitching(
   const zoneCount: Record<string, number> = {};
 
   for (const game of games) {
-    const realPlayerMap = buildRealPlayerMap(game);
+    const realPlayerMap = buildRealPlayerMap(game, mergeMap);
     const myPitches = game.pitchLogs.filter((p) => {
       if (realPlayerMap.get(p.pitcherId) !== playerId) return false;
       if (teamName && !playerBelongsToTeamInGame(game, teamName, p.pitcherId)) return false;
@@ -462,7 +507,11 @@ function makeCategory(
  * 全試合からチーム内ランキングを生成する
  * @param teamFilter チーム名。指定時はそのチーム所属選手のデータのみ集計
  */
-export function buildLeaderboard(games: GameState[], teamFilter?: string | null): LeaderboardData {
+export function buildLeaderboard(
+  games: GameState[],
+  teamFilter?: string | null,
+  mergeMap?: PlayerMergeMap,
+): LeaderboardData {
   if (games.length === 0) {
     return { categories: [], gameCount: 0, computedAt: Date.now() };
   }
@@ -479,26 +528,26 @@ export function buildLeaderboard(games: GameState[], teamFilter?: string | null)
 
   // 打者・投手の全プレイヤーを収集
   const allPlayers = teamName
-    ? collectPlayersForTeam(scopedGames, teamName)
-    : collectAllPlayers(scopedGames);
+    ? collectPlayersForTeam(scopedGames, teamName, mergeMap)
+    : collectAllPlayers(scopedGames, mergeMap);
   const allPitchers = teamName
-    ? collectPitchersForTeam(scopedGames, teamName)
-    : collectAllPitchers(scopedGames);
+    ? collectPitchersForTeam(scopedGames, teamName, mergeMap)
+    : collectAllPitchers(scopedGames, mergeMap);
 
   // 全打撃成績を集計 (最小打席数以上のみ)
   const battingAll = Array.from(allPlayers.entries())
-    .map(([id, { name }]) => aggregatePlayerBatting(id, name, scopedGames, teamName))
+    .map(([id, { name }]) => aggregatePlayerBatting(id, name, scopedGames, teamName, mergeMap))
     .filter((s) => s.atBats >= MIN_AT_BATS);
 
   // 全投球成績を集計 (最小投球数以上のみ)
   const pitchingAll = Array.from(allPitchers.entries())
-    .map(([id, name]) => aggregatePlayerPitching(id, name, scopedGames, teamName))
+    .map(([id, name]) => aggregatePlayerPitching(id, name, scopedGames, teamName, mergeMap))
     .filter((s) => s.totalPitches >= MIN_PITCHES);
 
   // wOBA 計算用: 打者ごとの AtBatLog を収集
   const playerAtBatLogs = new Map<string, AtBatLog[]>();
   for (const game of scopedGames) {
-    const realPlayerMap = buildRealPlayerMap(game);
+    const realPlayerMap = buildRealPlayerMap(game, mergeMap);
     for (const log of game.atBatLogs) {
       if (!log.result) continue;
       if (teamName && !playerBelongsToTeamInGame(game, teamName, log.batterId)) continue;

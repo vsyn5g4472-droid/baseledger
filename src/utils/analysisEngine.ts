@@ -7,6 +7,8 @@
  */
 
 import type { GameState, PitchResult, AtBatResult } from '../types/game';
+import { buildRealPlayerMap, resolvePlayerId } from './multiGameStats';
+import type { PlayerMergeMap } from '../services/playerMergeService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -242,8 +244,12 @@ function deriveDefenseCatcher(
   return catcher ? { id: catcher.id, name: catcher.name } : null;
 }
 
-/** 試合内の全選手 Map<id, name> */
-function allPlayersMap(game: GameState): Map<string, string> {
+/**
+ * 試合内の全選手 Map<id, name>
+ * 試合スコープの Player.id と realPlayerId の両方をキーに登録するため、
+ * どちらの ID で引いても名前を解決できる。
+ */
+function allPlayersMap(game: GameState, mergeMap?: PlayerMergeMap): Map<string, string> {
   const m = new Map<string, string>();
   for (const team of [game.awayTeam, game.homeTeam]) {
     const players = [
@@ -253,13 +259,15 @@ function allPlayersMap(game: GameState): Map<string, string> {
     ];
     for (const p of players) {
       m.set(p.id, p.name);
+      if (p.realPlayerId) m.set(p.realPlayerId, p.name);
+      m.set(resolvePlayerId(p, mergeMap), p.name);
     }
   }
   return m;
 }
 
-/** 試合内の全選手 Map<id, bats> */
-function allPlayersBatsMap(game: GameState): Map<string, 'L' | 'R' | 'S'> {
+/** 試合内の全選手 Map<id, bats>（allPlayersMap と同じく両 ID をキーにする） */
+function allPlayersBatsMap(game: GameState, mergeMap?: PlayerMergeMap): Map<string, 'L' | 'R' | 'S'> {
   const m = new Map<string, 'L' | 'R' | 'S'>();
   for (const team of [game.awayTeam, game.homeTeam]) {
     const players = [
@@ -269,9 +277,42 @@ function allPlayersBatsMap(game: GameState): Map<string, 'L' | 'R' | 'S'> {
     ];
     for (const p of players) {
       m.set(p.id, p.bats);
+      if (p.realPlayerId) m.set(p.realPlayerId, p.bats);
+      m.set(resolvePlayerId(p, mergeMap), p.bats);
     }
   }
   return m;
+}
+
+/**
+ * 選手 ID の名寄せリゾルバ。
+ *
+ * ログ上の ID（試合スコープの Player.id）を multiGameStats と同じ方式で
+ * resolvedId (realPlayerId ?? Player.id) に変換して照合する。
+ * 引数 rawTargetId は Player.id / realPlayerId のどちらでも受け付ける。
+ */
+function makeResolver(games: GameState[], rawTargetId: string, mergeMap?: PlayerMergeMap) {
+  const maps = new Map<GameState, Map<string, string>>();
+  for (const g of games) maps.set(g, buildRealPlayerMap(g, mergeMap));
+
+  let targetId = rawTargetId;
+  for (const m of maps.values()) {
+    const resolved = m.get(rawTargetId);
+    if (resolved) { targetId = resolved; break; }
+  }
+
+  // maps のキーは試合スコープの Player.id のみ。rawTargetId が realPlayerId で
+  // 直接渡された場合は上のループでヒットせず素通りするため、名寄せメモを直接引いて
+  // canonicalId まで畳む。canonical は member になれない不変条件（toMergeMap 参照）に
+  // より 1 段で完結し、既に畳み込み済みの targetId に再適用しても結果は変わらない。
+  targetId = mergeMap?.get(targetId) ?? targetId;
+
+  return {
+    targetId,
+    resolve: (game: GameState, id: string) => maps.get(game)?.get(id) ?? id,
+    matches: (game: GameState, id: string) =>
+      (maps.get(game)?.get(id) ?? id) === targetId,
+  };
 }
 
 /** ゾーンデータを頻度順に並べて上位 N 件を返す */
@@ -357,23 +398,34 @@ function buildBatterySummary(profile: Omit<BatteryProfile, 'summary'>): string {
 /**
  * 全試合からバッテリーペア一覧を抽出する
  */
-export function extractBatteryPairs(games: GameState[]): BatteryPair[] {
+export function extractBatteryPairs(
+  games: GameState[],
+  mergeMap?: PlayerMergeMap,
+): BatteryPair[] {
   const pairMap = new Map<
     string,
     { pitcher: { id: string; name: string }; catcher: { id: string; name: string }; games: Set<string> }
   >();
 
   for (const game of games) {
-    const players = allPlayersMap(game);
+    const players = allPlayersMap(game, mergeMap);
+    const realPlayerMap = buildRealPlayerMap(game, mergeMap);
 
     for (const half of ['top', 'bottom'] as const) {
       const halfPitches = game.pitchLogs.filter((p) => p.inning.half === half);
       if (halfPitches.length === 0) continue;
 
-      const catcher = deriveDefenseCatcher(game, half);
-      if (!catcher) continue;
+      const rawCatcher = deriveDefenseCatcher(game, half);
+      if (!rawCatcher) continue;
+      // 投手・捕手とも realPlayerId で名寄せし、同一ペアを試合をまたいで1件に束ねる
+      const catcher = {
+        id:   realPlayerMap.get(rawCatcher.id) ?? rawCatcher.id,
+        name: rawCatcher.name,
+      };
 
-      const pitcherIds = [...new Set(halfPitches.map((p) => p.pitcherId))];
+      const pitcherIds = [
+        ...new Set(halfPitches.map((p) => realPlayerMap.get(p.pitcherId) ?? p.pitcherId)),
+      ];
 
       for (const pitcherId of pitcherIds) {
         const pitcherName = players.get(pitcherId);
@@ -406,19 +458,21 @@ export function extractBatteryPairs(games: GameState[]): BatteryPair[] {
 /**
  * 全試合から打者一覧を抽出する（1打席以上の選手のみ）
  */
-export function extractBatters(games: GameState[]): BatterInfo[] {
+export function extractBatters(games: GameState[], mergeMap?: PlayerMergeMap): BatterInfo[] {
   const batterMap = new Map<string, { name: string; games: Set<string> }>();
 
   for (const game of games) {
+    const players = allPlayersMap(game, mergeMap);
+    const realPlayerMap = buildRealPlayerMap(game, mergeMap);
     for (const log of game.atBatLogs) {
-      const players = allPlayersMap(game);
       const name = players.get(log.batterId);
       if (!name) continue;
 
-      if (!batterMap.has(log.batterId)) {
-        batterMap.set(log.batterId, { name, games: new Set() });
+      const resolvedId = realPlayerMap.get(log.batterId) ?? log.batterId;
+      if (!batterMap.has(resolvedId)) {
+        batterMap.set(resolvedId, { name, games: new Set() });
       }
-      batterMap.get(log.batterId)!.games.add(game.id);
+      batterMap.get(resolvedId)!.games.add(game.id);
     }
   }
 
@@ -434,18 +488,20 @@ export function extractBatters(games: GameState[]): BatterInfo[] {
 /**
  * 全試合から投手一覧を抽出する（1球以上の選手のみ）
  */
-export function extractPitchers(games: GameState[]): PitcherInfo[] {
+export function extractPitchers(games: GameState[], mergeMap?: PlayerMergeMap): PitcherInfo[] {
   const pitcherMap = new Map<string, { name: string; games: Set<string> }>();
 
   for (const game of games) {
-    const players = allPlayersMap(game);
+    const players = allPlayersMap(game, mergeMap);
+    const realPlayerMap = buildRealPlayerMap(game, mergeMap);
     for (const p of game.pitchLogs) {
       const name = players.get(p.pitcherId);
       if (!name) continue;
-      if (!pitcherMap.has(p.pitcherId)) {
-        pitcherMap.set(p.pitcherId, { name, games: new Set() });
+      const resolvedId = realPlayerMap.get(p.pitcherId) ?? p.pitcherId;
+      if (!pitcherMap.has(resolvedId)) {
+        pitcherMap.set(resolvedId, { name, games: new Set() });
       }
-      pitcherMap.get(p.pitcherId)!.games.add(game.id);
+      pitcherMap.get(resolvedId)!.games.add(game.id);
     }
   }
 
@@ -465,29 +521,27 @@ export function buildBatteryProfile(
   games: GameState[],
   pitcherId: string,
   catcherId: string,
+  mergeMap?: PlayerMergeMap,
 ): BatteryProfile {
-  // 当該バッテリーが登板した試合のみフィルタ
-  const relevantGames = games.filter((game) => {
-    return game.pitchLogs.some((p) => p.pitcherId === pitcherId);
-  });
+  // realPlayerId で名寄せしたうえで、当該投手が登板した試合のみフィルタ
+  const pitcherRef = makeResolver(games, pitcherId, mergeMap);
+  const catcherRef = makeResolver(games, catcherId, mergeMap);
+
+  const relevantGames = games.filter((game) =>
+    game.pitchLogs.some((p) => pitcherRef.matches(game, p.pitcherId)),
+  );
 
   const allPitches = relevantGames.flatMap((g) =>
-    g.pitchLogs.filter((p) => p.pitcherId === pitcherId),
+    g.pitchLogs.filter((p) => pitcherRef.matches(g, p.pitcherId)),
   );
   const allAtBats = relevantGames.flatMap((g) =>
-    g.atBatLogs.filter((l) => l.pitcherId === pitcherId),
+    g.atBatLogs.filter((l) => pitcherRef.matches(g, l.pitcherId)),
   );
 
-  const pitcherName =
-    relevantGames.flatMap((g) => allPlayersMap(g)).reduce(
-      (name, _) => name,
-      relevantGames[0] ? allPlayersMap(relevantGames[0]).get(pitcherId) ?? pitcherId : pitcherId,
-    );
-
   // 捕手名の解決
-  let catcherName = catcherId;
+  let catcherName = catcherRef.targetId;
   for (const g of relevantGames) {
-    const n = allPlayersMap(g).get(catcherId);
+    const n = allPlayersMap(g, mergeMap).get(catcherRef.targetId);
     if (n) { catcherName = n; break; }
   }
 
@@ -498,7 +552,7 @@ export function buildBatteryProfile(
   // ── 2ストライク時の分析 ───────────────────────────────────────────────────
   const batsMap = new Map<string, 'L' | 'R' | 'S'>();
   for (const g of relevantGames) {
-    allPlayersBatsMap(g).forEach((bats, id) => batsMap.set(id, bats));
+    allPlayersBatsMap(g, mergeMap).forEach((bats, id) => batsMap.set(id, bats));
   }
 
   const pitches2S = allPitches.filter(
@@ -609,16 +663,16 @@ export function buildBatteryProfile(
   }).filter((c) => c.total > 0);
 
   // ── 各名前の解決 ──────────────────────────────────────────────────────────
-  let resolvedPitcherName = pitcherId;
+  let resolvedPitcherName = pitcherRef.targetId;
   for (const g of relevantGames) {
-    const n = allPlayersMap(g).get(pitcherId);
+    const n = allPlayersMap(g, mergeMap).get(pitcherRef.targetId);
     if (n) { resolvedPitcherName = n; break; }
   }
 
   const base: Omit<BatteryProfile, 'summary'> = {
-    pitcherId,
+    pitcherId: pitcherRef.targetId,
     pitcherName: resolvedPitcherName,
-    catcherId,
+    catcherId: catcherRef.targetId,
     catcherName,
     totalGames:   relevantGames.length,
     totalPitches: allPitches.length,
@@ -648,22 +702,25 @@ export function buildBatteryProfile(
 export function buildBatterProfile(
   games: GameState[],
   batterId: string,
+  mergeMap?: PlayerMergeMap,
 ): BatterProfile {
-  // 当該打者が登場した試合のみフィルタ
+  // realPlayerId で名寄せしたうえで、当該打者が登場した試合のみフィルタ
+  const batterRef = makeResolver(games, batterId, mergeMap);
+
   const relevantGames = games.filter((g) =>
-    g.atBatLogs.some((l) => l.batterId === batterId),
+    g.atBatLogs.some((l) => batterRef.matches(g, l.batterId)),
   );
 
   const allAtBats = relevantGames.flatMap((g) =>
-    g.atBatLogs.filter((l) => l.batterId === batterId),
+    g.atBatLogs.filter((l) => batterRef.matches(g, l.batterId)),
   );
   const completedAtBats = allAtBats.filter((l) => l.result !== null);
   const allPitches = allAtBats.flatMap((l) => l.pitches);
 
   // 打者名解決
-  let batterName = batterId;
+  let batterName = batterRef.targetId;
   for (const g of relevantGames) {
-    const n = allPlayersMap(g).get(batterId);
+    const n = allPlayersMap(g, mergeMap).get(batterRef.targetId);
     if (n) { batterName = n; break; }
   }
 
@@ -819,7 +876,7 @@ export function buildBatterProfile(
   }).length;
 
   return {
-    batterId,
+    batterId:          batterRef.targetId,
     batterName,
     totalGames:        relevantGames.length,
     totalAtBats:       atBats,
@@ -850,22 +907,26 @@ export function buildBatterProfile(
 export function buildPitcherProfile(
   games: GameState[],
   pitcherId: string,
+  mergeMap?: PlayerMergeMap,
 ): PitcherProfile {
+  // realPlayerId で名寄せしたうえで、当該投手が登板した試合のみフィルタ
+  const pitcherRef = makeResolver(games, pitcherId, mergeMap);
+
   const relevantGames = games.filter((game) =>
-    game.pitchLogs.some((p) => p.pitcherId === pitcherId),
+    game.pitchLogs.some((p) => pitcherRef.matches(game, p.pitcherId)),
   );
 
   const allPitches = relevantGames.flatMap((g) =>
-    g.pitchLogs.filter((p) => p.pitcherId === pitcherId),
+    g.pitchLogs.filter((p) => pitcherRef.matches(g, p.pitcherId)),
   );
   const allAtBats = relevantGames.flatMap((g) =>
-    g.atBatLogs.filter((l) => l.pitcherId === pitcherId),
+    g.atBatLogs.filter((l) => pitcherRef.matches(g, l.pitcherId)),
   );
 
   // 投手名解決
-  let resolvedPitcherName = pitcherId;
+  let resolvedPitcherName = pitcherRef.targetId;
   for (const g of relevantGames) {
-    const n = allPlayersMap(g).get(pitcherId);
+    const n = allPlayersMap(g, mergeMap).get(pitcherRef.targetId);
     if (n) { resolvedPitcherName = n; break; }
   }
 
@@ -891,7 +952,7 @@ export function buildPitcherProfile(
   // ── 2ストライク時の分析 ───────────────────────────────────────
   const batsMap = new Map<string, 'L' | 'R' | 'S'>();
   for (const g of relevantGames) {
-    allPlayersBatsMap(g).forEach((bats, id) => batsMap.set(id, bats));
+    allPlayersBatsMap(g, mergeMap).forEach((bats, id) => batsMap.set(id, bats));
   }
   const pitches2S = allPitches.filter((p) => p.countBefore.strikes === 2);
   const zone2Strike: Record<string, number>  = {};
@@ -965,10 +1026,12 @@ export function buildPitcherProfile(
   // ── 捕手一覧（PitchLog.catcherId 優先、なければ roster から推定） ─
   const catcherAccum = new Map<string, { name: string; count: number }>();
   for (const g of relevantGames) {
-    const players = allPlayersMap(g);
-    for (const p of g.pitchLogs.filter((pl) => pl.pitcherId === pitcherId)) {
-      const cId = p.catcherId ?? deriveDefenseCatcher(g, p.inning.half)?.id;
-      if (!cId) continue;
+    const players = allPlayersMap(g, mergeMap);
+    for (const p of g.pitchLogs.filter((pl) => pitcherRef.matches(g, pl.pitcherId))) {
+      const rawCatcherId = p.catcherId ?? deriveDefenseCatcher(g, p.inning.half)?.id;
+      if (!rawCatcherId) continue;
+      // 捕手も realPlayerId で名寄せして試合をまたいで合算する
+      const cId = pitcherRef.resolve(g, rawCatcherId);
       const cName = players.get(cId) ?? cId;
       const existing = catcherAccum.get(cId) ?? { name: cName, count: 0 };
       existing.count++;
@@ -984,7 +1047,7 @@ export function buildPitcherProfile(
     `ストライク率${Math.round(allPitches.length > 0 ? strikeCount / allPitches.length * 100 : 0)}%。`;
 
   return {
-    pitcherId,
+    pitcherId: pitcherRef.targetId,
     pitcherName: resolvedPitcherName,
     totalGames:   relevantGames.length,
     totalPitches: allPitches.length,

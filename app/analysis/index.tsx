@@ -2,7 +2,7 @@
  * 分析トップ画面 — 打者分析 / バッテリー分析の対象を選択する
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
   FlatList,
   SafeAreaView,
 } from 'react-native';
-import { Stack, router } from 'expo-router';
+import { Stack, router, useFocusEffect } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { db } from '../../src/db';
 import type { GameState } from '../../src/types/game';
@@ -26,6 +26,13 @@ import {
   type BatteryPair,
   type PitcherInfo,
 } from '../../src/utils/analysisEngine';
+import { resolvePlayerId } from '../../src/utils/multiGameStats';
+import { useAuth } from '../../src/contexts/AuthContext';
+import {
+  loadPlayerMergeMap,
+  EMPTY_MERGE_MAP,
+  type PlayerMergeMap,
+} from '../../src/services/playerMergeService';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
 
 // ── Tab type ──────────────────────────────────────────────────────────────────
@@ -93,6 +100,7 @@ function PickerModal<T>({
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function AnalysisIndexScreen() {
+  const { currentUser } = useAuth();
   const [tab, setTab]       = useState<TabKey>('batter');
   const [games, setGames]   = useState<GameState[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,26 +125,37 @@ export default function AnalysisIndexScreen() {
   const [selectedBatterTeam,  setSelectedBatterTeam]  = useState<string | null>(null);
   const [selectedBatteryTeam, setSelectedBatteryTeam] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    const all = await db.games.getAll();
-    setGames(all);
-    setBatters(extractBatters(all));
-    setPitchers(extractPitchers(all));
-    setBatteries(extractBatteryPairs(all));
-  }, []);
+  const [mergeMap, setMergeMap] = useState<PlayerMergeMap>(EMPTY_MERGE_MAP);
 
-  useEffect(() => {
-    loadData().finally(() => setLoading(false));
-  }, [loadData]);
+  const loadData = useCallback(async () => {
+    const [all, merges] = await Promise.all([
+      db.games.getAll(),
+      loadPlayerMergeMap(currentUser?.uid),
+    ]);
+    setGames(all);
+    setMergeMap(merges);
+    setBatters(extractBatters(all, merges));
+    setPitchers(extractPitchers(all, merges));
+    setBatteries(extractBatteryPairs(all, merges));
+  }, [currentUser?.uid]);
+
+  // 統合画面から戻った際に名寄せメモを読み直したいので focus ごとに再集計する
+  useFocusEffect(
+    useCallback(() => {
+      loadData().finally(() => setLoading(false));
+    }, [loadData]),
+  );
 
   // チーム名 → 打者リスト
   const teamBattersMap = useMemo(() => {
     const map = new Map<string, BatterInfo[]>();
     for (const game of games) {
       for (const team of [game.awayTeam, game.homeTeam]) {
+        // extractBatters は名寄せ済みの ID を返すため、
+        // ロースター側も resolvePlayerId で同じ変換をかけて照合する
         const ids = new Set([
-          ...team.roster.starters.map((p) => p.id),
-          ...team.roster.bench.map((p) => p.id),
+          ...team.roster.starters.map((p) => resolvePlayerId(p, mergeMap)),
+          ...team.roster.bench.map((p) => resolvePlayerId(p, mergeMap)),
         ]);
         const list = batters.filter((b) => ids.has(b.batterId));
         if (list.length === 0) continue;
@@ -149,17 +168,18 @@ export default function AnalysisIndexScreen() {
       }
     }
     return map;
-  }, [games, batters]);
+  }, [games, batters, mergeMap]);
 
   // チーム名 → 投手リスト
   const teamPitchersMap = useMemo(() => {
     const map = new Map<string, PitcherInfo[]>();
     for (const game of games) {
       for (const team of [game.awayTeam, game.homeTeam]) {
+        // extractPitchers も名寄せ済み ID を返すため同様に揃える
         const ids = new Set([
-          ...team.roster.starters.map((p) => p.id),
-          ...team.roster.bench.map((p) => p.id),
-          ...(team.roster.pitcher ? [team.roster.pitcher.id] : []),
+          ...team.roster.starters.map((p) => resolvePlayerId(p, mergeMap)),
+          ...team.roster.bench.map((p) => resolvePlayerId(p, mergeMap)),
+          ...(team.roster.pitcher ? [resolvePlayerId(team.roster.pitcher, mergeMap)] : []),
         ]);
         const list = pitchers.filter((p) => ids.has(p.pitcherId));
         if (list.length === 0) continue;
@@ -172,17 +192,18 @@ export default function AnalysisIndexScreen() {
       }
     }
     return map;
-  }, [games, pitchers]);
+  }, [games, pitchers, mergeMap]);
 
   // チーム名 → バッテリーペアリスト
   const teamBatteryMap = useMemo(() => {
     const map = new Map<string, BatteryPair[]>();
     for (const game of games) {
       for (const team of [game.awayTeam, game.homeTeam]) {
+        // extractBatteryPairs も名寄せ済み ID を返すため同様に揃える
         const ids = new Set([
-          ...team.roster.starters.map((p) => p.id),
-          ...team.roster.bench.map((p) => p.id),
-          ...(team.roster.pitcher ? [team.roster.pitcher.id] : []),
+          ...team.roster.starters.map((p) => resolvePlayerId(p, mergeMap)),
+          ...team.roster.bench.map((p) => resolvePlayerId(p, mergeMap)),
+          ...(team.roster.pitcher ? [resolvePlayerId(team.roster.pitcher, mergeMap)] : []),
         ]);
         const list = batteries.filter((b) => ids.has(b.pitcherId) || ids.has(b.catcherId));
         if (list.length === 0) continue;
@@ -196,7 +217,7 @@ export default function AnalysisIndexScreen() {
       }
     }
     return map;
-  }, [games, batteries]);
+  }, [games, batteries, mergeMap]);
 
   const teamNames = useMemo(
     () => [...new Set([...teamBattersMap.keys(), ...teamPitchersMap.keys(), ...teamBatteryMap.keys()])].sort(),
@@ -551,6 +572,19 @@ export default function AnalysisIndexScreen() {
           <Text style={styles.startBtnText}>分析開始</Text>
         </TouchableOpacity>
 
+        {/* ── 選手を統合（名寄せメモ） ── */}
+        <TouchableOpacity
+          style={styles.mergeBtn}
+          onPress={() => router.push('/analysis/merge-players' as any)}
+          activeOpacity={0.85}
+        >
+          <MaterialCommunityIcons name="merge" size={18} color={Colors.primary} />
+          <Text style={styles.mergeBtnText}>選手を統合</Text>
+        </TouchableOpacity>
+        <Text style={styles.mergeHint}>
+          別の試合で別々に記録された同じ選手を束ねて、通算で集計できます。
+        </Text>
+
         {/* ── データなし補足 ── */}
         {hasData && (
           (batters.length === 0 && tab === 'batter') ||
@@ -690,6 +724,24 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color:      Colors.white,
     letterSpacing: 0.5,
+  },
+
+  mergeBtn: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'center',
+    gap:            Spacing.xs,
+    borderRadius:   BorderRadius.full,
+    borderWidth:    1.5,
+    borderColor:    Colors.primary,
+    paddingVertical: Spacing.sm,
+  },
+  mergeBtnText: { fontSize: Typography.caption, fontWeight: '800', color: Colors.primary },
+  mergeHint: {
+    fontSize:  Typography.tiny,
+    color:     Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: -4,
   },
 
   emptyBox: { alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xxl },

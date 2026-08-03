@@ -43,6 +43,8 @@ import AIReportErrorCard from '../../src/components/AIReportErrorCard';
 import { useUserPlan, usePlanGate } from '../../src/hooks/usePlanGate';
 import { checkAIReportUsage } from '../../src/services/planService';
 import { showAIUsageLimitAlert, showPdfSharePlanAlert } from '../../src/utils/planLimitAlerts';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { loadPlayerMergeMap } from '../../src/services/playerMergeService';
 import { usePostActions } from '../../src/hooks/usePosts';
 import type { PostVisibility } from '../../src/models/types';
 import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src/constants/theme';
@@ -204,6 +206,7 @@ export default function BatterReportScreen() {
     useLocalSearchParams<{ batterId: string; batterName: string }>();
 
   const userPlan = useUserPlan();
+  const { currentUser } = useAuth();
   const aiGate = usePlanGate('ai_report');
   const sprayGate = usePlanGate('spray_chart');
   const heatmapGate = usePlanGate('zone_heatmap');
@@ -239,7 +242,7 @@ export default function BatterReportScreen() {
     } finally {
       setAiLoading(false);
     }
-  }, [userPlan, batterId]);
+  }, [userPlan, batterId, currentUser?.uid]);
 
   const handleOpenShare = useCallback(() => {
     if (!profile) return;
@@ -325,15 +328,18 @@ export default function BatterReportScreen() {
   useEffect(() => {
     setAiReport(null);
     (async () => {
-      const games = await db.games.getAll();
-      const p = buildBatterProfile(games, batterId);
+      const [games, mergeMap] = await Promise.all([
+        db.games.getAll(),
+        loadPlayerMergeMap(currentUser?.uid),
+      ]);
+      const p = buildBatterProfile(games, batterId, mergeMap);
       setProfile(p);
       setLoading(false);
       if (p && p.totalAtBats > 0) {
         await loadAIReport(p);
       }
     })();
-  }, [batterId, loadAIReport]);
+  }, [batterId, loadAIReport, currentUser?.uid]);
 
   // SprayChart 用の AtBatLog 配列に変換
   const atBatLogsForSpray = useMemo(

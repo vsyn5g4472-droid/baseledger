@@ -15,6 +15,11 @@ export interface PlayerHistoryResult {
  * 試合中リアルタイム参照用フック。
  * buildBatteryProfile は pitcherId のみでフィルタするため
  * catcherId は捕手表示名の解決にのみ使われる。
+ *
+ * 【意図的】試合中表示は通算名寄せ前。
+ * 名寄せメモ (playerMergeService の PlayerMergeMap) は敢えて渡していない。
+ * 試合中のホットパスに Firestore 読み込みを増やさないため。
+ * 分析画面 (app/analysis/*) は名寄せ後の数字を出すので、両者は一致しないことがある。
  */
 export function usePlayerHistory(
   pitcherId: string | null,
