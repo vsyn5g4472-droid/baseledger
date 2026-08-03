@@ -262,6 +262,12 @@ interface GameActions {
   recordCaughtStealing: (fromBase: 'first' | 'second' | 'third', pitchContext?: StolenBasePitchContext) => void;
   /** インプレー後ファウル落球時にストライク加算（打席継続） */
   addStrikeForFoulInPlay: () => void;
+
+  // --- 振り逃げ（第3ストライク不捕球） ---
+  /** 振り逃げ選択を「通常の三振」で確定する（アウト+1） */
+  resolveUncaughtThirdAsStrikeout: () => void;
+  /** 振り逃げ選択を「振り逃げ出塁」で確定し、進塁確認へ進む */
+  resolveUncaughtThirdAsReached: () => void;
   /** 盗塁進塁確認後に走者位置と StolenBaseLog を確定する */
   confirmStolenBaseAdvancements: (finalAdvancements: RunnerAdvancement[], pitchContext?: StolenBasePitchContext) => void;
 
@@ -337,7 +343,18 @@ interface GameActions {
   setCurrentAtBatNote: (note: string) => void;
 }
 
-type GameStore = { game: GameState | null; pendingPickoffSafe: PendingPickoffSafe | null } & GameActions;
+/**
+ * 3ストライク到達時に「三振」か「振り逃げ」かの選択を待っている状態。
+ * 打席はまだ閉じていない（アウトも加算していない）。
+ * pendingPickoffSafe と同じく永続化しない一時的な UI 状態なので GameState には置かない。
+ */
+type PendingUncaughtThird = { result: 'strikeout' | 'strikeout_looking' };
+
+type GameStore = {
+  game: GameState | null;
+  pendingPickoffSafe: PendingPickoffSafe | null;
+  pendingUncaughtThird: PendingUncaughtThird | null;
+} & GameActions;
 
 // ============================================================
 // 変換ユーティリティ
@@ -838,6 +855,15 @@ function shouldResolveInPlayWithoutAdvancement(game: GameState, result: AtBatRes
   return true;
 }
 
+/**
+ * 振り逃げ（第3ストライク不捕球）が成立しうる状況か。
+ * 2アウト時は一塁が埋まっていても成立、2アウト未満は一塁が空いている時のみ。
+ * ここが false の三振は従来通り即アウト確定し、記録のテンポを変えない。
+ */
+function canReachOnUncaughtThird(game: GameState): boolean {
+  return game.count.outs >= 2 || game.runners.first === null;
+}
+
 // ============================================================
 // 打席結果 → ランナー進塁ロジック (自動解決用、従来通り)
 // ============================================================
@@ -946,6 +972,7 @@ export const useGameStore = create<GameStore>()(
   immer((set, get) => ({
     game: null,
     pendingPickoffSafe: null,
+    pendingUncaughtThird: null,
 
     // --- ライフサイクル ---
     initGame: async (input) => {
@@ -967,7 +994,16 @@ export const useGameStore = create<GameStore>()(
           (gameState as any).isDH = { away: legacy, home: legacy };
         }
         gameState.undoStack = [];
-        set({ game: gameState });
+        // 三振/振り逃げの選択待ちは永続化されないため、状態から復元する。
+        // 打席が開いたまま 3ストライクに達しているのは選択待ちの場合だけ。
+        const openAtBat = gameState.currentAtBat;
+        const lastPitch = openAtBat?.pitches[openAtBat.pitches.length - 1];
+        const pendingUncaughtThird =
+          openAtBat && openAtBat.result === null
+          && gameState.count.strikes >= 3 && !gameState.pendingAdvancement
+            ? { result: (lastPitch?.result === 'strike_called' ? 'strikeout_looking' : 'strikeout') as 'strikeout' | 'strikeout_looking' }
+            : null;
+        set({ game: gameState, pendingUncaughtThird });
       }
     },
 
@@ -989,7 +1025,7 @@ export const useGameStore = create<GameStore>()(
     },
 
     clearActiveGame: () => {
-      set({ game: null, pendingPickoffSafe: null });
+      set({ game: null, pendingPickoffSafe: null, pendingUncaughtThird: null });
     },
 
     setVelocityEnabled: async (enabled) => {
@@ -1098,8 +1134,17 @@ export const useGameStore = create<GameStore>()(
 
         // 自動確定する打席結果がある場合
         if (atBatEnded && autoResult) {
-          applyAtBatResultToRunners(g, autoResult, autoResult === 'walk' || autoResult === 'hit_by_pitch' ? 0 : 0);
-          finalizeAtBatAndStartNext(g, autoResult);
+          if (
+            (autoResult === 'strikeout' || autoResult === 'strikeout_looking') &&
+            canReachOnUncaughtThird(g)
+          ) {
+            // 振り逃げの可能性がある三振は打席を閉じず、三振/振り逃げの選択を待つ。
+            // ここでアウトを加算しないため、振り逃げ出塁時に outs は増えない。
+            state.pendingUncaughtThird = { result: autoResult };
+          } else {
+            applyAtBatResultToRunners(g, autoResult, autoResult === 'walk' || autoResult === 'hit_by_pitch' ? 0 : 0);
+            finalizeAtBatAndStartNext(g, autoResult);
+          }
         }
 
         g.updatedAt = Date.now();
@@ -1289,6 +1334,13 @@ export const useGameStore = create<GameStore>()(
           if (batterAdv) {
             g.currentAtBat.outType = batterAdv.outcome === 'out_force' ? 'force' : 'tag';
           }
+          // 三振が進塁確認に来る経路は振り逃げ分岐のみなので、打者がセーフなら振り逃げ出塁
+          if (
+            (result === 'strikeout' || result === 'strikeout_looking') &&
+            finalAdvancements.some((a) => a.fromBase === 'batter' && a.outcome === 'safe')
+          ) {
+            g.currentAtBat.reachedOnUncaughtThird = true;
+          }
         }
 
         // ペンディングをクリア
@@ -1315,8 +1367,19 @@ export const useGameStore = create<GameStore>()(
         const g = state.game;
         if (!g || !g.pendingAdvancement) return;
 
-        // 先行加算したヒット/エラーを取り消し
         const result = g.pendingAdvancement.result;
+
+        // 振り逃げの進塁確認をキャンセルした場合は通常の三振として確定する。
+        // ここで打席を閉じないと、3ストライクのまま結果を入力する導線がなく宙ぶらりんになる。
+        if (result === 'strikeout' || result === 'strikeout_looking') {
+          g.pendingAdvancement = null;
+          applyAtBatResultToRunners(g, result, 0);
+          finalizeAtBatAndStartNext(g, result);
+          g.updatedAt = Date.now();
+          return;
+        }
+
+        // 先行加算したヒット/エラーを取り消し
         if (['single', 'double', 'triple', 'home_run'].includes(result)) {
           const side = offenseSide(g);
           if (side === 'away') g.scoreboard.awayHits -= 1;
@@ -1388,6 +1451,8 @@ export const useGameStore = create<GameStore>()(
         if (!g?.undoStack?.length) return;
         const snap = g.undoStack.pop()!;
         state.pendingPickoffSafe = restoreUndoSnapshot(g, snap);
+        // 三振/振り逃げの選択待ちは巻き戻し対象の外なので必ず解除する
+        state.pendingUncaughtThird = null;
         g.updatedAt = Date.now();
       });
     },
@@ -1589,6 +1654,37 @@ export const useGameStore = create<GameStore>()(
         if (g.count.strikes < 2) {
           g.count.strikes += 1;
         }
+        g.updatedAt = Date.now();
+      });
+    },
+
+    // --- 振り逃げ（第3ストライク不捕球） ---
+    resolveUncaughtThirdAsStrikeout: () => {
+      set((state) => {
+        const g = state.game;
+        if (!g || !state.pendingUncaughtThird) return;
+        const result = state.pendingUncaughtThird.result;
+        state.pendingUncaughtThird = null;
+        // 選択待ちに入る直前の recordPitch で undo スナップショットを積んでいるので、
+        // ここでは積まない（通常の三振と巻き戻し回数を揃える）
+        applyAtBatResultToRunners(g, result, 0);
+        finalizeAtBatAndStartNext(g, result);
+        g.updatedAt = Date.now();
+      });
+    },
+
+    resolveUncaughtThirdAsReached: () => {
+      set((state) => {
+        const g = state.game;
+        if (!g || !state.pendingUncaughtThird) return;
+        const result = state.pendingUncaughtThird.result;
+        state.pendingUncaughtThird = null;
+        // computeDefaultAdvancements は三振を明示分岐で扱わず汎用フォールバックに落ちるため、
+        // 「走者は据え置き・打者は一塁へ safe」= 振り逃げの初期状態がそのまま得られる
+        g.pendingAdvancement = {
+          result,
+          advancements: computeDefaultAdvancements(g, result),
+        };
         g.updatedAt = Date.now();
       });
     },

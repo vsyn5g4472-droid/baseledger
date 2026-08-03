@@ -369,6 +369,17 @@ export interface AtBatLog {
   signPlay?: SignPlayTag;
   /** 打者がデフォルトより先に進んだ理由（複数選択可） */
   batterAdvancementReasons?: BatterAdvancementReason[];
+  /**
+   * 振り逃げ（第3ストライク不捕球）で打者が出塁した打席かどうか。
+   *
+   * result は 'strikeout' / 'strikeout_looking' のまま保持する。公認野球規則上、
+   * 振り逃げでも投手の奪三振・打者の三振・打数はいずれも通常の三振と同じく計上され、
+   * 出塁率の分子には入らないため、既存の集計はこのフラグを見なくても正しい。
+   * アウト数も進塁確定内容（runnerAdvancements）から導出されるためフラグに依存しない。
+   *
+   * このフラグは「三振なのに打者が出塁した」打席を後から識別するための記録用。
+   */
+  reachedOnUncaughtThird?: boolean;
 }
 
 // ============================================================

@@ -161,6 +161,12 @@ export const en: TranslationKeys = {
     stealSwipeHint: '← Swipe to steal',
     tagUp: 'Tag',
   },
+  uncaughtThird: {
+    title: 'Strike Three',
+    strikeout: 'Strikeout',
+    reached: 'Dropped 3rd Strike',
+    hint: 'Choose "Dropped 3rd Strike" only if the batter reached base',
+  },
   advancement: {
     title: 'Confirm Advancement',
     confirm: 'Confirm',

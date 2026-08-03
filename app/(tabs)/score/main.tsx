@@ -164,6 +164,9 @@ export default function LiveScoreScreen() {
   const recordStolenBase = useGameStore((s) => s.recordStolenBase);
   const recordCaughtStealing = useGameStore((s) => s.recordCaughtStealing);
   const addStrikeForFoulInPlay = useGameStore((s) => s.addStrikeForFoulInPlay);
+  const pendingUncaughtThird = useGameStore((s) => s.pendingUncaughtThird);
+  const resolveUncaughtThirdAsStrikeout = useGameStore((s) => s.resolveUncaughtThirdAsStrikeout);
+  const resolveUncaughtThirdAsReached = useGameStore((s) => s.resolveUncaughtThirdAsReached);
   const confirmStolenBaseAdvancements = useGameStore((s) => s.confirmStolenBaseAdvancements);
   const recordSignMiss = useGameStore((s) => s.recordSignMiss);
   const updatePlayerBats = useGameStore((s) => s.updatePlayerBats);
@@ -561,10 +564,25 @@ export default function LiveScoreScreen() {
   }, [confirmAdvancement, persist, atBatSign]);
 
   const handleAdvancementCancel = useCallback(() => {
+    const result = useGameStore.getState().game?.pendingAdvancement?.result;
+    const wasUncaughtThird = result === 'strikeout' || result === 'strikeout_looking';
     cancelAdvancement();
     persist();
-    setShowFieldView(true);
+    // 振り逃げのキャンセルは通常の三振として打席が確定するため、打球入力には戻さない
+    setShowFieldView(!wasUncaughtThird);
   }, [cancelAdvancement, persist, setShowFieldView]);
+
+  const handleUncaughtThirdStrikeout = useCallback(() => {
+    resolveUncaughtThirdAsStrikeout();
+    setShowFieldView(false);
+    persist();
+  }, [resolveUncaughtThirdAsStrikeout, persist]);
+
+  const handleUncaughtThirdReached = useCallback(() => {
+    resolveUncaughtThirdAsReached();
+    setShowFieldView(false);
+    persist();
+  }, [resolveUncaughtThirdAsReached, persist]);
 
   const handleStealAdvancementConfirm = useCallback((finalAdvancements: RunnerAdvancement[]) => {
     if (!pendingStealAdv) return;
@@ -1032,6 +1050,46 @@ export default function LiveScoreScreen() {
           onConfirm={handleStealAdvancementConfirm}
           onCancel={handleStealAdvancementCancel}
         />
+      </View>
+    );
+  }
+
+  // 3ストライク到達時の 三振 / 振り逃げ 選択。
+  // 走者なしの場面で毎回発火するため、主ボタン（三振）を1タップで流せる形にする。
+  if (pendingUncaughtThird) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.scoreBar}>
+          <View style={styles.teamScore}>
+            <Text style={[styles.teamName, isTop && styles.teamNameActive]}>{game.awayTeam.name}</Text>
+            <Text style={styles.score}>{game.scoreboard.awayTotal}</Text>
+          </View>
+          <View style={styles.inningBadge}>
+            <Text style={styles.inningText}>{inningLabel}</Text>
+          </View>
+          <View style={styles.teamScore}>
+            <Text style={[styles.teamName, !isTop && styles.teamNameActive]}>{game.homeTeam.name}</Text>
+            <Text style={styles.score}>{game.scoreboard.homeTotal}</Text>
+          </View>
+        </View>
+        <View style={styles.uncaughtThirdBody}>
+          <Text style={styles.uncaughtThirdTitle}>{t.uncaughtThird.title}</Text>
+          <TouchableOpacity
+            style={styles.uncaughtThirdPrimary}
+            onPress={handleUncaughtThirdStrikeout}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.uncaughtThirdPrimaryText}>{t.uncaughtThird.strikeout}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.uncaughtThirdSecondary}
+            onPress={handleUncaughtThirdReached}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.uncaughtThirdSecondaryText}>{t.uncaughtThird.reached}</Text>
+          </TouchableOpacity>
+          <Text style={styles.uncaughtThirdHint}>{t.uncaughtThird.hint}</Text>
+        </View>
       </View>
     );
   }
@@ -2495,6 +2553,54 @@ const styles = StyleSheet.create({
 
   mainScroll: { flex: 1 },
   mainContent: { paddingBottom: 40 },
+
+  // ── 3ストライク時の 三振 / 振り逃げ 選択 ──
+  uncaughtThirdBody: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
+  uncaughtThirdTitle: {
+    fontSize: Typography.body,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+  },
+  // 主ボタン: 通常の三振を1タップで流すための大きなターゲット
+  uncaughtThirdPrimary: {
+    width: '100%',
+    paddingVertical: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  uncaughtThirdPrimaryText: {
+    fontSize: Typography.h2,
+    fontWeight: '800',
+    color: Colors.white,
+  },
+  // 副ボタン: 例外的な操作なので小さく控えめに
+  uncaughtThirdSecondary: {
+    marginTop: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  uncaughtThirdSecondaryText: {
+    fontSize: Typography.caption,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  uncaughtThirdHint: {
+    marginTop: Spacing.md,
+    fontSize: Typography.tiny,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
 
   statusRow: {
     flexDirection: 'row',

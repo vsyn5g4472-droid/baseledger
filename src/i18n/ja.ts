@@ -159,6 +159,12 @@ export const ja = {
     stealSwipeHint: '← スワイプで盗塁',
     tagUp: 'タグ',
   },
+  uncaughtThird: {
+    title: '3ストライク',
+    strikeout: '三振',
+    reached: '振り逃げ',
+    hint: '振り逃げの場合のみ「振り逃げ」を選択',
+  },
   advancement: {
     title: '進塁確認',
     confirm: '確定',
