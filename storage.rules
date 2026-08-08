@@ -51,12 +51,13 @@ service firebase.storage {
     }
 
     // 投稿メディア: posts/{postId}/{fileName}
+    // 新規アップロードのみ許可。既存ファイルの上書き・削除は禁止
     match /posts/{postId}/{fileName} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated()
+      allow create: if isAuthenticated()
         && isAllowedMedia()
         && isValidFileSize();
-      allow delete: if isAuthenticated();
+      allow update, delete: if false;
     }
 
     match /{allPaths=**} {

@@ -39,8 +39,8 @@ const MODEL = "claude-haiku-4-5-20251001";
 /** 1 リクエストあたりのデータ上限（20 KB） */
 const MAX_DATA_SIZE_BYTES = 20 * 1024;
 
-/** AI レポートを利用できるプラン */
-const ALLOWED_PLANS = new Set(["light", "standard", "pro"]);
+/** AI レポートを利用できるプラン（無料は月次上限でクライアント側も制限） */
+const ALLOWED_PLANS = new Set(["free", "light", "standard", "pro"]);
 
 /** AI 予測を利用できるプラン（PRO のみ） */
 const PREDICTION_ALLOWED_PLANS = new Set(["pro"]);
@@ -295,7 +295,7 @@ export const generateAIReport = onCall(
     if (!ALLOWED_PLANS.has(plan)) {
       throw new HttpsError(
         "permission-denied",
-        "AI レポートはライトプラン以上でご利用いただけます",
+        "AI レポートをご利用いただけません",
         { reason: "plan_required", currentPlan: plan },
       );
     }
@@ -591,6 +591,118 @@ export const onNotificationCreated = onDocumentCreated(
       body: msg.body,
       sound: "default",
     }]);
+  },
+);
+
+// =============================================================================
+// 8. 招待コードの利用（特典付与はサーバー側でのみ実行）
+// =============================================================================
+
+/** 招待ボーナスの上限（クライアント表示と一致させること） */
+const INVITE_AI_REPORT_BONUS_MAX = 5;   // 1〜5人目: AI分析+1
+const INVITE_GAME_PDF_BONUS_MAX = 3;    // 1〜3人目: 試合記録+1・PDF共有+1
+const INVITE_STANDARD_PLAN_COUNT = 10;  // 10人達成: STANDARD 1ヶ月
+
+interface RedeemInviteCodeResult {
+  applied: boolean;
+  reason?: "device_already_used" | "own_code" | "already_used";
+}
+
+export const redeemInviteCode = onCall(
+  { maxInstances: 3 },
+  async (request): Promise<RedeemInviteCodeResult> => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "ログインしてからもう一度お試しください", {
+        reason: "unauthenticated",
+      });
+    }
+    const uid = request.auth.uid;
+
+    const { inviteCode, deviceId } = request.data as {
+      inviteCode?: unknown;
+      deviceId?: unknown;
+    };
+    if (typeof inviteCode !== "string" || inviteCode.length === 0 || inviteCode.length > 64) {
+      throw new HttpsError("invalid-argument", "招待コードが不正です", {
+        reason: "invalid_invite_code",
+      });
+    }
+    if (typeof deviceId !== "string" || deviceId.length === 0 || deviceId.length > 128) {
+      throw new HttpsError("invalid-argument", "デバイスIDが不正です", {
+        reason: "invalid_device_id",
+      });
+    }
+
+    const codeRef = db.collection("inviteCodes").doc(inviteCode);
+    const deviceRef = db.collection("deviceRegistry").doc(deviceId);
+    const newUserRef = db.collection("users").doc(uid);
+
+    return await db.runTransaction(async (tx): Promise<RedeemInviteCodeResult> => {
+      const codeSnap = await tx.get(codeRef);
+      if (!codeSnap.exists) {
+        throw new HttpsError("not-found", "招待コードが見つかりません", {
+          reason: "invite_code_not_found",
+        });
+      }
+      const codeData = codeSnap.data() ?? {};
+      const ownerId = codeData.ownerId as string | undefined;
+      if (!ownerId) {
+        throw new HttpsError("failed-precondition", "招待コードが不正です", {
+          reason: "invalid_invite_code",
+        });
+      }
+
+      // 同一デバイスからの複数アカウント作成による特典の多重取得を防ぐ
+      const deviceSnap = await tx.get(deviceRef);
+      if (deviceSnap.exists) return { applied: false, reason: "device_already_used" };
+
+      if (ownerId === uid) return { applied: false, reason: "own_code" };
+
+      const usedBy: string[] = Array.isArray(codeData.usedBy) ? codeData.usedBy : [];
+      if (usedBy.includes(uid)) return { applied: false, reason: "already_used" };
+
+      const ownerRef = db.collection("users").doc(ownerId);
+      const ownerSnap = await tx.get(ownerRef);
+      if (!ownerSnap.exists) {
+        throw new HttpsError("failed-precondition", "招待コードの所有者が見つかりません", {
+          reason: "owner_not_found",
+        });
+      }
+      const currentCount = (ownerSnap.data()?.inviteCount as number | undefined) ?? 0;
+      const newCount = currentCount + 1;
+
+      // ── 書き込み ──────────────────────────────────────────
+      tx.update(codeRef, { usedBy: FieldValue.arrayUnion(uid) });
+      tx.set(deviceRef, { userId: uid, createdAt: FieldValue.serverTimestamp() });
+
+      // 招待された側のボーナス
+      tx.update(newUserRef, {
+        bonusAiReports: FieldValue.increment(1),
+        bonusGames: FieldValue.increment(1),
+        bonusPdfShares: FieldValue.increment(1),
+      });
+
+      // 招待した側のボーナス
+      const ownerUpdate: Record<string, unknown> = {
+        inviteCount: FieldValue.increment(1),
+      };
+      if (newCount <= INVITE_AI_REPORT_BONUS_MAX) {
+        ownerUpdate.bonusAiReports = FieldValue.increment(1);
+      }
+      if (newCount <= INVITE_GAME_PDF_BONUS_MAX) {
+        ownerUpdate.bonusGames = FieldValue.increment(1);
+        ownerUpdate.bonusPdfShares = FieldValue.increment(1);
+      }
+      if (newCount === INVITE_STANDARD_PLAN_COUNT) {
+        const expires = new Date();
+        expires.setDate(expires.getDate() + 30);
+        ownerUpdate.plan = "standard";
+        ownerUpdate.standardExpiresAt = admin.firestore.Timestamp.fromDate(expires);
+      }
+      tx.update(ownerRef, ownerUpdate);
+
+      return { applied: true };
+    });
   },
 );
 
