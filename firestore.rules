@@ -344,5 +344,13 @@ service cloud.firestore {
     match /deviceRegistry/{deviceId} {
       allow read, write: if false;
     }
+
+    // ─── aiUsageEvents ────────────────────────────────────────
+    // Cloud Functions (Admin SDK) のみ書き込み可能。本人は自分の利用量のみ参照できる。
+    match /aiUsageEvents/{eventId} {
+      allow read: if isSignedIn()
+        && resource.data.uid == request.auth.uid;
+      allow create, update, delete: if false;
+    }
   }
 }

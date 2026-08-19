@@ -36,6 +36,15 @@ const anthropicApiKey = defineSecret("ANTHROPIC_API_KEY");
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-haiku-4-5-20251001";
 
+/** Claude Haiku 4.5 の Claude API 標準料金（USD / 1M tokens、2026-08-20確認）。 */
+const ANTHROPIC_PRICE_USD_PER_MILLION = {
+  input: 1,
+  output: 5,
+  cacheCreation5m: 1.25,
+  cacheCreation1h: 2,
+  cacheRead: 0.1,
+} as const;
+
 /** 1 リクエストあたりのデータ上限（20 KB） */
 const MAX_DATA_SIZE_BYTES = 20 * 1024;
 
@@ -74,6 +83,20 @@ interface AIPredictionCore {
   generatedAt: number;
 }
 
+interface AnthropicUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_5m_input_tokens: number;
+  cache_creation_1h_input_tokens: number;
+}
+
+type AnthropicUsageContext =
+  | { uid: string; requestType: "report"; reportType: ReportType }
+  | { uid: string; requestType: "prediction"; predictionType: PredictionType }
+  | { uid: string; requestType: "lineup-extraction" };
+
 interface AIReportResponse extends AIReportCore {
   usage: {
     used: number;
@@ -100,6 +123,69 @@ function byteLen(v: unknown): number {
   return Buffer.byteLength(JSON.stringify(v ?? ""), "utf8");
 }
 
+function nonNegativeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function parseAnthropicUsage(value: unknown): AnthropicUsage {
+  const usage = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+  const cacheCreation = usage.cache_creation && typeof usage.cache_creation === "object"
+    ? usage.cache_creation as Record<string, unknown>
+    : {};
+  return {
+    input_tokens: nonNegativeNumber(usage.input_tokens),
+    output_tokens: nonNegativeNumber(usage.output_tokens),
+    cache_creation_input_tokens: nonNegativeNumber(usage.cache_creation_input_tokens),
+    cache_read_input_tokens: nonNegativeNumber(usage.cache_read_input_tokens),
+    cache_creation_5m_input_tokens: nonNegativeNumber(cacheCreation.ephemeral_5m_input_tokens),
+    cache_creation_1h_input_tokens: nonNegativeNumber(cacheCreation.ephemeral_1h_input_tokens),
+  };
+}
+
+function estimateAnthropicCostUsd(usage: AnthropicUsage): number {
+  // TTL内訳が返らない旧レスポンスは、cache_creation_input_tokens を5分料金で見積もる。
+  const categorizedCacheCreation =
+    usage.cache_creation_5m_input_tokens + usage.cache_creation_1h_input_tokens;
+  const uncategorizedCacheCreation = Math.max(
+    0,
+    usage.cache_creation_input_tokens - categorizedCacheCreation,
+  );
+  const cost = (
+    usage.input_tokens * ANTHROPIC_PRICE_USD_PER_MILLION.input
+    + usage.output_tokens * ANTHROPIC_PRICE_USD_PER_MILLION.output
+    + (usage.cache_creation_5m_input_tokens + uncategorizedCacheCreation)
+      * ANTHROPIC_PRICE_USD_PER_MILLION.cacheCreation5m
+    + usage.cache_creation_1h_input_tokens
+      * ANTHROPIC_PRICE_USD_PER_MILLION.cacheCreation1h
+    + usage.cache_read_input_tokens * ANTHROPIC_PRICE_USD_PER_MILLION.cacheRead
+  ) / 1_000_000;
+  return Number(cost.toFixed(8));
+}
+
+/**
+ * Anthropic の実利用量を記録する。計測失敗で本来のAI処理を失敗させない。
+ * Admin SDK からのみ書き込み、クライアントは Firestore Rules 上で本人分の読み取りだけ可能。
+ */
+async function recordAnthropicUsage(
+  context: AnthropicUsageContext,
+  rawUsage: unknown,
+): Promise<void> {
+  try {
+    const usage = parseAnthropicUsage(rawUsage);
+    await db.collection("aiUsageEvents").add({
+      ...context,
+      model: MODEL,
+      ...usage,
+      estimatedCostUsd: estimateAnthropicCostUsd(usage),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    console.warn("[recordAnthropicUsage] failed", error);
+  }
+}
+
 /**
  * 指定 uid のプランを Firestore から取得する。
  * 欠損やドキュメント不在の場合は 'free' を返す。
@@ -116,7 +202,11 @@ async function fetchUserPlan(uid: string): Promise<string> {
 // 4. Anthropic 呼び出し（Emulator 用モック切替付き）
 // =============================================================================
 
-async function callAnthropic(userPrompt: string, apiKey: string): Promise<AIReportCore> {
+async function callAnthropic(
+  userPrompt: string,
+  apiKey: string,
+  usageContext: AnthropicUsageContext,
+): Promise<AIReportCore> {
   // Emulator 環境 + MOCK_ANTHROPIC=true の場合は実 API を叩かず固定レスポンスを返す
   if (
     process.env.FUNCTIONS_EMULATOR === "true" &&
@@ -163,6 +253,7 @@ async function callAnthropic(userPrompt: string, apiKey: string): Promise<AIRepo
   }
 
   const data = await response.json();
+  await recordAnthropicUsage(usageContext, data?.usage);
   const rawText: string = data?.content?.[0]?.text ?? "";
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -184,6 +275,7 @@ async function callAnthropic(userPrompt: string, apiKey: string): Promise<AIRepo
 async function callAnthropicForPrediction(
   userPrompt: string,
   apiKey: string,
+  usageContext: AnthropicUsageContext,
 ): Promise<AIPredictionCore> {
   if (
     process.env.FUNCTIONS_EMULATOR === "true" &&
@@ -228,6 +320,7 @@ async function callAnthropicForPrediction(
   }
 
   const data = await response.json();
+  await recordAnthropicUsage(usageContext, data?.usage);
   const rawText: string = data?.content?.[0]?.text ?? "";
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -333,7 +426,11 @@ export const generateAIReport = onCall(
 
     let report: AIReportCore;
     try {
-      report = await callAnthropic(userPrompt, anthropicApiKey.value());
+      report = await callAnthropic(userPrompt, anthropicApiKey.value(), {
+        uid,
+        requestType: "report",
+        reportType: reportType as ReportType,
+      });
     } catch (err) {
       // Anthropic 呼び出しに失敗した場合、利用回数をロールバック
       try {
@@ -415,7 +512,11 @@ export const generateAIPrediction = onCall(
     });
 
     const userPrompt = buildPromptForPredictionType(predictionType as PredictionType, data);
-    return await callAnthropicForPrediction(userPrompt, anthropicApiKey.value());
+    return await callAnthropicForPrediction(userPrompt, anthropicApiKey.value(), {
+      uid,
+      requestType: "prediction",
+      predictionType: predictionType as PredictionType,
+    });
   },
 );
 
@@ -524,6 +625,10 @@ export const extractLineupFromImage = onCall(
     }
 
     const data = await response.json();
+    await recordAnthropicUsage(
+      { uid: request.auth.uid, requestType: "lineup-extraction" },
+      data?.usage,
+    );
     const text: string = data?.content?.[0]?.text ?? "{}";
     try {
       const parsed = JSON.parse(text);
