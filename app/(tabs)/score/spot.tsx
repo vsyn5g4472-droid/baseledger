@@ -89,6 +89,7 @@ export default function SpotAtBatScreen() {
   // 状況入力 (編集モーダルで管理)
   const [playerName, setPlayerName]   = useState('');
   const [pitcherName, setPitcherName] = useState('');
+  const [pitcherThrows, setPitcherThrows] = useState<'L' | 'R' | undefined>(undefined);
   const [opponent, setOpponent]       = useState('');
   const [outs, setOuts]               = useState(0);
   const [runners, setRunners]         = useState({ first: false, second: false, third: false });
@@ -150,6 +151,8 @@ export default function SpotAtBatScreen() {
       await createSpotAtBat(currentUser.uid, {
         playerName:    playerName.trim(),
         pitcherName:   pitcherName.trim(),
+        batterBats:    isLeftBatter ? 'L' : 'R',
+        ...(pitcherThrows ? { pitcherThrows } : {}),
         opponent:      opponent.trim() || undefined,
         gameDate:      Timestamp.now(),
         outs,
@@ -579,14 +582,31 @@ export default function SpotAtBatScreen() {
                   style={styles.inlineInput}
                   dense
                 />
-                <TextInput
-                  mode="flat"
-                  placeholder="投手名"
-                  value={pitcherName}
-                  onChangeText={setPitcherName}
-                  style={styles.inlineInput}
-                  dense
-                />
+                <View style={styles.pitcherInputRow}>
+                  <TextInput
+                    mode="flat"
+                    placeholder="投手名"
+                    value={pitcherName}
+                    onChangeText={setPitcherName}
+                    style={[styles.inlineInput, styles.pitcherNameInput]}
+                    dense
+                  />
+                  {(['R', 'L'] as const).map((hand) => {
+                    const selected = pitcherThrows === hand;
+                    return (
+                      <TouchableOpacity
+                        key={hand}
+                        style={[styles.pitcherHandBadge, selected && styles.pitcherHandBadgeSelected]}
+                        onPress={() => setPitcherThrows((current) => current === hand ? undefined : hand)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.pitcherHandText, selected && styles.pitcherHandTextSelected]}>
+                          {hand === 'R' ? '右投' : '左投'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
             </View>
           </View>
@@ -1044,5 +1064,33 @@ const styles = StyleSheet.create({
   },
   inlinePlayerCol: {
     flex: 1,
+  },
+  pitcherInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pitcherNameInput: {
+    flex: 1,
+  },
+  pitcherHandBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primaryLight,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  pitcherHandBadgeSelected: {
+    backgroundColor: Colors.secondary,
+    borderColor: Colors.secondary,
+  },
+  pitcherHandText: {
+    fontSize: Typography.tiny,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  pitcherHandTextSelected: {
+    color: Colors.white,
   },
 });

@@ -11,9 +11,8 @@ function allRosterPlayers(game: GameState): Player[] {
   return [...collect(game.awayTeam), ...collect(game.homeTeam)];
 }
 
-function resolvePlayerName(game: GameState, playerId: string): string {
-  const player = allRosterPlayers(game).find((p) => p.id === playerId);
-  return player?.name ?? playerId;
+function resolvePlayer(game: GameState, playerId: string): Player | undefined {
+  return allRosterPlayers(game).find((p) => p.id === playerId);
 }
 
 function pitchLogToSpotPitch(pitch: PitchLog, index: number): SpotAtBatPitch {
@@ -57,14 +56,16 @@ export function atBatLogToSpotAtBatInput(
     throw new Error('完了していない打席はインポートできません。');
   }
 
-  const batterName = resolvePlayerName(game, atBat.batterId);
-  const pitcherName = resolvePlayerName(game, atBat.pitcherId);
+  const batter = resolvePlayer(game, atBat.batterId);
+  const pitcher = resolvePlayer(game, atBat.pitcherId);
   const firstPitch = atBat.pitches[0];
   const inningLabel = `${atBat.inning.number}回${atBat.inning.half === 'top' ? '表' : '裏'}`;
 
   return {
-    playerName: batterName,
-    pitcherName,
+    playerName: batter?.name ?? atBat.batterId,
+    pitcherName: pitcher?.name ?? atBat.pitcherId,
+    ...(batter ? { batterBats: batter.bats } : {}),
+    ...(pitcher ? { pitcherThrows: pitcher.throws } : {}),
     opponent: opponentName(game, atBat.batterId),
     gameDate: Timestamp.fromMillis(game.createdAt),
     outs: firstPitch?.countBefore.outs,

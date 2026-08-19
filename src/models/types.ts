@@ -508,6 +508,10 @@ export interface SpotAtBat {
   userId: string;
   playerName: string;
   pitcherName: string;
+  /** 打者の左右。既存レコードには存在しない（S は通常試合インポート時のみ）。 */
+  batterBats?: 'L' | 'R' | 'S';
+  /** 投手の利き腕。既存レコードには存在しない任意項目。undefined を右投扱いしないこと。 */
+  pitcherThrows?: 'L' | 'R';
   opponent?: string;
   gameDate: Timestamp;
   outs?: number;
