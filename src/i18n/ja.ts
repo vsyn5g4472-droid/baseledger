@@ -53,6 +53,7 @@ export const ja = {
       categoryRequired: '試合区分を選択してください',
       pitcherRequired: '投手が未設定です（DH制では投手を別途登録してください）',
       pitcherInBattingOrder: 'DH制では「P」は打順に含められません',
+      pitcherPositionRequired: '守備位置「P」の選手を1人設定してください',
     },
   },
   positions: {

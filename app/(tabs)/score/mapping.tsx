@@ -18,6 +18,8 @@ import { POSITIONS, type Player, type Position } from '../../../src/types/game';
 import { useI18n } from '../../../src/i18n';
 import { PositionDiamondPicker } from '../../../src/components/score/PositionDiamondPicker';
 import { getDuplicatePositionPlayerIds } from '../../../src/utils/positionAvailability';
+import PitcherReassignmentModal from '../../../src/components/PitcherReassignmentModal';
+import { db } from '../../../src/db';
 
 interface PlayerRow {
   player: Player;
@@ -94,34 +96,58 @@ function BatsMenuButton({ bats, onUpdate }: { bats: 'L' | 'R' | 'S'; onUpdate: (
   );
 }
 
+function buildPlayerRows(game: NonNullable<ReturnType<typeof useGameStore.getState>['game']>): PlayerRow[] {
+  const rows: PlayerRow[] = [];
+  const addDHPitcherRow = (side: 'away' | 'home') => {
+    const team = side === 'away' ? game.awayTeam : game.homeTeam;
+    if (!game.isDH?.[side]) return;
+    const player: Player = team.roster.pitcher ?? {
+      id: `pitcher-temp-${side}`,
+      name: '',
+      number: null,
+      position: 'P',
+      bats: 'R',
+      throws: 'R',
+      isPlaceholder: true,
+    };
+    rows.push({
+      player,
+      side,
+      order: 0,
+      name: player.name,
+      number: String(player.number ?? ''),
+      position: 'P',
+      isPitcher: true,
+      throws: player.throws ?? 'R',
+      bats: player.bats ?? 'R',
+    });
+  };
+  game.awayTeam.roster.starters.forEach((p, i) => {
+    rows.push({ player: p, side: 'away', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
+  });
+  addDHPitcherRow('away');
+  game.homeTeam.roster.starters.forEach((p, i) => {
+    rows.push({ player: p, side: 'home', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
+  });
+  addDHPitcherRow('home');
+  return rows;
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 export default function PlayerMappingScreen() {
   const game = useGameStore((s) => s.game);
   const updatePlayerMapping = useGameStore((s) => s.updatePlayerMapping);
   const setGameDH = useGameStore((s) => s.setGameDH);
+  const reassignActivePitcherRecords = useGameStore((s) => s.reassignActivePitcherRecords);
+  const loadGame = useGameStore((s) => s.loadGame);
   const { t } = useI18n();
+  const [showPitcherReassignment, setShowPitcherReassignment] = useState(false);
 
   const [awayDH, setAwayDH] = useState(() => game?.isDH?.away ?? false);
   const [homeDH, setHomeDH] = useState(() => game?.isDH?.home ?? false);
 
   const initialRows = useMemo<PlayerRow[]>(() => {
-    if (!game) return [];
-    const rows: PlayerRow[] = [];
-    game.awayTeam.roster.starters.forEach((p, i) => {
-      rows.push({ player: p, side: 'away', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
-    });
-    if (game.isDH?.away && game.awayTeam.roster.pitcher) {
-      const p = game.awayTeam.roster.pitcher;
-      rows.push({ player: p, side: 'away', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
-    }
-    game.homeTeam.roster.starters.forEach((p, i) => {
-      rows.push({ player: p, side: 'home', order: i + 1, name: p.name, number: String(p.number ?? ''), position: p.position, isPitcher: false, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
-    });
-    if (game.isDH?.home && game.homeTeam.roster.pitcher) {
-      const p = game.homeTeam.roster.pitcher;
-      rows.push({ player: p, side: 'home', order: 0, name: p.name, number: String(p.number ?? ''), position: 'P' as Position, isPitcher: true, throws: p.throws ?? 'R', bats: p.bats ?? 'R' });
-    }
-    return rows;
+    return game ? buildPlayerRows(game) : [];
   }, [game]);
 
   const [rows, setRows] = useState<PlayerRow[]>(initialRows);
@@ -165,6 +191,10 @@ export default function PlayerMappingScreen() {
         r.bats !== (r.player.bats ?? 'R'),
     );
   }, [rows]);
+
+  useEffect(() => {
+    if (!showPitcherReassignment && !hasChanges) setRows(initialRows);
+  }, [hasChanges, initialRows, showPitcherReassignment]);
 
   const handleBack = useCallback(() => {
     if (!hasChanges) {
@@ -392,6 +422,21 @@ export default function PlayerMappingScreen() {
           </Text>
         </View>
 
+        <TouchableOpacity
+          style={styles.reassignBtn}
+          onPress={() => {
+            if (hasChanges) {
+              Alert.alert('先に選手情報を保存してください', '未保存の選手情報があるため、保存後に投手記録を移してください。');
+              return;
+            }
+            setShowPitcherReassignment(true);
+          }}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="baseball" size={18} color={Colors.error} />
+          <Text style={styles.reassignBtnText}>投手記録を正しい選手へ移す</Text>
+        </TouchableOpacity>
+
         <FlatList
           data={[1]}
           keyExtractor={() => 'main'}
@@ -412,6 +457,23 @@ export default function PlayerMappingScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {game && (
+        <PitcherReassignmentModal
+          visible={showPitcherReassignment}
+          game={game}
+          mode="live"
+          onClose={() => setShowPitcherReassignment(false)}
+          onSaved={() => {}}
+          onReassignLive={reassignActivePitcherRecords}
+          onReload={async () => {
+            const local = await db.games.get(game.id);
+            if (!local) return null;
+            await loadGame(game.id);
+            return useGameStore.getState().game;
+          }}
+        />
+      )}
 
     </KeyboardAvoidingView>
   );
@@ -438,6 +500,24 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption,
     color: Colors.primary,
     lineHeight: 18,
+  },
+  reassignBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    borderRadius: BorderRadius.md,
+    backgroundColor: '#FFF3F3',
+  },
+  reassignBtnText: {
+    color: Colors.error,
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
   },
 
   listContent: { padding: Spacing.md, paddingBottom: Spacing.xxl },

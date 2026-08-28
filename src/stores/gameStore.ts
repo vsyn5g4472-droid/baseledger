@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { produce } from 'immer';
 import { immer } from 'zustand/middleware/immer';
 import { db } from '../db';
 import { incrementGameUsage } from '../services/planService';
@@ -42,6 +43,22 @@ import type {
 } from '../types/game';
 import { HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT } from '../types/game';
 import type { AtBatExtra } from '../types/game';
+import {
+  reassignPitcherRecords,
+  type PitcherReassignmentInput,
+} from '../services/pitcherReassignmentService';
+import {
+  safeLocalGamePut,
+  type LocalPutResult,
+} from '../services/pitcherReassignmentPersistence';
+import {
+  findPitcherById,
+  hasPitcherAttributionReference,
+  hasUnresolvedPitcherStints,
+  isUnassignedPitcherId,
+  makeUnassignedPitcherInput,
+  nextUnassignedPitcherNumber,
+} from '../services/unassignedPitcherService';
 
 // ============================================================
 // ヘルパー: 攻撃/守備チームの判定
@@ -184,6 +201,12 @@ interface GameActions {
   setPhase: (phase: GamePhase) => void;
   persist: () => Promise<void>;
   clearActiveGame: () => void;
+  /** 試合中の投手記録を明示選択した選手へ移管し、端末保存を確認する。 */
+  reassignActivePitcherRecords: (input: PitcherReassignmentInput) => Promise<LocalPutResult>;
+  /** 実投手をまだ登録せず、新しい投球区間専用IDで投手交代する。 */
+  startUnassignedPitcherStint: (
+    side: 'away' | 'home',
+  ) => Promise<'started' | 'blocked' | 'save_failed' | 'unknown_local_state'>;
 
   // --- 投球アクション ---
   /**
@@ -354,6 +377,8 @@ type GameStore = {
   game: GameState | null;
   pendingPickoffSafe: PendingPickoffSafe | null;
   pendingUncaughtThird: PendingUncaughtThird | null;
+  /** 直前の端末保存結果が不明な間、古いstateによる追加保存を止める。 */
+  persistBlocked: boolean;
 } & GameActions;
 
 // ============================================================
@@ -361,17 +386,18 @@ type GameStore = {
 // ============================================================
 
 function toPlayer(
-  input: { name: string; number: string; position: string; bats: string; throws: string; isPlaceholder?: boolean; realPlayerId?: string },
+  input: { name: string; number: string; position: string; bats: string; throws: string; isPlaceholder?: boolean; isUnassignedPitcher?: boolean; realPlayerId?: string },
   index: number,
 ): Player {
   return {
-    id: uid('p'),
+    id: uid(input.isUnassignedPitcher ? 'unassigned-pitcher' : 'p'),
     name: input.name,
     number: input.number.trim() ? parseInt(input.number, 10) : null,
     position: input.position as Player['position'],
     bats: (input.bats || 'R') as Player['bats'],
     throws: (input.throws || 'R') as Player['throws'],
     ...(input.isPlaceholder ? { isPlaceholder: true } : {}),
+    ...(input.isUnassignedPitcher ? { isUnassignedPitcher: true } : {}),
     ...(input.realPlayerId ? { realPlayerId: input.realPlayerId } : {}),
   };
 }
@@ -380,10 +406,33 @@ function toTeam(input: GameSetupInput['awayTeam']): Team {
   const starters = input.starters.map((s, i) => toPlayer(s, i));
   const bench = input.bench.map((b, i) => toPlayer(b, i + 100));
   const pitcher = input.pitcher ? toPlayer(input.pitcher, 999) : undefined;
+  const unassignedPitchers = input.unassignedPitchers?.map((p, i) => toPlayer(p, i + 1000));
   return {
     name: input.name,
-    roster: { starters: starters as Roster['starters'], bench, pitcher },
+    roster: {
+      starters: starters as Roster['starters'],
+      bench,
+      pitcher,
+      ...(unassignedPitchers?.length ? { unassignedPitchers } : {}),
+    },
   };
+}
+
+/**
+ * 試合開始時の投手を解決する。
+ *
+ * 登録済み投手を優先し、「今は登録しない」経路だけは打順外の未割当投手を使用する。
+ * どちらも無い状態で1番打者へフォールバックすると、打者が投手として記録されて
+ * 以後の投球・分析データまで誤るため、不正な入力はここで拒否する。
+ */
+function initialPitcher(team: Team): Player {
+  const pitcher = team.roster.pitcher
+    ?? team.roster.starters.find((player) => player.position === 'P')
+    ?? team.roster.unassignedPitchers?.[0];
+  if (!pitcher) {
+    throw new Error(`${team.name}: pitcher is not configured`);
+  }
+  return pitcher;
 }
 
 function createInitialGameState(input: GameSetupInput): GameState {
@@ -391,6 +440,8 @@ function createInitialGameState(input: GameSetupInput): GameState {
   const id = `game-${now}`;
   const away = toTeam(input.awayTeam);
   const home = toTeam(input.homeTeam);
+  const awayPitcher = initialPitcher(away);
+  const homePitcher = initialPitcher(home);
 
   const ballpark: BallparkInfo = {
     name: input.ballpark.name || '',
@@ -405,9 +456,7 @@ function createInitialGameState(input: GameSetupInput): GameState {
     id: uid('ab'),
     inning: { number: 1, half: 'top' },
     batterId: away.roster.starters[0].id,
-    pitcherId: home.roster.pitcher?.id
-      ?? home.roster.starters.find((p) => p.position === 'P')?.id
-      ?? home.roster.starters[0].id,
+    pitcherId: homePitcher.id,
     pitches: [],
     result: null,
     rbiCount: 0,
@@ -431,12 +480,8 @@ function createInitialGameState(input: GameSetupInput): GameState {
     currentBatterIndex: { away: 0, home: 0 },
     currentPitcherId: {
       // DH制: pitcher フィールドを優先; 非DH: スタメンから P を探す
-      away: away.roster.pitcher?.id
-        ?? away.roster.starters.find((p) => p.position === 'P')?.id
-        ?? away.roster.starters[0].id,
-      home: home.roster.pitcher?.id
-        ?? home.roster.starters.find((p) => p.position === 'P')?.id
-        ?? home.roster.starters[0].id,
+      away: awayPitcher.id,
+      home: homePitcher.id,
     },
     scoreboard: {
       innings: [],
@@ -973,6 +1018,7 @@ export const useGameStore = create<GameStore>()(
     game: null,
     pendingPickoffSafe: null,
     pendingUncaughtThird: null,
+    persistBlocked: false,
 
     // --- ライフサイクル ---
     initGame: async (input) => {
@@ -980,7 +1026,7 @@ export const useGameStore = create<GameStore>()(
       gameState.undoStack = [];
       await db.games.put(gameState);
       await incrementGameUsage();
-      set({ game: gameState });
+      set({ game: gameState, persistBlocked: false });
     },
 
     loadGame: async (id) => {
@@ -1003,7 +1049,7 @@ export const useGameStore = create<GameStore>()(
           && gameState.count.strikes >= 3 && !gameState.pendingAdvancement
             ? { result: (lastPitch?.result === 'strike_called' ? 'strikeout_looking' : 'strikeout') as 'strikeout' | 'strikeout_looking' }
             : null;
-        set({ game: gameState, pendingUncaughtThird });
+        set({ game: gameState, pendingUncaughtThird, persistBlocked: false });
       }
     },
 
@@ -1017,6 +1063,10 @@ export const useGameStore = create<GameStore>()(
     },
 
     persist: async () => {
+      if (get().persistBlocked) {
+        if (__DEV__) console.warn('[persist] blocked: unknown_local_state');
+        return;
+      }
       const game = get().game;
       if (game) {
         const { undoStack: _undo, ...toSave } = game;
@@ -1025,7 +1075,86 @@ export const useGameStore = create<GameStore>()(
     },
 
     clearActiveGame: () => {
-      set({ game: null, pendingPickoffSafe: null, pendingUncaughtThird: null });
+      set({
+        game: null,
+        pendingPickoffSafe: null,
+        pendingUncaughtThird: null,
+        persistBlocked: false,
+      });
+    },
+
+    reassignActivePitcherRecords: async (input) => {
+      const before = get().game;
+      if (!before) throw new Error('進行中の試合がありません。');
+      if (get().persistBlocked) {
+        return { kind: 'unknown_local_state', error: new Error('端末の保存状態を確認できません。') };
+      }
+      const next = reassignPitcherRecords(before, input).game;
+      const local = await safeLocalGamePut(next, input.logId);
+      if (local.kind === 'applied') {
+        set({ game: local.game, persistBlocked: false });
+      } else if (local.kind === 'unknown_local_state') {
+        set({ persistBlocked: true });
+      }
+      return local;
+    },
+
+    startUnassignedPitcherStint: async (side) => {
+      const before = get().game;
+      if (!before || get().persistBlocked) return 'blocked';
+
+      const sequence = nextUnassignedPitcherNumber(before, side);
+      const pitcher = toPlayer(makeUnassignedPitcherInput(sequence), 1000 + sequence);
+      const pendingPickoffSafe = get().pendingPickoffSafe;
+      const next = produce(before, (g) => {
+        const team = side === 'away' ? g.awayTeam : g.homeTeam;
+        const previousPitcherId = g.currentPitcherId[side];
+
+        pushUndoSnapshot(g, pendingPickoffSafe);
+        team.roster.unassignedPitchers = [
+          ...(team.roster.unassignedPitchers ?? []),
+          pitcher,
+        ];
+        g.currentPitcherId[side] = pitcher.id;
+        if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
+        g.currentPitcherPitchCount[side] = 0;
+        if (g.currentAtBat?.pitcherId === previousPitcherId) {
+          // 交代前に記録済みの各PitchLogは旧IDのまま保持し、進行中打席の代表投手だけ切り替える。
+          g.currentAtBat.pitcherId = pitcher.id;
+        }
+
+        // 投球参照を一度も持たなかった旧区間は共有を永久に妨げないよう除去する。
+        team.roster.unassignedPitchers = team.roster.unassignedPitchers.filter(
+          (candidate) =>
+            candidate.id === pitcher.id
+            || hasPitcherAttributionReference(g, side, candidate.id),
+        );
+        g.hasUnmappedPlayers = true;
+        g.updatedAt = Date.now();
+      });
+
+      const { undoStack: _undo, ...toSave } = next;
+      try {
+        await db.games.put(toSave as GameState);
+        set({ game: next });
+        return 'started';
+      } catch {
+        try {
+          const reread = await db.games.get(next.id);
+          const savedPitcher = reread
+            ? findPitcherById(side === 'away' ? reread.awayTeam : reread.homeTeam, pitcher.id)
+            : undefined;
+          if (reread?.currentPitcherId[side] === pitcher.id && savedPitcher?.isUnassignedPitcher) {
+            // 書き込み成功後に例外だけ返ったケース。生成済みのnextを正として継続する。
+            set({ game: next, persistBlocked: false });
+            return 'started';
+          }
+          return 'save_failed';
+        } catch {
+          set({ persistBlocked: true });
+          return 'unknown_local_state';
+        }
+      }
     },
 
     setVelocityEnabled: async (enabled) => {
@@ -1162,7 +1291,7 @@ export const useGameStore = create<GameStore>()(
         rbiCount = 1 + (r.first ? 1 : 0) + (r.second ? 1 : 0) + (r.third ? 1 : 0);
       }
 
-      // ランナーがいる、またはヒット時の打者進塁確認が必要な場合は進塁確認モードへ
+      // ランナーがいる、または打者の到達塁確認が必要な場合は進塁確認モードへ
       const hasRunners = g.runners.first || g.runners.second || g.runners.third;
       const needsBatterAdvancement = HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT.includes(result);
       if ((hasRunners || needsBatterAdvancement) && result !== 'home_run' && !shouldResolveInPlayWithoutAdvancement(g, result)) {
@@ -1755,8 +1884,18 @@ export const useGameStore = create<GameStore>()(
         }));
       const input: GameSetupInput = {
         metadata: { category: 'practice', tournamentName: '' },
-        awayTeam: { name: options?.awayName || 'チームA', starters: makePlaceholders(), bench: [] },
-        homeTeam: { name: options?.homeName || 'チームB', starters: makePlaceholders(), bench: [] },
+        awayTeam: {
+          name: options?.awayName || 'チームA',
+          starters: makePlaceholders(),
+          bench: [],
+          unassignedPitchers: [makeUnassignedPitcherInput(1)],
+        },
+        homeTeam: {
+          name: options?.homeName || 'チームB',
+          starters: makePlaceholders(),
+          bench: [],
+          unassignedPitchers: [makeUnassignedPitcherInput(1)],
+        },
         ballpark: {
           name: '',
           fenceLeft:   String(options?.fenceLeft   ?? 91),
@@ -1829,7 +1968,9 @@ export const useGameStore = create<GameStore>()(
         }
 
         const allStarters = [...g.awayTeam.roster.starters, ...g.homeTeam.roster.starters];
-        g.hasUnmappedPlayers = allStarters.some((p) => p.isPlaceholder);
+        g.hasUnmappedPlayers =
+          allStarters.some((p) => p.isPlaceholder)
+          || hasUnresolvedPitcherStints(g);
         g.updatedAt = Date.now();
       });
       await get().persist();
@@ -1923,11 +2064,13 @@ export const useGameStore = create<GameStore>()(
           team.roster.pitcher = playerIn;
           team.roster.bench[inIdx] = playerOut;
 
-          g.currentPitcherId[side] = playerIn.id;
-          if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
-          g.currentPitcherPitchCount[side] = 0;
-          if (g.currentAtBat && g.currentAtBat.pitcherId === playerOutId) {
-            g.currentAtBat.pitcherId = playerIn.id;
+          if (!isUnassignedPitcherId(g, side, g.currentPitcherId[side])) {
+            g.currentPitcherId[side] = playerIn.id;
+            if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
+            g.currentPitcherPitchCount[side] = 0;
+            if (g.currentAtBat && g.currentAtBat.pitcherId === playerOutId) {
+              g.currentAtBat.pitcherId = playerIn.id;
+            }
           }
         } else {
           // 通常の交代: starters を更新
@@ -1937,7 +2080,10 @@ export const useGameStore = create<GameStore>()(
           team.roster.starters[outIdx] = playerIn;
           team.roster.bench[inIdx] = playerOut;
 
-          if (positionToKeep === 'P') {
+          if (
+            positionToKeep === 'P'
+            && !isUnassignedPitcherId(g, side, g.currentPitcherId[side])
+          ) {
             g.currentPitcherId[side] = playerIn.id;
             if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
             g.currentPitcherPitchCount[side] = 0;
@@ -2018,7 +2164,10 @@ export const useGameStore = create<GameStore>()(
         team.roster.bench.push(playerOut);
 
         // 投手交代の場合: currentPitcherId を更新
-        if (positionToKeep === 'P' || isDHPitcher) {
+        if (
+          (positionToKeep === 'P' || isDHPitcher)
+          && !isUnassignedPitcherId(g, side, g.currentPitcherId[side])
+        ) {
           g.currentPitcherId[side] = newPlayer.id;
           if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
           g.currentPitcherPitchCount[side] = 0;
@@ -2076,9 +2225,10 @@ export const useGameStore = create<GameStore>()(
         team.roster.starters[aIdx].position = posB;
         team.roster.starters[bIdx].position = posA;
 
-        if (posA === 'P') {
+        const currentIsUnassigned = isUnassignedPitcherId(g, side, g.currentPitcherId[side]);
+        if (posA === 'P' && !currentIsUnassigned) {
           g.currentPitcherId[side] = playerBId;
-        } else if (posB === 'P') {
+        } else if (posB === 'P' && !currentIsUnassigned) {
           g.currentPitcherId[side] = playerAId;
         }
         g.updatedAt = Date.now();
@@ -2101,9 +2251,10 @@ export const useGameStore = create<GameStore>()(
 
         team.roster.starters[idx].position = newPosition;
 
-        if (newPosition === 'P') {
+        const currentIsUnassigned = isUnassignedPitcherId(g, side, g.currentPitcherId[side]);
+        if (newPosition === 'P' && !currentIsUnassigned) {
           g.currentPitcherId[side] = playerId;
-        } else if (oldPos === 'P') {
+        } else if (oldPos === 'P' && !currentIsUnassigned) {
           const newPitcher = team.roster.starters.find((p) => p.position === 'P');
           if (newPitcher) g.currentPitcherId[side] = newPitcher.id;
         }
@@ -2160,11 +2311,13 @@ export const useGameStore = create<GameStore>()(
             playerIn.position = 'P';
             team.roster.pitcher = playerIn;
             team.roster.bench[inIdx] = playerOut;
-            g.currentPitcherId[side] = playerIn.id;
-            if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
-            g.currentPitcherPitchCount[side] = 0;
-            if (g.currentAtBat && g.currentAtBat.pitcherId === playerOutId) {
-              g.currentAtBat.pitcherId = playerIn.id;
+            if (!isUnassignedPitcherId(g, side, g.currentPitcherId[side])) {
+              g.currentPitcherId[side] = playerIn.id;
+              if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
+              g.currentPitcherPitchCount[side] = 0;
+              if (g.currentAtBat && g.currentAtBat.pitcherId === playerOutId) {
+                g.currentAtBat.pitcherId = playerIn.id;
+              }
             }
           } else {
             playerOut = team.roster.starters[outIdx];
@@ -2173,7 +2326,10 @@ export const useGameStore = create<GameStore>()(
             team.roster.starters[outIdx] = playerIn;
             team.roster.bench[inIdx] = playerOut;
 
-            if (posToKeep === 'P') {
+            if (
+              posToKeep === 'P'
+              && !isUnassignedPitcherId(g, side, g.currentPitcherId[side])
+            ) {
               g.currentPitcherId[side] = playerIn.id;
               if (!g.currentPitcherPitchCount) g.currentPitcherPitchCount = { away: 0, home: 0 };
               g.currentPitcherPitchCount[side] = 0;
@@ -2215,9 +2371,10 @@ export const useGameStore = create<GameStore>()(
           if (idx === -1) continue;
           const oldPos = team.roster.starters[idx].position;
           team.roster.starters[idx].position = newPosition;
-          if (newPosition === 'P') {
+          const currentIsUnassigned = isUnassignedPitcherId(g, side, g.currentPitcherId[side]);
+          if (newPosition === 'P' && !currentIsUnassigned) {
             g.currentPitcherId[side] = playerId;
-          } else if (oldPos === 'P') {
+          } else if (oldPos === 'P' && !currentIsUnassigned) {
             const newPitcher = team.roster.starters.find((p) => p.position === 'P');
             if (newPitcher) g.currentPitcherId[side] = newPitcher.id;
           }

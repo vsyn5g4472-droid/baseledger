@@ -24,6 +24,7 @@ import {
   TouchableOpacity,
   SafeAreaView,
   TextInput,
+  Alert,
   LayoutChangeEvent,
   Dimensions,
 } from 'react-native';
@@ -413,6 +414,9 @@ interface Props {
     substitutions: { playerOutId: string; playerInId: string; targetPosition: Position }[],
   ) => void;
   onAddBench: (side: 'away' | 'home', newPlayerData: NewPlayerData) => void;
+  onStartUnassignedPitcherStint: (
+    side: 'away' | 'home',
+  ) => Promise<'started' | 'blocked' | 'save_failed' | 'unknown_local_state'>;
 }
 
 // ─── PositionalSubstitutionModal ──────────────────────────────────────────────
@@ -424,6 +428,7 @@ export default function PositionalSubstitutionModal({
   onClose,
   onCommit,
   onAddBench,
+  onStartUnassignedPitcherStint,
 }: Props) {
   const [localStarters, setLocalStarters] = useState<LocalPlayer[]>([]);
   const [localBench,    setLocalBench]    = useState<LocalPlayer[]>([]);
@@ -751,6 +756,32 @@ export default function PositionalSubstitutionModal({
   // ── チームバッジ ──────────────────────────────────────────────────────────
   const teamName = team.name || (side === 'away' ? '後攻' : '先攻');
 
+  const confirmUnassignedPitcherChange = useCallback(() => {
+    Alert.alert(
+      '投手未登録のまま交代しますか？',
+      '新しい投球区間として記録します。打順や選手交代履歴は変更されず、実投手は後から明示的に割り当てられます。',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '交代する',
+          onPress: async () => {
+            const result = await onStartUnassignedPitcherStint(side);
+            if (result === 'started') {
+              onClose();
+              return;
+            }
+            Alert.alert(
+              '交代を保存できませんでした',
+              result === 'unknown_local_state'
+                ? '端末の保存状態を確認できません。試合を再読み込みするまで追加の記録は保存されません。'
+                : '現在の投手は変更されていません。もう一度お試しください。',
+            );
+          },
+        },
+      ],
+    );
+  }, [onClose, onStartUnassignedPitcherStint, side]);
+
   // ── 確認画面 ─────────────────────────────────────────────────────────────
   if (showConfirm) {
     return (
@@ -854,6 +885,19 @@ export default function PositionalSubstitutionModal({
         </View>
 
         <View style={styles.divider} />
+
+        <TouchableOpacity
+          style={styles.unassignedPitcherBtn}
+          onPress={confirmUnassignedPitcherChange}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="baseball" size={18} color={Colors.primary} />
+          <View style={styles.unassignedPitcherTextWrap}>
+            <Text style={styles.unassignedPitcherTitle}>投手を登録せず交代</Text>
+            <Text style={styles.unassignedPitcherHint}>投球区間を分け、実投手は後から割り当てます</Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+        </TouchableOpacity>
 
         {/* ── コンテンツ ── */}
         {showRegisterForm ? (
@@ -1031,6 +1075,29 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: Colors.border,
+  },
+  unassignedPitcherBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+    padding: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primaryLight,
+  },
+  unassignedPitcherTextWrap: { flex: 1 },
+  unassignedPitcherTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  unassignedPitcherHint: {
+    marginTop: 2,
+    fontSize: Typography.tiny,
+    color: Colors.textSecondary,
   },
 
   // Scroll

@@ -28,6 +28,10 @@ import type { GamePlayerAssignment } from '../models/types';
 import type { GameState, Player } from '../types/game';
 import type { User } from '../models/types';
 import { Colors, Spacing, Typography, BorderRadius } from '../constants/theme';
+import {
+  hasUnresolvedPitcherStints,
+  listUnresolvedPitcherStints,
+} from '../services/unassignedPitcherService';
 
 interface RosterRow {
   playerId: string;
@@ -132,6 +136,16 @@ export default function GameShareModal({ visible, onClose, game, summary }: Prop
 
   const handleShare = async () => {
     if (!currentUser || !selectedTeamId) return;
+    if (hasUnresolvedPitcherStints(game)) {
+      const labels = listUnresolvedPitcherStints(game)
+        .map(({ side, pitcher }) => `${side === 'away' ? game.awayTeam.name : game.homeTeam.name}: ${pitcher.name}`)
+        .join('\n');
+      Alert.alert(
+        '投手を割り当ててください',
+        `未割当の投手記録があるため、試合データを共有できません。\n\n${labels}`,
+      );
+      return;
+    }
 
     const team = teams.find((t) => t.id === selectedTeamId);
     if (!team) return;

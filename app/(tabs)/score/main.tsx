@@ -60,6 +60,7 @@ import InGameStatsPanel from '../../../src/components/score/InGameStatsPanel';
 import { usePlanGate } from '../../../src/hooks/usePlanGate';
 import { showOpponentDataPlanAlert } from '../../../src/utils/planLimitAlerts';
 import type { AtBatLog, Player } from '../../../src/types/game';
+import { findPitcherById } from '../../../src/services/unassignedPitcherService';
 
 // ── 投球コース記録キャンバス定数 (横4:縦7 ストライクゾーン) ──────────
 const SZ_W       = 112;
@@ -171,6 +172,7 @@ export default function LiveScoreScreen() {
   const recordSignMiss = useGameStore((s) => s.recordSignMiss);
   const updatePlayerBats = useGameStore((s) => s.updatePlayerBats);
   const setCurrentAtBatNote = useGameStore((s) => s.setCurrentAtBatNote);
+  const startUnassignedPitcherStint = useGameStore((s) => s.startUnassignedPitcherStint);
 
   // ── バッターの打席（左右反転用） ────────────────────────────────────
   // game が null の場合もフックの呼び出し順を守るため早期に計算
@@ -916,12 +918,16 @@ export default function LiveScoreScreen() {
   const batterIdx = game.currentBatterIndex[offSide];
   const batter = offTeam.roster.starters[batterIdx];
   const pitcherId = game.currentPitcherId[defSide];
-  const pitcher =
-    defTeam.roster.starters.find((p) => p.id === pitcherId)
-    ?? (defTeam.roster.pitcher?.id === pitcherId ? defTeam.roster.pitcher : undefined)
-    ?? defTeam.roster.starters.find((p) => p.position === 'P')
-    ?? defTeam.roster.pitcher
-    ?? defTeam.roster.starters[0];
+  const pitcher = findPitcherById(defTeam, pitcherId) ?? {
+    id: pitcherId,
+    name: '投手未登録',
+    number: null,
+    position: '' as const,
+    bats: 'R' as const,
+    throws: 'R' as const,
+    isPlaceholder: true,
+    isUnassignedPitcher: true,
+  };
   const catcher = defTeam.roster.starters.find((p) => p.position === 'C');
 
   const inningLabel = `${game.inning.number}${t.common.inning}${isTop ? t.common.top : t.common.bottom}`;
@@ -1193,7 +1199,13 @@ export default function LiveScoreScreen() {
               <Text style={styles.matchupStat}>{game.currentPitcherPitchCount?.[defSide] ?? game.totalPitchCount[defSide]}{t.live.pitchCount}</Text>
               <TouchableOpacity
                 style={[styles.detailBtn, !opponentDataGate.allowed && styles.detailBtnDisabled]}
-                onPress={openPitcherStats}
+                onPress={() => {
+                  if (pitcher.isUnassignedPitcher) {
+                    Alert.alert('投手が未登録です', '名簿設定から実投手へ記録を割り当ててください。');
+                    return;
+                  }
+                  openPitcherStats();
+                }}
               >
                 <Text style={[styles.detailBtnText, !opponentDataGate.allowed && styles.detailBtnTextDisabled]}>
                   詳細
@@ -1657,6 +1669,7 @@ export default function LiveScoreScreen() {
           setPosSubModalVisible(false);
         }}
         onAddBench={(side, data) => addBenchPlayer(side, data)}
+        onStartUnassignedPitcherStint={startUnassignedPitcherStint}
       />
 
       {/* 攻撃時選手交代モーダル（代打・代走） */}
@@ -1987,6 +2000,8 @@ export default function LiveScoreScreen() {
                   ...defTeam.roster.starters,
                   ...(defTeam.roster.pitcher ? [defTeam.roster.pitcher] : []),
                 ];
+                const currentPitcher = findPitcherById(defTeam, pitcherId);
+                if (currentPitcher?.isUnassignedPitcher) fielders.unshift(currentPitcher);
                 // 重複排除（DH制で starters と pitcher が別の場合を考慮）
                 const seen = new Set<string>();
                 const unique = fielders.filter((p) => {

@@ -26,6 +26,7 @@ import RosterPickerModal from '../../../src/components/score/RosterPickerModal';
 import SetupLineupModal from '../../../src/components/score/SetupLineupModal';
 import type { TeamPlayer } from '../../../src/models/types';
 import { addTeamPlayer, getTeamPlayers } from '../../../src/services/teamPlayerService';
+import { makeUnassignedPitcherInput } from '../../../src/services/unassignedPitcherService';
 
 // Android LayoutAnimation を有効化
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -250,6 +251,9 @@ export default function SetupScreen() {
         if (players.some((p) => p.position === 'P')) {
           errs.push(`${label}: ${t.setup.validation.pitcherInBattingOrder}`);
         }
+      } else if (!players.some((p) => p.position === 'P')) {
+        // 通常のPlay Ballは誤登録防止のため投手必須。「今は登録しない」は別経路で扱う。
+        errs.push(`${label}: ${t.setup.validation.pitcherPositionRequired}`);
       }
     };
     checkTeam(awayStarters, awayPitcher, params.awayName || t.setup.awayTeam, isAwayDH);
@@ -259,20 +263,15 @@ export default function SetupScreen() {
 
   /** 仮名でスキップして即座に計測画面へ */
   const handleSkipRegistration = async () => {
-    const mergeWithPlaceholders = (
-      current: PlayerInput[],
-      isDH: boolean,
-    ): PlayerInput[] => {
-      const fallbackPos: Position[] = isDH
-        ? ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH']
-        : ['P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'];
+    const mergeWithPlaceholders = (current: PlayerInput[]): PlayerInput[] => {
       return Array.from({ length: 9 }, (_, i) => {
         const existing = current[i];
         if (existing?.name.trim()) return { ...existing, isPlaceholder: false };
         return {
           name: `選手${i + 1}`,
           number: `${i + 1}`,
-          position: fallbackPos[i] as Position,
+          // 未入力の守備位置を推測しない。投手は打順外の専用エンティティで保持する。
+          position: '' as Position,
           bats: 'R' as const,
           throws: 'R' as const,
           isPlaceholder: true,
@@ -280,14 +279,14 @@ export default function SetupScreen() {
       });
     };
 
-    const placeholderPitcher: PlayerInput = {
-      name: '投手1',
-      number: '18',
-      position: 'P',
-      bats: 'R',
-      throws: 'R',
-      isPlaceholder: true,
-    };
+    const awaySkippedStarters = mergeWithPlaceholders(awayStarters);
+    const homeSkippedStarters = mergeWithPlaceholders(homeStarters);
+    const awayKnownPitcher = isAwayDH
+      ? (awayPitcher.name.trim() ? awayPitcher : undefined)
+      : awaySkippedStarters.find((player) => player.position === 'P');
+    const homeKnownPitcher = isHomeDH
+      ? (homePitcher.name.trim() ? homePitcher : undefined)
+      : homeSkippedStarters.find((player) => player.position === 'P');
 
     const input: GameSetupInput = {
       metadata: {
@@ -296,15 +295,17 @@ export default function SetupScreen() {
       },
       awayTeam: {
         name: params.awayName || 'チームA',
-        starters: mergeWithPlaceholders(awayStarters, isAwayDH),
+        starters: awaySkippedStarters,
         bench: [],
-        ...(isAwayDH ? { pitcher: placeholderPitcher } : {}),
+        ...(isAwayDH && awayKnownPitcher ? { pitcher: awayKnownPitcher } : {}),
+        ...(!awayKnownPitcher ? { unassignedPitchers: [makeUnassignedPitcherInput(1)] } : {}),
       },
       homeTeam: {
         name: params.homeName || 'チームB',
-        starters: mergeWithPlaceholders(homeStarters, isHomeDH),
+        starters: homeSkippedStarters,
         bench: [],
-        ...(isHomeDH ? { pitcher: placeholderPitcher } : {}),
+        ...(isHomeDH && homeKnownPitcher ? { pitcher: homeKnownPitcher } : {}),
+        ...(!homeKnownPitcher ? { unassignedPitchers: [makeUnassignedPitcherInput(1)] } : {}),
       },
       ballpark: {
         name: params.ballparkName || '',

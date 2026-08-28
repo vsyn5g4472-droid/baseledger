@@ -33,6 +33,7 @@ import { generateGameReportHtml } from '../../../src/utils/gameReportGenerator';
 import { usePostActions } from '../../../src/hooks/usePosts';
 import type { PostVisibility } from '../../../src/models/types';
 import GameShareModal from '../../../src/components/GameShareModal';
+import PitcherReassignmentModal from '../../../src/components/PitcherReassignmentModal';
 import { showPdfSharePlanAlert } from '../../../src/utils/planLimitAlerts';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { importFromGame } from '../../../src/services/spotAtBatService';
@@ -206,6 +207,7 @@ export default function GameAnalyticsScreen() {
   const [game, setGame] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [gameCanReshare, setGameCanReshare] = useState(true);
+  const [isLocalGame, setIsLocalGame] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('batting');
   const [heatmapTeam, setHeatmapTeam] = useState<'away' | 'home'>('home');
   const [heatmapPitcherId, setHeatmapPitcherId] = useState<string | null>(null);
@@ -238,6 +240,7 @@ export default function GameAnalyticsScreen() {
   const [showGameShareModal, setShowGameShareModal] = useState(false);
   const [chatSummary, setChatSummary]               = useState('');
   const [gamePlayerAssignments, setGamePlayerAssignments] = useState<GamePlayerAssignment[]>([]);
+  const [showPitcherReassignmentModal, setShowPitcherReassignmentModal] = useState(false);
   const [importingAtBatId, setImportingAtBatId]     = useState<string | null>(null);
 
   const shareGate = usePlanGate('share_report');
@@ -278,6 +281,7 @@ export default function GameAnalyticsScreen() {
           setGame(local);
           setGameCanReshare(true);
           setGamePlayerAssignments([]);
+          setIsLocalGame(true);
           return;
         }
 
@@ -287,6 +291,7 @@ export default function GameAnalyticsScreen() {
           setGame(stripGameMetadata(shared));
           setGameCanReshare(shared.canReshare !== false);
           setGamePlayerAssignments(shared.playerAssignments ?? []);
+          setIsLocalGame(false);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -790,6 +795,22 @@ export default function GameAnalyticsScreen() {
         />
       )}
 
+      {game && isLocalGame && (
+        <PitcherReassignmentModal
+          visible={showPitcherReassignmentModal}
+          game={game}
+          mode="finished"
+          userId={currentUser?.uid}
+          onClose={() => setShowPitcherReassignmentModal(false)}
+          onSaved={(updated) => setGame(updated)}
+          onReload={async () => {
+            const reloaded = await db.games.get(game.id);
+            if (reloaded) setGame(reloaded);
+            return reloaded;
+          }}
+        />
+      )}
+
       {/* ── 試合サマリー投稿モーダル ─────────────────────────────────────────── */}
       <Modal
         visible={showSummaryModal}
@@ -1247,6 +1268,17 @@ export default function GameAnalyticsScreen() {
             <Text style={styles.scoreTotal}>{analytics.finalScore.home}</Text>
           </View>
         </View>
+
+        {isLocalGame && (
+          <TouchableOpacity
+            style={styles.reassignPitcherBtn}
+            onPress={() => setShowPitcherReassignmentModal(true)}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="baseball" size={18} color={Colors.error} />
+            <Text style={styles.reassignPitcherBtnText}>投手記録を正しい選手へ移す</Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── Tab Bar ──────────────────────────────────── */}
         <View style={styles.tabBar}>
@@ -2017,6 +2049,25 @@ const styles = StyleSheet.create({
     fontSize: Typography.h2,
     color: Colors.textSecondary,
     paddingHorizontal: Spacing.md,
+  },
+  reassignPitcherBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    backgroundColor: '#FFF3F3',
+  },
+  reassignPitcherBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.error,
   },
 
   // Tabs

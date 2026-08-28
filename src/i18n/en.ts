@@ -55,6 +55,7 @@ export const en: TranslationKeys = {
       categoryRequired: 'Please select a game type',
       pitcherRequired: 'Pitcher is required when using DH rule',
       pitcherInBattingOrder: 'In DH mode, "P" cannot be in the batting order',
+      pitcherPositionRequired: 'Assign one player to pitcher (P)',
     },
   },
   positions: {
