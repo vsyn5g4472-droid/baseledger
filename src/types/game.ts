@@ -15,6 +15,8 @@ export interface Player {
   bats: 'L' | 'R' | 'S';      // 打席 (左/右/両)
   throws: 'L' | 'R';           // 投球 (左/右)
   isPlaceholder?: boolean;      // クイックスタート時の仮選手
+  /** 打順・守備位置に属さない、投手未登録中の投球区間専用エンティティ。 */
+  isUnassignedPitcher?: boolean;
   realPlayerId?: string;        // Firestore 名簿との紐付けID
 }
 
@@ -25,6 +27,11 @@ export interface Roster {
   starters: [Player, Player, Player, Player, Player, Player, Player, Player, Player];
   bench: Player[];
   pitcher?: Player;   // DH制: 打順外の投手
+  /**
+   * 実投手が未登録の投球区間。打順選手へ誤帰属させず、解決後は移管履歴を残して除去する。
+   * 既存試合には存在しない。
+   */
+  unassignedPitchers?: Player[];
 }
 
 // ============================================================
@@ -176,7 +183,7 @@ export interface PendingPickoffSafe {
   playerName: string;
 }
 
-/** ランナーなしでも打者進塁確認が必要なヒット系結果 */
+/** ヒット時に打者進塁確認が必要な結果 */
 export const HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT: AtBatResult[] = [
   'single', 'double', 'triple',
 ];
@@ -274,6 +281,34 @@ export interface SignMissEvent {
   context: SignMissContext;
   note?: string;
   timestamp: number;
+}
+
+/** 投手記録を別の選手へ移した際の、フィールド別更新件数。 */
+export interface PitcherReassignmentAffectedCounts {
+  currentPitcher: number;
+  pitchLogs: number;
+  atBatLogs: number;
+  atBatPitches: number;
+  currentAtBat: number;
+  currentAtBatPitches: number;
+  pickoffEvents: number;
+  signMissEvents: number;
+}
+
+/**
+ * 投手記録の手動移管履歴。共有・インポート後もGameStateの一部として保持する。
+ * SubstitutionLogとは異なり、打順交代ではなく投手成績の帰属修正だけを表す。
+ */
+export interface PitcherReassignmentLog {
+  id: string;
+  side: 'away' | 'home';
+  fromPitcherId: string;
+  fromPitcherName: string;
+  toPitcherId: string;
+  toPitcherName: string;
+  reason: 'manual_correction' | 'unassigned_pitcher_resolved';
+  affectedCounts: PitcherReassignmentAffectedCounts;
+  createdAt: number;
 }
 
 // ============================================================
@@ -434,7 +469,6 @@ export interface GameState {
   createdAt: number;
   updatedAt: number;
   metadata: GameMetadata;
-
   // チーム
   awayTeam: Team;
   homeTeam: Team;
@@ -485,6 +519,9 @@ export interface GameState {
 
   // サインミス（選手個別）
   signMissEvents: SignMissEvent[];
+
+  /** 投手記録の移管履歴。既存試合には存在しない。 */
+  pitcherReassignmentLogs?: PitcherReassignmentLog[];
 
   // カスタム球種 (ユーザー追加分)
   customPitchTypes: string[];
@@ -569,6 +606,7 @@ export interface PlayerInput {
   bats: 'L' | 'R' | 'S';
   throws: 'L' | 'R';
   isPlaceholder?: boolean;
+  isUnassignedPitcher?: boolean;
   realPlayerId?: string;
 }
 
@@ -577,6 +615,8 @@ export interface TeamInput {
   starters: PlayerInput[];
   bench: PlayerInput[];
   pitcher?: PlayerInput;   // DH制: 打順外の投手
+  /** 「今は登録しない」で開始する際の、打順外の未割当投手区間。 */
+  unassignedPitchers?: PlayerInput[];
 }
 
 export interface GameSetupInput {

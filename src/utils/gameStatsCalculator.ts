@@ -233,11 +233,13 @@ export function computeGameAnalytics(game: GameState): GameAnalytics {
     ...(game.homeTeam?.roster?.starters ?? []),
     ...(game.homeTeam?.roster?.bench    ?? []),
     ...(game.homeTeam?.roster?.pitcher  ? [game.homeTeam.roster.pitcher] : []),
+    ...(game.homeTeam?.roster?.unassignedPitchers ?? []),
   ];
   const awayAllPlayers = [
     ...(game.awayTeam?.roster?.starters ?? []),
     ...(game.awayTeam?.roster?.bench    ?? []),
     ...(game.awayTeam?.roster?.pitcher  ? [game.awayTeam.roster.pitcher] : []),
+    ...(game.awayTeam?.roster?.unassignedPitchers ?? []),
   ];
 
   const homePitchers = homePitcherIds
