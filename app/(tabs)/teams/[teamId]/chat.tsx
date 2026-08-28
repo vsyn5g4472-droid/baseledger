@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,73 +7,64 @@ import {
   Platform,
   TouchableOpacity,
   Alert,
+  Keyboard,
 } from 'react-native';
-import { TextInput, IconButton, Text, Menu } from 'react-native-paper';
+import { TextInput, IconButton, Menu } from 'react-native-paper';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import TeamPlayerAssignmentModal from '../../../../src/components/TeamPlayerAssignmentModal';
 import { useTeamDetail } from '../../../../src/hooks/useTeam';
 import { updateTeamIcon } from '../../../../src/services/teamService';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ChatBubble from '../../../../src/components/ChatBubble';
+import GameAnalyticsCard from '../../../../src/components/GameAnalyticsCard';
 import { useTeamChat } from '../../../../src/hooks/useTeam';
 import { useAuth } from '../../../../src/contexts/AuthContext';
-import { GroupMessage } from '../../../../src/models/types';
-import { Colors, Spacing, Typography, BorderRadius } from '../../../../src/constants/theme';
-
-function GameAnalyticsCard({
-  msg,
-  isSent,
-}: {
-  msg: GroupMessage;
-  isSent: boolean;
-}) {
-  const gameId = msg.gameId!;
-  const timestamp = msg.createdAt?.toDate?.()?.toLocaleTimeString?.('ja-JP', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }) ?? '';
-  const summaryLines = msg.content
-    .split('\n')
-    .filter((line) => line.trim() && line !== '---' && !line.startsWith('BaseLedger'));
-  const scoreLine = summaryLines[0] ?? msg.content;
-
-  return (
-    <View style={[styles.analyticsWrapper, isSent ? styles.analyticsWrapperSent : styles.analyticsWrapperReceived]}>
-      {!isSent && <Text style={styles.senderName}>{msg.senderName}</Text>}
-      <TouchableOpacity
-        style={styles.analyticsCard}
-        onPress={() => router.push(`/(tabs)/analytics/${gameId}` as any)}
-        activeOpacity={0.8}
-      >
-        <View style={styles.analyticsHeader}>
-          <MaterialCommunityIcons name="baseball" size={18} color={Colors.primary} />
-          <Text style={styles.analyticsTitle}>試合分析</Text>
-        </View>
-        <Text style={styles.analyticsScore} numberOfLines={3}>
-          {scoreLine}
-        </Text>
-        {summaryLines.length > 1 && (
-          <Text style={styles.analyticsSub} numberOfLines={2}>
-            {summaryLines.slice(1).join('\n')}
-          </Text>
-        )}
-        <Text style={styles.analyticsLink}>詳細を見る →</Text>
-        <Text style={styles.analyticsTime}>{timestamp}</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
+import { Colors, Spacing } from '../../../../src/constants/theme';
 
 export default function TeamChatScreen() {
   const { teamId } = useLocalSearchParams<{ teamId: string }>();
   const { messages, sendMessage } = useTeamChat(teamId ?? '');
   const { team, isOwner, refresh } = useTeamDetail(teamId ?? '');
   const { currentUser } = useAuth();
+  const headerHeight = useHeaderHeight();
+  const tabBarHeight = useBottomTabBarHeight();
+  const insets = useSafeAreaInsets();
+  const flatListRef = useRef<FlatList>(null);
   const [text, setText] = useState('');
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => {
+      setKeyboardVisible(true);
+      scrollToBottom();
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardVisible(false);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [scrollToBottom]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [messages.length]);
 
   const handleSend = async () => {
     if (text.trim()) {
@@ -187,17 +178,28 @@ export default function TeamChatScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        keyboardVerticalOffset={headerHeight + tabBarHeight + 12}
       >
         <FlatList
+          ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => {
             if (item.type === 'game_analytics' && item.gameId) {
+              const isSent = item.senderId === currentUser?.uid;
               return (
                 <GameAnalyticsCard
-                  msg={item}
-                  isSent={item.senderId === currentUser?.uid}
+                  content={item.content}
+                  gameId={item.gameId}
+                  senderName={item.senderName}
+                  timestamp={
+                    item.createdAt?.toDate?.()?.toLocaleTimeString?.('ja-JP', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }) ?? ''
+                  }
+                  isSent={isSent}
                 />
               );
             }
@@ -213,7 +215,16 @@ export default function TeamChatScreen() {
           contentContainerStyle={styles.messagesList}
           inverted={false}
         />
-        <View style={styles.inputRow}>
+        <View
+          style={[
+            styles.inputRow,
+            {
+              paddingBottom: keyboardVisible
+                ? Spacing.sm
+                : Math.max(insets.bottom, Spacing.sm),
+            },
+          ]}
+        >
           <TextInput
             placeholder="メッセージを入力..."
             value={text}
@@ -221,6 +232,9 @@ export default function TeamChatScreen() {
             mode="outlined"
             style={styles.input}
             dense
+            multiline
+            blurOnSubmit={false}
+            onFocus={scrollToBottom}
           />
           <IconButton
             icon="send"
@@ -244,75 +258,15 @@ const styles = StyleSheet.create({
   headerBtn: {
     padding: 8,
   },
-  messagesList: { padding: Spacing.md },
+  messagesList: { padding: Spacing.md, flexGrow: 1 },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.sm,
+    alignItems: 'flex-end',
+    paddingHorizontal: Spacing.sm,
+    paddingTop: Spacing.sm,
     backgroundColor: Colors.card,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
-  input: { flex: 1, backgroundColor: Colors.card },
-  analyticsWrapper: {
-    marginVertical: Spacing.xs,
-    maxWidth: '85%',
-  },
-  analyticsWrapperSent: {
-    alignSelf: 'flex-end',
-  },
-  analyticsWrapperReceived: {
-    alignSelf: 'flex-start',
-  },
-  senderName: {
-    fontSize: Typography.caption,
-    color: Colors.primary,
-    fontWeight: '600',
-    marginBottom: 3,
-    marginLeft: 4,
-  },
-  analyticsCard: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.primary,
-  },
-  analyticsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
-    gap: 6,
-  },
-  analyticsTitle: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  analyticsScore: {
-    fontSize: Typography.body,
-    fontWeight: '600',
-    color: Colors.text,
-    lineHeight: 22,
-  },
-  analyticsSub: {
-    fontSize: Typography.bodySmall,
-    color: Colors.textSecondary,
-    marginTop: 4,
-    lineHeight: 20,
-  },
-  analyticsLink: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '600',
-    color: Colors.primary,
-    marginTop: Spacing.sm,
-  },
-  analyticsTime: {
-    fontSize: Typography.tiny,
-    color: Colors.textSecondary,
-    marginTop: 6,
-    alignSelf: 'flex-end',
-  },
+  input: { flex: 1, backgroundColor: Colors.card, maxHeight: 100 },
 });

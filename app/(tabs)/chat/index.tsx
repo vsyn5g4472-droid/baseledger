@@ -6,14 +6,17 @@ import {
   TouchableOpacity,
   Pressable,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { Text, Avatar, Divider, Badge, FAB, Button, TextInput, Portal, Modal, ActivityIndicator } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getTeamPlayers, addTeamPlayer, updateTeamPlayer } from '../../../src/services/teamPlayerService';
-import { updateTeam } from '../../../src/services/teamService';
+import ImportPlayersFromHistoryModal from '../../../src/components/ImportPlayersFromHistoryModal';
+import { updateTeam, deleteTeam, leaveTeam } from '../../../src/services/teamService';
 import { useConversations } from '../../../src/hooks/useMessages';
+import { useAuth } from '../../../src/contexts/AuthContext';
 import { useTeams } from '../../../src/hooks/useTeam';
 import EmptyState from '../../../src/components/EmptyState';
 import { Colors, Spacing, Typography, BorderRadius } from '../../../src/constants/theme';
@@ -58,6 +61,7 @@ function RosterTab({
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerNumber, setNewPlayerNumber] = useState('');
   const [addingPlayer, setAddingPlayer] = useState(false);
+  const [importTeamId, setImportTeamId] = useState<string | null>(null);
 
   const [editPlayer, setEditPlayer] = useState<{
     teamId: string; id: string; name: string; number: string; position: string;
@@ -265,13 +269,25 @@ function RosterTab({
                 </Button>
               </View>
             ) : (
-              <TouchableOpacity
-                style={rosterStyles.addPlayerBtn}
-                onPress={() => { setAddPlayerTeamId(team.id); loadPlayers(team.id); }}
-              >
-                <MaterialCommunityIcons name="account-plus" size={15} color={Colors.primary} />
-                <Text style={rosterStyles.addPlayerBtnText}>＋ 選手追加</Text>
-              </TouchableOpacity>
+              <View style={rosterStyles.addPlayerActions}>
+                <TouchableOpacity
+                  style={rosterStyles.addPlayerBtn}
+                  onPress={() => { setAddPlayerTeamId(team.id); loadPlayers(team.id); }}
+                >
+                  <MaterialCommunityIcons name="account-plus" size={15} color={Colors.primary} />
+                  <Text style={rosterStyles.addPlayerBtnText}>＋ 選手追加</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={rosterStyles.addPlayerBtn}
+                  onPress={() => {
+                    loadPlayers(team.id);
+                    setImportTeamId(team.id);
+                  }}
+                >
+                  <MaterialCommunityIcons name="history" size={15} color={Colors.primary} />
+                  <Text style={rosterStyles.addPlayerBtnText}>過去の試合から</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         )}
@@ -340,6 +356,23 @@ function RosterTab({
           </Button>
         </Modal>
 
+        {importTeamId && (
+          <ImportPlayersFromHistoryModal
+            visible={!!importTeamId}
+            teamId={importTeamId}
+            teamName={teams.find((t) => t.id === importTeamId)?.name ?? ''}
+            onClose={() => setImportTeamId(null)}
+            onImported={(added) => {
+              const tid = importTeamId;
+              if (!tid || added.length === 0) return;
+              setPlayersMap((m) => ({
+                ...m,
+                [tid]: [...(m[tid] ?? []), ...added],
+              }));
+            }}
+          />
+        )}
+
         <Modal
           visible={editPlayer !== null}
           onDismiss={() => setEditPlayer(null)}
@@ -407,7 +440,7 @@ function RosterTab({
   );
 }
 
-function DMItem({ item }: { item: any }) {
+function DMItem({ item, currentUserId }: { item: any; currentUserId?: string }) {
   return (
     <TouchableOpacity
       style={styles.item}
@@ -419,12 +452,17 @@ function DMItem({ item }: { item: any }) {
       }
       activeOpacity={0.7}
     >
-      <Avatar.Text
-        size={50}
-        label={(item.otherUser?.displayName ?? 'U').charAt(0)}
-        style={styles.dmAvatar}
-        labelStyle={styles.avatarLabel}
-      />
+      <View style={styles.avatarWrapper}>
+        <Avatar.Text
+          size={50}
+          label={(item.otherUser?.displayName ?? 'U').charAt(0)}
+          style={styles.dmAvatar}
+          labelStyle={styles.avatarLabel}
+        />
+        {currentUserId && item.lastMessageReadBy && !item.lastMessageReadBy.includes(currentUserId) && (
+          <View style={styles.unreadDot} />
+        )}
+      </View>
       <View style={styles.info}>
         <View style={styles.nameRow}>
           <Text style={styles.name} numberOfLines={1}>
@@ -440,12 +478,28 @@ function DMItem({ item }: { item: any }) {
   );
 }
 
-function TeamItem({ item }: { item: any }) {
+function TeamItem({
+  item,
+  editing,
+  currentUserId,
+  onRemove,
+}: {
+  item: Team;
+  editing: boolean;
+  currentUserId: string | undefined;
+  onRemove: (team: Team, isOwner: boolean) => void;
+}) {
+  const isOwner = !!currentUserId && item.ownerId === currentUserId;
+
   return (
     <TouchableOpacity
       style={styles.item}
-      onPress={() => router.push(`/(tabs)/teams/${item.id}/chat` as any)}
-      activeOpacity={0.7}
+      onPress={() => {
+        if (editing) return;
+        router.push(`/(tabs)/teams/${item.id}/chat` as any);
+      }}
+      activeOpacity={editing ? 1 : 0.7}
+      disabled={editing}
     >
       {item.photoURL ? (
         <Avatar.Image size={50} source={{ uri: item.photoURL }} style={styles.teamAvatarImage} />
@@ -475,14 +529,26 @@ function TeamItem({ item }: { item: any }) {
           </View>
         )}
       </View>
-      <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+      {editing ? (
+        <TouchableOpacity
+          onPress={() => onRemove(item, isOwner)}
+          style={styles.teamDeleteBtn}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <MaterialCommunityIcons name="trash-can-outline" size={22} color={Colors.error} />
+        </TouchableOpacity>
+      ) : (
+        <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+      )}
     </TouchableOpacity>
   );
 }
 
 export default function ChatIndexScreen() {
   const { t } = useI18n();
+  const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('roster');
+  const [editingTeams, setEditingTeams] = useState(false);
   const { conversations, loading: dmsLoading } = useConversations();
   const { teams, joinByCode, createTeam } = useTeams();
   const teamCreateGate = usePlanGate('team_create');
@@ -501,14 +567,101 @@ export default function ChatIndexScreen() {
     }
   };
 
+  const enterTeamEditMode = useCallback(() => {
+    setActiveTab('teams');
+    setEditingTeams(true);
+  }, []);
+
+  const handleHeaderMenu = useCallback(() => {
+    Alert.alert('メニュー', undefined, [
+      { text: 'チームを編集', onPress: enterTeamEditMode },
+      { text: 'キャンセル', style: 'cancel' },
+    ]);
+  }, [enterTeamEditMode]);
+
+  const handleRemoveTeam = useCallback(
+    (team: Team, isOwner: boolean) => {
+      if (!currentUser) return;
+      if (isOwner) {
+        Alert.alert(
+          'チームを削除しますか？',
+          `「${team.name}」とグループチャットが削除されます。この操作は取り消せません。`,
+          [
+            { text: 'キャンセル', style: 'cancel' },
+            {
+              text: '削除する',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await deleteTeam(team.id, currentUser.uid);
+                } catch (err) {
+                  if (__DEV__) console.error('[handleRemoveTeam] delete failed:', err);
+                  Alert.alert('エラー', 'チームの削除に失敗しました');
+                }
+              },
+            },
+          ],
+        );
+      } else {
+        Alert.alert(
+          'チームを退会しますか？',
+          `「${team.name}」を退会すると、チャットや共有データにアクセスできなくなります。`,
+          [
+            { text: 'キャンセル', style: 'cancel' },
+            {
+              text: '退会する',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await leaveTeam(team.id, currentUser.uid);
+                } catch (err) {
+                  if (__DEV__) console.error('[handleRemoveTeam] leave failed:', err);
+                  Alert.alert('エラー', '退会に失敗しました');
+                }
+              },
+            },
+          ],
+        );
+      }
+    },
+    [currentUser],
+  );
+
   return (
     <View style={styles.container}>
+      <Stack.Screen
+        options={{
+          title: 'チャット',
+          headerRight: () =>
+            editingTeams ? (
+              <TouchableOpacity
+                onPress={() => setEditingTeams(false)}
+                style={styles.headerBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.headerDoneText}>完了</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={handleHeaderMenu}
+                style={styles.headerBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="dots-vertical" size={22} color={Colors.primary} />
+              </TouchableOpacity>
+            ),
+        }}
+      />
+
       {/* Segmented Control */}
       <View style={styles.segmentWrapper}>
         <View style={styles.segment}>
           <Pressable
             style={[styles.segBtn, isRoster && styles.segBtnActive]}
-            onPress={() => setActiveTab('roster')}
+            onPress={() => {
+              setEditingTeams(false);
+              setActiveTab('roster');
+            }}
           >
             <MaterialCommunityIcons
               name="clipboard-list"
@@ -537,7 +690,10 @@ export default function ChatIndexScreen() {
           </Pressable>
           <Pressable
             style={[styles.segBtn, isDMs && styles.segBtnActive]}
-            onPress={() => setActiveTab('dms')}
+            onPress={() => {
+              setEditingTeams(false);
+              setActiveTab('dms');
+            }}
           >
             <MaterialCommunityIcons
               name="message-text"
@@ -562,7 +718,14 @@ export default function ChatIndexScreen() {
           <FlatList
             data={teams}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <TeamItem item={item} />}
+            renderItem={({ item }) => (
+              <TeamItem
+                item={item}
+                editing={editingTeams}
+                currentUserId={currentUser?.uid}
+                onRemove={handleRemoveTeam}
+              />
+            )}
             ItemSeparatorComponent={() => <Divider style={styles.divider} />}
             contentContainerStyle={teams.length === 0 ? styles.emptyContainer : styles.listContent}
             ListHeaderComponent={
@@ -583,18 +746,20 @@ export default function ChatIndexScreen() {
               />
             }
           />
-          <FAB
-            icon="plus"
-            style={styles.fab}
-            color={Colors.white}
-            onPress={() => {
-              if (!teamCreateGate.allowed) {
-                showTeamCreatePlanAlert();
-                return;
-              }
-              router.push('/(tabs)/teams/create' as any);
-            }}
-          />
+          {!editingTeams && (
+            <FAB
+              icon="plus"
+              style={styles.fab}
+              color={Colors.white}
+              onPress={() => {
+                if (!teamCreateGate.allowed) {
+                  showTeamCreatePlanAlert();
+                  return;
+                }
+                router.push('/(tabs)/teams/create' as any);
+              }}
+            />
+          )}
           <Portal>
             <Modal
               visible={joinModal}
@@ -620,7 +785,7 @@ export default function ChatIndexScreen() {
         <FlatList
           data={conversations}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <DMItem item={item} />}
+          renderItem={({ item }) => <DMItem item={item} currentUserId={currentUser?.uid} />}
           ItemSeparatorComponent={() => <Divider style={styles.divider} />}
           contentContainerStyle={conversations.length === 0 ? styles.emptyContainer : styles.listContent}
           ListEmptyComponent={
@@ -640,6 +805,18 @@ export default function ChatIndexScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+  headerBtn: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  headerDoneText: {
+    fontSize: Typography.body,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  teamDeleteBtn: {
+    padding: Spacing.xs,
+  },
   segmentWrapper: {
     backgroundColor: Colors.card,
     borderBottomWidth: 1,
@@ -690,6 +867,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
   },
   avatarWrapper: { position: 'relative' },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.error,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+  },
   groupAvatar: { backgroundColor: Colors.primary },
   dmAvatar: { backgroundColor: Colors.secondary },
   teamAvatar: { backgroundColor: Colors.secondary },
@@ -833,6 +1019,12 @@ const rosterStyles = StyleSheet.create({
     fontSize: Typography.caption,
     color: Colors.textSecondary,
     paddingVertical: 8,
+  },
+  addPlayerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.md,
+    paddingVertical: 4,
   },
   addPlayerBtn: {
     flexDirection: 'row',

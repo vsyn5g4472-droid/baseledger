@@ -372,7 +372,7 @@ export const en: TranslationKeys = {
     noGroups: 'No groups yet',
     noGroupsSub: 'Join a team to see group chats',
     noDMs: 'No messages',
-    noDMsSub: 'Message users you mutually follow',
+    noDMsSub: 'Send a DM from a user profile',
     typeMessage: 'Type a message...',
     send: 'Send',
     schedule: 'Schedule',

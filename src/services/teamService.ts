@@ -307,6 +307,44 @@ export async function removeMember(
 }
 
 /**
+ * Delete a team and its linked group chat. Owner only.
+ * Order: groups → subcollections → team (group delete rule needs team to still exist).
+ */
+export async function deleteTeam(teamId: string, ownerId: string): Promise<void> {
+  try {
+    const team = await getTeam(teamId);
+    if (team.ownerId !== ownerId) {
+      throw new AppError('FORBIDDEN', 'Only the team owner can delete the team');
+    }
+
+    const groupsRef = collection(db, COLLECTIONS.GROUPS);
+    const groupSnap = await getDocs(query(groupsRef, where('teamId', '==', teamId)));
+    for (const groupDoc of groupSnap.docs) {
+      await deleteDoc(groupDoc.ref);
+    }
+
+    const subcollections = [
+      COLLECTIONS.TEAM_MEMBERS,
+      COLLECTIONS.TEAM_PLAYERS,
+      COLLECTIONS.TEAM_PLAYER_ASSIGNMENTS,
+    ];
+    for (const sub of subcollections) {
+      try {
+        const snap = await getDocs(collection(db, COLLECTIONS.TEAMS, teamId, sub));
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+      } catch {
+        // best-effort
+      }
+    }
+
+    await deleteDoc(doc(db, COLLECTIONS.TEAMS, teamId));
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('NETWORK', `Failed to delete team: ${(error as Error).message}`);
+  }
+}
+
+/**
  * Get all team members with their user profile data.
  * @param teamId - Team ID
  */

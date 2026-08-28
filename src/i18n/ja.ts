@@ -370,7 +370,7 @@ export const ja = {
     noGroups: 'グループがありません',
     noGroupsSub: 'チームに参加するとグループが表示されます',
     noDMs: 'メッセージがありません',
-    noDMsSub: '相互フォローしているユーザーにDMを送れます',
+    noDMsSub: 'ユーザーのプロフィールからDMを送れます',
     typeMessage: 'メッセージを入力...',
     send: '送信',
     schedule: 'スケジュール',

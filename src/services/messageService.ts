@@ -26,7 +26,6 @@ import {
   PaginatedResult,
   AppError,
 } from '../models/types';
-import { isMutualFollow } from './followService';
 import { createNotification } from './notificationService';
 
 /** Collection name for conversation documents. */
@@ -44,16 +43,12 @@ function conversationId(userId1: string, userId2: string): string {
 }
 
 /**
- * Check if two users can message each other (mutual follow required).
+ * Check if two users can message each other.
  * @param userId1 - First user
  * @param userId2 - Second user
  */
-export async function canMessage(userId1: string, userId2: string): Promise<boolean> {
-  try {
-    return isMutualFollow(userId1, userId2);
-  } catch (error) {
-    throw new AppError('NETWORK', `Failed to check message permission: ${(error as Error).message}`);
-  }
+export async function canMessage(_userId1: string, _userId2: string): Promise<boolean> {
+  return true;
 }
 
 /**
@@ -91,7 +86,6 @@ export async function getOrCreateConversation(
 
 /**
  * Send a message in a conversation. Creates the conversation if it doesn't exist.
- * Requires mutual follow.
  * @param senderId - Sender user ID
  * @param receiverId - Receiver user ID
  * @param content - Message text
@@ -102,12 +96,6 @@ export async function sendMessage(
   content: string,
 ): Promise<Message> {
   try {
-    // Check mutual follow
-    const allowed = await canMessage(senderId, receiverId);
-    if (!allowed) {
-      throw new AppError('FORBIDDEN', 'Both users must follow each other to send messages');
-    }
-
     const conversation = await getOrCreateConversation(senderId, receiverId);
 
     const messageData = {
@@ -129,6 +117,7 @@ export async function sendMessage(
     await updateDoc(doc(db, CONVERSATIONS_COLLECTION, conversation.id), {
       lastMessage: content,
       lastMessageAt: Timestamp.now(),
+      lastMessageReadBy: [senderId],
     });
 
     // Send DM notification (fire and forget)
@@ -241,6 +230,9 @@ export async function markAsRead(conversationId: string, userId: string): Promis
     if (updated) {
       await batch.commit();
     }
+    await updateDoc(doc(db, CONVERSATIONS_COLLECTION, conversationId), {
+      lastMessageReadBy: arrayUnion(userId),
+    });
   } catch (error) {
     throw new AppError('NETWORK', `Failed to mark as read: ${(error as Error).message}`);
   }
@@ -282,6 +274,10 @@ export function onMessagesUpdate(
  * @param onError - Optional error handler
  * @returns Unsubscribe function
  */
+export function getReadCount(readBy: string[], senderId: string): number {
+  return readBy.filter(id => id !== senderId).length;
+}
+
 export function onConversationsUpdate(
   userId: string,
   callback: (conversations: Conversation[]) => void,
@@ -328,6 +324,7 @@ export async function sendDirectMessage(
     const convoUpdate: Record<string, unknown> = {
       lastMessage: content,
       lastMessageAt: Timestamp.now(),
+      lastMessageReadBy: [senderId],
     };
     if (recipientId) {
       convoUpdate.participants = [senderId, recipientId].sort();

@@ -53,7 +53,7 @@ export default function UserProfileScreen() {
       router.push(`/messages/${convo.id}` as any);
     } catch (e: any) {
       console.error('handleMessage error:', e);
-      Alert.alert('エラー', e?.message ?? 'メッセージの送信に失敗しました');
+      Alert.alert('エラー', 'メッセージの開始に失敗しました。時間をおいて再度お試しください。');
     } finally {
       setMessagingLoading(false);
     }

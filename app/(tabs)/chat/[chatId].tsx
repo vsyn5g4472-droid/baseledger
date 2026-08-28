@@ -9,16 +9,20 @@ import {
   Modal,
   Pressable,
   Animated,
+  Keyboard,
 } from 'react-native';
 import { TextInput, IconButton, Text, Divider } from 'react-native-paper';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { useGroup } from '../../../src/hooks/useGroupChat';
 import TeamPlayerAssignmentModal from '../../../src/components/TeamPlayerAssignmentModal';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGroupMessages } from '../../../src/hooks/useGroupChat';
 import { useChat as useDMChat } from '../../../src/hooks/useMessages';
+import { markAsRead, getReadCount } from '../../../src/services/messageService';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { GroupMessage, Message } from '../../../src/models/types';
+import GameAnalyticsCard from '../../../src/components/GameAnalyticsCard';
 import {
   Colors,
   Spacing,
@@ -91,49 +95,6 @@ function ScheduleCard({
   );
 }
 
-function GameAnalyticsCard({
-  content,
-  gameId,
-  senderName,
-  timestamp,
-}: {
-  content: string;
-  gameId: string;
-  senderName: string;
-  timestamp: string;
-}) {
-  const summaryLines = content
-    .split('\n')
-    .filter((line) => line.trim() && line !== '---' && !line.startsWith('BaseLedger'));
-  const scoreLine = summaryLines[0] ?? content;
-
-  return (
-    <View style={styles.scheduleCardWrapper}>
-      <Text style={styles.scheduleSender}>{senderName}</Text>
-      <TouchableOpacity
-        style={styles.analyticsCard}
-        onPress={() => router.push(`/(tabs)/analytics/${gameId}` as any)}
-        activeOpacity={0.8}
-      >
-        <View style={styles.analyticsHeader}>
-          <MaterialCommunityIcons name="baseball" size={18} color={Colors.primary} />
-          <Text style={styles.analyticsTitle}>試合分析</Text>
-        </View>
-        <Text style={styles.analyticsScore} numberOfLines={3}>
-          {scoreLine}
-        </Text>
-        {summaryLines.length > 1 && (
-          <Text style={styles.analyticsSub} numberOfLines={2}>
-            {summaryLines.slice(1).join('\n')}
-          </Text>
-        )}
-        <Text style={styles.analyticsLink}>詳細を見る →</Text>
-        <Text style={styles.scheduleTime}>{timestamp}</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 function GroupBubble({
   msg,
   isMine,
@@ -161,6 +122,8 @@ function GroupBubble({
         gameId={msg.gameId}
         senderName={isMine ? 'あなた' : msg.senderName}
         timestamp={formatTime(msg.createdAt)}
+        isSent={isMine}
+        hideSenderWhenSent={false}
       />
     );
   }
@@ -182,6 +145,11 @@ function GroupBubble({
         <Text style={[styles.bubbleTime, isMine ? styles.timeRight : styles.timeLeft]}>
           {formatTime(msg.createdAt)}
         </Text>
+        {isMine && getReadCount(msg.readBy, msg.senderId) > 0 && (
+          <Text style={[styles.readCount, styles.timeRight]}>
+            既読 {getReadCount(msg.readBy, msg.senderId)}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -199,6 +167,9 @@ function DMBubble({ msg, isMine }: { msg: Message; isMine: boolean }) {
         <Text style={[styles.bubbleTime, isMine ? styles.timeRight : styles.timeLeft]}>
           {formatTime(msg.createdAt)}
         </Text>
+        {isMine && msg.readBy.length > 1 && (
+          <Text style={[styles.readCount, styles.timeRight]}>既読</Text>
+        )}
       </View>
     </View>
   );
@@ -328,6 +299,7 @@ export default function ChatDetailScreen() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const headerHeight = useHeaderHeight();
 
   const isGroup = type === 'group';
   const { group } = useGroup(isGroup ? (chatId ?? '') : '__none__');
@@ -355,12 +327,27 @@ export default function ChatDetailScreen() {
   const messages = isGroup ? groupMessages : dmMessages;
   const loading = isGroup ? groupLoading : dmLoading;
 
+  // Mark DM messages as read when screen opens
+  useEffect(() => {
+    if (!isGroup && chatId && currentUser?.uid) {
+      markAsRead(chatId, currentUser.uid).catch(() => {});
+    }
+  }, [chatId, isGroup, currentUser?.uid]);
+
   // Scroll to bottom when messages change
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [messages.length]);
+
+  useEffect(() => {
+    const event = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const sub = Keyboard.addListener(event, () => {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+    });
+    return () => sub.remove();
+  }, []);
 
   const handleSend = useCallback(async () => {
     const trimmed = text.trim();
@@ -401,13 +388,14 @@ export default function ChatDetailScreen() {
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        keyboardVerticalOffset={headerHeight}
       >
         {/* Messages list */}
         <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
           renderItem={({ item }) =>
             isGroup ? (
               <GroupBubble
@@ -585,51 +573,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
   },
 
-  // Game analytics card
-  analyticsCard: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.primary,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  analyticsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
-    gap: 6,
-  },
-  analyticsTitle: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  analyticsScore: {
-    fontSize: Typography.body,
-    fontWeight: '600',
-    color: Colors.text,
-    lineHeight: 22,
-  },
-  analyticsSub: {
-    fontSize: Typography.bodySmall,
-    color: Colors.textSecondary,
-    marginTop: 4,
-    lineHeight: 20,
-  },
-  analyticsLink: {
-    fontSize: Typography.bodySmall,
-    fontWeight: '600',
-    color: Colors.primary,
-    marginTop: Spacing.sm,
-  },
-
   // Chat bubbles
   bubbleRow: { flexDirection: 'row', marginVertical: 3, paddingHorizontal: Spacing.sm },
   bubbleRowLeft: { justifyContent: 'flex-start' },
@@ -676,6 +619,7 @@ const styles = StyleSheet.create({
   bubbleTime: { fontSize: Typography.tiny, marginTop: 2, color: Colors.textSecondary },
   timeLeft: { alignSelf: 'flex-start', marginLeft: 8 },
   timeRight: { alignSelf: 'flex-end', marginRight: 4 },
+  readCount: { fontSize: Typography.tiny, color: Colors.textSecondary, marginTop: 1 },
 
   // Input bar
   inputBar: {
