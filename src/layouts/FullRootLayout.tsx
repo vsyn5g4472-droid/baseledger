@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, Animated, Linking } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { Stack, router } from 'expo-router';
 import { PaperProvider, Text } from 'react-native-paper';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -71,6 +72,7 @@ function AppShell() {
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    SplashScreen.hideAsync();
     const timer = setTimeout(() => setMinTimeElapsed(true), 2000);
     return () => clearTimeout(timer);
   }, []);

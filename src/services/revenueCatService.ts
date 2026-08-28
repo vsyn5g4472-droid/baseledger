@@ -5,14 +5,16 @@
  * react-native-purchases は動的 require で読み込み、未組み込みビルドでも起動クラッシュを防ぐ。
  */
 
-import Constants from 'expo-constants';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, COLLECTIONS } from './firebase';
 import { UserPlan } from './planService';
 import type { PurchasesOfferings } from 'react-native-purchases';
 
-const IOS_API_KEY: string =
-  (Constants.expoConfig?.extra?.revenueCatIosApiKey as string | undefined) ?? '';
+const IOS_API_KEY: string = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ?? '';
+
+function hasValidRevenueCatApiKey(): boolean {
+  return IOS_API_KEY.startsWith('appl_');
+}
 
 type PurchasesModule = {
   configure: (opts: { apiKey: string }) => void;
@@ -41,7 +43,7 @@ function getPurchases(): PurchasesModule | null {
 /** 課金画面など必要なときだけ初期化する（起動時の void TurboModule 呼び出しを避ける） */
 function ensureConfigured(): boolean {
   if (configured) return true;
-  if (!IOS_API_KEY) {
+  if (!hasValidRevenueCatApiKey()) {
     if (__DEV__) console.warn('[RevenueCat] API key not set');
     return false;
   }
@@ -159,7 +161,13 @@ export async function purchasePlan(packageIdentifier: string): Promise<UserPlan>
   const Purchases = getPurchases();
   if (!Purchases) throw new Error('課金機能が利用できません');
   const offerings = await fetchOfferings();
-  const pkg = offerings?.current?.availablePackages.find(
+  if (!offerings?.current) {
+    throw new Error('RevenueCatのCurrent Offeringが見つかりません');
+  }
+  if (offerings.current.availablePackages.length === 0) {
+    throw new Error('RevenueCatのパッケージ一覧が空です');
+  }
+  const pkg = offerings.current.availablePackages.find(
     (p: { identifier: string }) => p.identifier === packageIdentifier,
   );
   if (!pkg) throw new Error(`パッケージが見つかりません: ${packageIdentifier}`);

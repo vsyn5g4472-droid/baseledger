@@ -2,6 +2,8 @@ import { enableScreens } from 'react-native-screens';
 enableScreens(false);
 
 import React from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+SplashScreen.preventAutoHideAsync();
 
 const IS_STEP0_MINIMAL = process.env.EXPO_PUBLIC_STEP0_MINIMAL === '1';
 

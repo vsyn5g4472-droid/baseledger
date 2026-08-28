@@ -1,0 +1,80 @@
+diff --git a/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm b/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+index 6e9c384..d4f2774 100644
+--- a/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
++++ b/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+@@ -132,7 +132,19 @@ - (void)setDefaultTextAttributes:(NSDictionary<NSAttributedStringKey, id> *)defa
+   }
+ 
+   _defaultTextAttributes = defaultTextAttributes;
+-  self.typingAttributes = defaultTextAttributes;
++  // Strip attributes that interfere with UIKit's IME composition underline rendering.
++  // Only remove no-op defaults; preserve user-specified values.
++  NSMutableDictionary *typingAttrs = [defaultTextAttributes mutableCopy];
++  [typingAttrs removeObjectForKey:@"EventEmitter"];
++  NSShadow *shadow = typingAttrs[NSShadowAttributeName];
++  if (shadow && CGSizeEqualToSize(shadow.shadowOffset, CGSizeZero) && shadow.shadowBlurRadius == 0) {
++    [typingAttrs removeObjectForKey:NSShadowAttributeName];
++  }
++  UIColor *bgColor = typingAttrs[NSBackgroundColorAttributeName];
++  if (bgColor && CGColorGetAlpha(bgColor.CGColor) == 0) {
++    [typingAttrs removeObjectForKey:NSBackgroundColorAttributeName];
++  }
++  self.typingAttributes = typingAttrs;
+   [self _updatePlaceholder];
+ }
+ 
+diff --git a/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm b/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm
+index 377f41e..1c300da 100644
+--- a/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm
++++ b/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm
+@@ -93,7 +93,22 @@ - (void)setDefaultTextAttributes:(NSDictionary<NSAttributedStringKey, id> *)defa
+   }
+ 
+   _defaultTextAttributes = defaultTextAttributes;
+-  [super setDefaultTextAttributes:defaultTextAttributes];
++  // Strip attributes that interfere with UIKit's IME composition underline rendering.
++  // NSShadow and NSBackgroundColor prevent UIKit from drawing the composition underline
++  // on marked text, but only remove them when they are no-op defaults (empty shadow,
++  // clear background) — preserve user-specified values.
++  // EventEmitter is a React-internal attribute (NSData wrapping C++ weak_ptr).
++  NSMutableDictionary *uikitAttrs = [defaultTextAttributes mutableCopy];
++  [uikitAttrs removeObjectForKey:@"EventEmitter"];
++  NSShadow *shadow = uikitAttrs[NSShadowAttributeName];
++  if (shadow && CGSizeEqualToSize(shadow.shadowOffset, CGSizeZero) && shadow.shadowBlurRadius == 0) {
++    [uikitAttrs removeObjectForKey:NSShadowAttributeName];
++  }
++  UIColor *bgColor = uikitAttrs[NSBackgroundColorAttributeName];
++  if (bgColor && CGColorGetAlpha(bgColor.CGColor) == 0) {
++    [uikitAttrs removeObjectForKey:NSBackgroundColorAttributeName];
++  }
++  [super setDefaultTextAttributes:uikitAttrs];
+   [self _updatePlaceholder];
+ }
+ 
+diff --git a/node_modules/react-native/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm b/node_modules/react-native/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+index 577bebe..0f969b4 100644
+--- a/node_modules/react-native/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
++++ b/node_modules/react-native/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+@@ -795,8 +795,20 @@ - (void)_updateTypingAttributes
+                                                            toPosition:_backedTextInputView.selectedTextRange.start];
+ 
+     NSUInteger samplePoint = offsetStart == 0 ? 0 : offsetStart - 1;
+-    _backedTextInputView.typingAttributes = [_backedTextInputView.attributedText attributesAtIndex:samplePoint
+-                                                                                    effectiveRange:NULL];
++    NSMutableDictionary *attrs = [[_backedTextInputView.attributedText attributesAtIndex:samplePoint
++                                                                          effectiveRange:NULL] mutableCopy];
++    // Strip attributes that interfere with UIKit's IME composition underline rendering.
++    // Only remove no-op defaults; preserve user-specified values.
++    [attrs removeObjectForKey:RCTAttributedStringEventEmitterKey];
++    NSShadow *shadow = attrs[NSShadowAttributeName];
++    if (shadow && CGSizeEqualToSize(shadow.shadowOffset, CGSizeZero) && shadow.shadowBlurRadius == 0) {
++      [attrs removeObjectForKey:NSShadowAttributeName];
++    }
++    UIColor *bgColor = attrs[NSBackgroundColorAttributeName];
++    if (bgColor && CGColorGetAlpha(bgColor.CGColor) == 0) {
++      [attrs removeObjectForKey:NSBackgroundColorAttributeName];
++    }
++    _backedTextInputView.typingAttributes = attrs;
+   }
+ }
+ 

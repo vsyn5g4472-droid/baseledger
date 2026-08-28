@@ -1,12 +1,14 @@
 {
   "expo": {
     "updates": {
-      "url": "https://u.expo.dev/231a57a2-356a-4309-8a4d-634156eac428"
+      "url": "https://u.expo.dev/231a57a2-356a-4309-8a4d-634156eac428",
+      "fallbackToCacheTimeout": 5000,
+      "checkAutomatically": "ON_LOAD"
     },
     "runtimeVersion": "1.0.0",
     "name": "BaseLedger",
     "slug": "ballpark",
-    "version": "1.0.0",
+    "version": "1.0.6",
     "scheme": "ballpark",
     "platforms": [
       "ios",
@@ -67,15 +69,8 @@
         {
           "ios": {
             "useFrameworks": "static",
-            "buildReactNativeFromSource": false
+            "buildReactNativeFromSource": true
           }
-        }
-      ],
-      [
-        "react-native-google-mobile-ads",
-        {
-          "androidAppId": "ca-app-pub-2314368742124091~8782154941",
-          "iosAppId": "ca-app-pub-2314368742124091~8782154941"
         }
       ]
     ],
@@ -86,8 +81,7 @@
       "router": {},
       "eas": {
         "projectId": "231a57a2-356a-4309-8a4d-634156eac428"
-      },
-      "revenueCatIosApiKey": "$(EXPO_PUBLIC_REVENUECAT_IOS_API_KEY)"
+      }
     }
   }
 }
