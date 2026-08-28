@@ -6,6 +6,8 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, COLLECTIONS } from './firebase';
 
 // =============================================================================
 // 1. プラン定義
@@ -60,10 +62,10 @@ interface FeatureMeta {
 }
 
 const FEATURE_REGISTRY: Record<Feature, FeatureMeta> = {
-  ai_report:        { label: 'AI 分析レポート',        minPlan: UserPlan.LIGHT },
+  ai_report:        { label: 'AI 分析レポート',        minPlan: UserPlan.FREE },
   spray_chart:      { label: 'スプレーチャート',       minPlan: UserPlan.LIGHT },
   zone_heatmap:     { label: 'ゾーンヒートマップ',     minPlan: UserPlan.LIGHT },
-  leaderboard:      { label: 'リーダーボード',         minPlan: UserPlan.LIGHT },
+  leaderboard:      { label: 'リーダーボード',         minPlan: UserPlan.FREE },
   sabermetrics:     { label: '高度セイバーメトリクス',  minPlan: UserPlan.STANDARD },
   stats_export:     { label: '成績エクスポート',       minPlan: UserPlan.STANDARD },
   team_create:      { label: 'チーム作成',             minPlan: UserPlan.STANDARD },
@@ -118,14 +120,33 @@ interface UsageLimits {
 }
 
 const PLAN_USAGE_LIMITS: Record<UserPlan, UsageLimits> = {
-  [UserPlan.FREE]:     { aiReportsPerMonth: 3,  gamesPerMonth: 3 },
-  [UserPlan.LIGHT]:    { aiReportsPerMonth: 10, gamesPerMonth: 5 },
-  [UserPlan.STANDARD]: { aiReportsPerMonth: 20, gamesPerMonth: 10 },
+  [UserPlan.FREE]:     { aiReportsPerMonth: 5,  gamesPerMonth: 10 },
+  [UserPlan.LIGHT]:    { aiReportsPerMonth: 10, gamesPerMonth: 20 },
+  [UserPlan.STANDARD]: { aiReportsPerMonth: 20, gamesPerMonth: 30 },
   [UserPlan.PRO]:      { aiReportsPerMonth: Infinity, gamesPerMonth: Infinity },
 };
 
 export function getUsageLimits(plan: UserPlan): UsageLimits {
   return PLAN_USAGE_LIMITS[plan];
+}
+
+export async function getUsageLimitsWithBonus(userId: string, plan: UserPlan): Promise<UsageLimits & { pdfSharesPerMonth: number }> {
+  const base = getUsageLimits(plan);
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.USERS, userId));
+    const data = snap.data() ?? {};
+    return {
+      aiReportsPerMonth: base.aiReportsPerMonth === Infinity
+        ? Infinity
+        : base.aiReportsPerMonth + (data.bonusAiReports ?? 0),
+      gamesPerMonth: base.gamesPerMonth === Infinity
+        ? Infinity
+        : base.gamesPerMonth + (data.bonusGames ?? 0),
+      pdfSharesPerMonth: data.bonusPdfShares ?? 0,
+    };
+  } catch {
+    return { ...base, pdfSharesPerMonth: 0 };
+  }
 }
 
 const USAGE_PREFIX = '@ballpark/usage/';
@@ -165,8 +186,10 @@ export interface UsageCheckResult {
   limitLabel: string;
 }
 
-export async function checkAIReportUsage(plan: UserPlan): Promise<UsageCheckResult> {
-  const limits = PLAN_USAGE_LIMITS[plan];
+export async function checkAIReportUsage(plan: UserPlan, userId?: string): Promise<UsageCheckResult> {
+  const limits = userId
+    ? await getUsageLimitsWithBonus(userId, plan)
+    : PLAN_USAGE_LIMITS[plan];
   if (limits.aiReportsPerMonth === Infinity) {
     return { allowed: true, current: 0, limit: Infinity, limitLabel: '無制限' };
   }
@@ -185,8 +208,10 @@ export async function incrementAIReportUsage(): Promise<void> {
   await saveMonthlyUsage(usage);
 }
 
-export async function checkGameUsage(plan: UserPlan): Promise<UsageCheckResult> {
-  const limits = PLAN_USAGE_LIMITS[plan];
+export async function checkGameUsage(plan: UserPlan, userId?: string): Promise<UsageCheckResult> {
+  const limits = userId
+    ? await getUsageLimitsWithBonus(userId, plan)
+    : PLAN_USAGE_LIMITS[plan];
   if (limits.gamesPerMonth === Infinity) {
     return { allowed: true, current: 0, limit: Infinity, limitLabel: '無制限' };
   }
@@ -219,14 +244,14 @@ export interface PlanFeatureRow {
 }
 
 export const PLAN_COMPARISON: PlanFeatureRow[] = [
-  { feature: 'ai_report',       label: '試合記録数',             free: '3試合/月', light: '5試合/月', standard: '10試合/月', pro: '無制限' },
-  { feature: 'ai_report',       label: 'AI 分析レポート',        free: '-',      light: '10回/月', standard: '20回/月', pro: '無制限' },
+  { feature: 'ai_report',       label: '試合記録数',             free: '10試合/月', light: '20試合/月', standard: '30試合/月', pro: '無制限' },
+  { feature: 'ai_report',       label: 'AI 分析レポート',        free: '5回/月',  light: '10回/月', standard: '20回/月', pro: '無制限' },
   { feature: 'share_report',    label: 'PDF共有',                free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'team_create',     label: 'チーム作成',             free: '-',      light: '-',       standard: '○',       pro: '○' },
   { feature: 'opponent_data',   label: '試合中 相手データ参照',  free: '-',      light: '-',       standard: '-',       pro: '○' },
   { feature: 'spray_chart',     label: 'スプレーチャート',       free: '-',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'zone_heatmap',    label: 'ゾーンヒートマップ',     free: '-',      light: '○',       standard: '○',       pro: '○' },
-  { feature: 'leaderboard',     label: 'リーダーボード',         free: '-',      light: '○',       standard: '○',       pro: '○' },
+  { feature: 'leaderboard',     label: 'リーダーボード',         free: '○',      light: '○',       standard: '○',       pro: '○' },
   { feature: 'sabermetrics',    label: 'セイバーメトリクス',     free: '-',      light: '-',       standard: '○',       pro: '○' },
   { feature: 'stats_export',    label: '成績エクスポート',       free: '-',      light: '-',       standard: '○',       pro: '○' },
   { feature: 'cloud_backup',    label: 'クラウドバックアップ',   free: '-',      light: '-',       standard: '○',       pro: '○' },

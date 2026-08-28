@@ -245,6 +245,28 @@ export default function ProfileScreen() {
 
       <Button
         mode="contained"
+        onPress={() => router.push('/profile/invite' as any)}
+        icon="gift"
+        style={styles.feedButton}
+        buttonColor={Colors.primaryLight}
+        labelStyle={{ color: Colors.primary, fontWeight: '600' }}
+      >
+        友達を招待する
+      </Button>
+
+      <Button
+        mode="contained"
+        onPress={() => router.push('/profile/report-issue' as any)}
+        icon="alert-circle-outline"
+        style={styles.feedButton}
+        buttonColor={Colors.primaryLight}
+        labelStyle={{ color: Colors.primary, fontWeight: '600' }}
+      >
+        運営に問題を報告
+      </Button>
+
+      <Button
+        mode="contained"
         onPress={() => router.push('/(tabs)/profile/plan' as any)}
         icon="crown"
         style={styles.planButton}

@@ -1,14 +1,34 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, Linking } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, Linking, Alert } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as ExpoCrypto from 'expo-crypto';
+import { getIosIdForVendorAsync } from 'expo-application';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { auth } from '../../src/services/firebase';
+import { registerInviteCode, useInviteCode } from '../../src/services/inviteService';
 import { useI18n } from '../../src/i18n';
 import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { UserRole } from '../../src/models/types';
+
+async function getDeviceId(): Promise<string> {
+  const vendorId = await getIosIdForVendorAsync();
+  if (vendorId) return vendorId;
+  return ExpoCrypto.randomUUID();
+}
+
+async function processRegistrationInvite(userId: string, inviteCodeInput: string): Promise<string | null> {
+  try {
+    await registerInviteCode(userId);
+    if (!inviteCodeInput.trim()) return null;
+    const result = await useInviteCode(inviteCodeInput.trim(), await getDeviceId());
+    return result.applied ? null : (result.message ?? '招待コードを利用できませんでした');
+  } catch {
+    return '招待コードの処理に失敗しました';
+  }
+}
 
 function generateNonce(length = 32): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -34,6 +54,7 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [role, setRole] = useState<UserRole>('player');
   const [error, setError] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -58,6 +79,13 @@ export default function RegisterScreen() {
     try {
       setError('');
       await signUp(email, password, displayName, role);
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        const inviteWarning = await processRegistrationInvite(userId, inviteCodeInput);
+        if (inviteWarning) {
+          Alert.alert('招待コード', inviteWarning);
+        }
+      }
       // isNewUser is now true → index.tsx will redirect to onboarding
       router.replace('/');
     } catch (e: any) {
@@ -66,6 +94,10 @@ export default function RegisterScreen() {
   };
 
   const handleAppleSignIn = async () => {
+    if (!agreedToTerms) {
+      setError('利用規約とプライバシーポリシーに同意してください');
+      return;
+    }
     try {
       setError('');
       const rawNonce = generateNonce();
@@ -79,6 +111,13 @@ export default function RegisterScreen() {
       });
       if (credential.identityToken) {
         await signInWithApple(credential.identityToken, rawNonce);
+        const userId = auth.currentUser?.uid;
+        if (userId) {
+          const inviteWarning = await processRegistrationInvite(userId, inviteCodeInput);
+          if (inviteWarning) {
+            Alert.alert('招待コード', inviteWarning);
+          }
+        }
         router.replace('/');
       }
     } catch (e: any) {
@@ -96,6 +135,16 @@ export default function RegisterScreen() {
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>{t.auth.createAccount}</Text>
         <Text style={styles.subtitle}>{t.auth.joinCommunity}</Text>
+
+        <TextInput
+          label="招待コード（任意）"
+          value={inviteCodeInput}
+          onChangeText={setInviteCodeInput}
+          mode="outlined"
+          autoCapitalize="none"
+          style={styles.input}
+          left={<TextInput.Icon icon="ticket-outline" />}
+        />
 
         {/* Apple で登録 — iOS のみ */}
         {Platform.OS === 'ios' && (

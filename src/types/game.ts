@@ -469,6 +469,9 @@ export interface GameState {
   createdAt: number;
   updatedAt: number;
   metadata: GameMetadata;
+  /** 月間試合記録枠をすでに消費したか（開始時は false） */
+  usageCounted?: boolean;
+
   // チーム
   awayTeam: Team;
   homeTeam: Team;

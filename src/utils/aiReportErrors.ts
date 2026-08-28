@@ -106,7 +106,7 @@ export function mapAIReportError(err: unknown): AIReportErrorInfo {
       return {
         reason,
         title: 'プランのアップグレードが必要です',
-        message: 'AI 分析レポートはライトプラン以上でご利用いただけます。',
+        message: 'AI 分析レポートはこのプランではご利用いただけません。',
         subtext: 'お得なプランを下記からご確認ください。',
         actionHint: 'upgrade',
       };

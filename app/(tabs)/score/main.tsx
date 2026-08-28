@@ -340,6 +340,7 @@ export default function LiveScoreScreen() {
               if (currentGame) {
                 useGameStore.getState().setPhase('paused');
                 await persistRef.current();
+                await useGameStore.getState().recordGameUsageOnce();
               }
               isLeavingRef.current = true;
               onLeave();
@@ -619,6 +620,7 @@ export default function LiveScoreScreen() {
             setPhase('finished');
             setIsTiebreakMode(false);
             await persist();
+            await useGameStore.getState().recordGameUsageOnce();
             // Firebase保存 (ログイン中の場合)
             const latestGame = useGameStore.getState().game;
             if (currentUser && latestGame) {
@@ -653,6 +655,7 @@ export default function LiveScoreScreen() {
             setPhase('finished');
             setIsTiebreakMode(false);
             await persist();
+            await useGameStore.getState().recordGameUsageOnce();
             const latestGame = useGameStore.getState().game;
             if (currentUser && latestGame) {
               await gameService.saveGame(latestGame, currentUser.uid);

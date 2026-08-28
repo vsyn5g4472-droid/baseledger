@@ -65,6 +65,30 @@ export default function ProfileLayout() {
           headerShadowVisible: false,
         }}
       />
+      <Stack.Screen
+        name="invite"
+        options={{
+          headerShown: true,
+          title: '友達を招待',
+          headerBackTitle: '戻る',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTintColor: Colors.primary,
+          headerTitleStyle: { fontWeight: '700', color: Colors.text },
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="report-issue"
+        options={{
+          headerShown: true,
+          title: '問題を報告',
+          headerBackTitle: '戻る',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTintColor: Colors.primary,
+          headerTitleStyle: { fontWeight: '700', color: Colors.text },
+          headerShadowVisible: false,
+        }}
+      />
     </Stack>
   );
 }

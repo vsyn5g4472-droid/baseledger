@@ -188,7 +188,7 @@ export default function SpotBatterScreen() {
   const handleStartAI = useCallback(async () => {
     if (spots.length === 0) return;
 
-    const usage = await checkAIReportUsage(userPlan);
+    const usage = await checkAIReportUsage(userPlan, currentUser?.uid);
     if (!usage.allowed) {
       showAIUsageLimitAlert(userPlan, usage.limit);
       return;
@@ -205,7 +205,7 @@ export default function SpotBatterScreen() {
     } finally {
       setAiLoading(false);
     }
-  }, [spots, decodedName, userPlan]);
+  }, [spots, decodedName, userPlan, currentUser?.uid]);
 
   if (loading) {
     return (

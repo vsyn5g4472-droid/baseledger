@@ -335,7 +335,7 @@ export default function SettingsScreen() {
       {/* アプリ情報 */}
       <View style={styles.section}>
         <View style={styles.versionRow}>
-          <Text style={styles.versionLabel}>BallPark</Text>
+          <Text style={styles.versionLabel}>BaseLedger</Text>
           <Text style={styles.versionValue}>v{appVersion}</Text>
         </View>
       </View>

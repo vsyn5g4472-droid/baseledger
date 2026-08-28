@@ -57,15 +57,26 @@ const DEFAULT_STATS: UserStats = {
 /**
  * Fetch a user document from Firestore. Returns null if not found.
  */
+function applyInvitePlanExpiry(user: User, raw: Record<string, unknown>): User {
+  if (user.plan !== UserPlan.STANDARD) return user;
+  const exp = raw.standardExpiresAt as Timestamp | undefined;
+  if (!exp?.toMillis) return user;
+  if (Date.now() > exp.toMillis()) {
+    return { ...user, plan: UserPlan.FREE };
+  }
+  return user;
+}
+
 export async function getFirestoreUser(uid: string): Promise<User | null> {
   try {
     const _t = Date.now();
     const snap = await withTimeout(getDoc(doc(db, COLLECTIONS.USERS, uid)));
     if (__DEV__) console.log(`[perf][user] getDoc(users): ${Date.now() - _t}ms`);
     if (!snap.exists()) return null;
-    const data = snap.data() as User;
+    const raw = snap.data();
+    const data = raw as User;
     if (!data.plan) data.plan = UserPlan.FREE;
-    return data;
+    return applyInvitePlanExpiry(data, raw);
   } catch (error) {
     throw new AppError('NETWORK', `Failed to fetch user: ${(error as Error).message}`);
   }

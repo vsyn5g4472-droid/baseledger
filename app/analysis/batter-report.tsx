@@ -234,7 +234,7 @@ export default function BatterReportScreen() {
     try {
       const report = await generateBatterAIReport(p, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
-        const usage = await checkAIReportUsage(userPlan);
+        const usage = await checkAIReportUsage(userPlan, currentUser?.uid);
         showAIUsageLimitAlert(userPlan, usage.limit);
         return;
       }

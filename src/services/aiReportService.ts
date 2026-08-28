@@ -259,7 +259,7 @@ function earlyPlanGate(plan: UserPlan): AIReport | null {
   const check = checkPlanAccess(plan);
   if (check.allowed) return null;
   return {
-    overall: 'AI 分析レポートはライトプラン以上でご利用いただけます。',
+    overall: 'AI 分析レポートはこのプランではご利用いただけません。',
     improvements: [],
     nextAdvice: 'お得なプランを下記からご確認ください。',
     highlights: '',
@@ -292,7 +292,8 @@ function toMonthlyLimitReport(limit: number): AIReport {
  * 上限超過時は擬似レポートを返す（null = 続行可）。
  */
 async function assertMonthlyAIQuota(plan: UserPlan): Promise<AIReport | null> {
-  const usage = await checkAIReportUsage(plan);
+  const userId = auth.currentUser?.uid;
+  const usage = await checkAIReportUsage(plan, userId);
   if (!usage.allowed) {
     return toMonthlyLimitReport(
       usage.limit === Infinity ? 0 : usage.limit,

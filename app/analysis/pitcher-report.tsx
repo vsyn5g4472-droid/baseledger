@@ -174,7 +174,7 @@ export default function PitcherReportScreen() {
     try {
       const report = await generatePitcherAIReport(p, userPlan);
       if (report.isMock && report.errorReason === 'monthly_limit_exceeded') {
-        const usage = await checkAIReportUsage(userPlan);
+        const usage = await checkAIReportUsage(userPlan, currentUser?.uid);
         showAIUsageLimitAlert(userPlan, usage.limit);
         return;
       }

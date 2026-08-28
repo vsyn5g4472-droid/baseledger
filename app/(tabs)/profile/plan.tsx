@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -38,12 +38,11 @@ const PLAN_CARDS: PlanCard[] = [
     plan: UserPlan.LIGHT,
     packageId: 'light_monthly',
     recommended: false,
-    limit: '5試合/月・AIレポート10回/月',
+    limit: '20試合/月・AIレポート10回/月',
     features: [
       'AI 分析レポート（10回/月）',
       'スプレーチャート',
       'ゾーンヒートマップ',
-      'リーダーボード',
       'グループチャット送信',
       'PDF共有',
       '広告非表示',
@@ -53,7 +52,7 @@ const PLAN_CARDS: PlanCard[] = [
     plan: UserPlan.STANDARD,
     packageId: 'standard_monthly',
     recommended: true,
-    limit: '10試合/月・AIレポート20回/月',
+    limit: '30試合/月・AIレポート20回/月',
     features: [
       'ライトプランの全機能',
       'セイバーメトリクス（高度統計）',
@@ -88,13 +87,18 @@ export default function PlanScreen() {
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [welcomePlan, setWelcomePlan] = useState<UserPlan | null>(null);
+  const [displayPlan, setDisplayPlan] = useState<UserPlan>(userPlan);
+
+  useEffect(() => {
+    setDisplayPlan(userPlan);
+  }, [userPlan]);
 
   const handlePurchase = useCallback(async (card: PlanCard) => {
     if (!currentUser) {
       Alert.alert('ログインが必要です', 'プランを購入するにはログインしてください。');
       return;
     }
-    if (userPlan === card.plan) {
+    if (displayPlan === card.plan) {
       Alert.alert('現在のプランです', 'すでにこのプランをご利用中です。');
       return;
     }
@@ -104,14 +108,17 @@ export default function PlanScreen() {
       const uid = auth.currentUser!.uid;
       await syncPlanToFirestore(uid, newPlan);
       if (currentUser) {
-        await updateAuthorNameInPosts(
+        updateAuthorNameInPosts(
           uid,
           currentUser.displayName,
           currentUser.photoURL,
           newPlan,
-        );
+        ).catch((syncError) => {
+          console.warn('updateAuthorNameInPosts failed:', syncError);
+        });
       }
       await refreshUser();
+      setDisplayPlan(newPlan);
       setWelcomePlan(newPlan);
     } catch (err: any) {
       if (err?.userCancelled) return;
@@ -119,7 +126,7 @@ export default function PlanScreen() {
     } finally {
       setPurchasing(null);
     }
-  }, [currentUser, userPlan, refreshUser]);
+  }, [currentUser, displayPlan, refreshUser]);
 
   const handleRestore = useCallback(async () => {
     if (!currentUser) return;
@@ -167,13 +174,13 @@ export default function PlanScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>プランを選択</Text>
         <Text style={styles.headerSub}>
-          現在: <Text style={styles.currentPlanLabel}>{USER_PLAN_META[userPlan].label}</Text>
+          現在: <Text style={styles.currentPlanLabel}>{USER_PLAN_META[displayPlan].label}</Text>
         </Text>
       </View>
 
       {/* プランカード */}
       {PLAN_CARDS.map((card) => {
-        const isCurrentPlan = userPlan === card.plan;
+        const isCurrentPlan = displayPlan === card.plan;
         const isBuying = purchasing === card.packageId;
 
         return (

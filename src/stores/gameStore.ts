@@ -200,6 +200,8 @@ interface GameActions {
   loadGame: (id: string) => Promise<void>;
   setPhase: (phase: GamePhase) => void;
   persist: () => Promise<void>;
+  /** 月間試合枠を未消費なら 1 回だけ消費する（一時保存・試合終了時） */
+  recordGameUsageOnce: () => Promise<void>;
   clearActiveGame: () => void;
   /** 試合中の投手記録を明示選択した選手へ移管し、端末保存を確認する。 */
   reassignActivePitcherRecords: (input: PitcherReassignmentInput) => Promise<LocalPutResult>;
@@ -471,6 +473,7 @@ function createInitialGameState(input: GameSetupInput): GameState {
     createdAt: now,
     updatedAt: now,
     metadata: input.metadata,
+    usageCounted: false,
     awayTeam: away,
     homeTeam: home,
     ballpark,
@@ -1025,7 +1028,6 @@ export const useGameStore = create<GameStore>()(
       const gameState = createInitialGameState(input);
       gameState.undoStack = [];
       await db.games.put(gameState);
-      await incrementGameUsage();
       set({ game: gameState, persistBlocked: false });
     },
 
@@ -1038,6 +1040,10 @@ export const useGameStore = create<GameStore>()(
         if (typeof gameState.isDH === 'boolean') {
           const legacy = gameState.isDH as unknown as boolean;
           (gameState as any).isDH = { away: legacy, home: legacy };
+        }
+        // 開始時に枠を消費していた旧データは二重カウントを避けるため消費済み扱い
+        if (gameState.usageCounted == null) {
+          gameState.usageCounted = true;
         }
         gameState.undoStack = [];
         // 三振/振り逃げの選択待ちは永続化されないため、状態から復元する。
@@ -1070,6 +1076,24 @@ export const useGameStore = create<GameStore>()(
       const game = get().game;
       if (game) {
         const { undoStack: _undo, ...toSave } = game;
+        await db.games.put(toSave as GameState);
+      }
+    },
+
+    recordGameUsageOnce: async () => {
+      const game = get().game;
+      if (!game || game.usageCounted) return;
+      if (get().persistBlocked) return;
+      await incrementGameUsage();
+      set((state) => {
+        if (state.game) {
+          state.game.usageCounted = true;
+          state.game.updatedAt = Date.now();
+        }
+      });
+      const updated = get().game;
+      if (updated) {
+        const { undoStack: _undo, ...toSave } = updated;
         await db.games.put(toSave as GameState);
       }
     },
