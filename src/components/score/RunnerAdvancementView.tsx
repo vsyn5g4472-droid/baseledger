@@ -15,7 +15,7 @@ import type {
   OutDetail,
   BatterAdvancementReason,
 } from '../../types/game';
-import { HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT } from '../../types/game';
+import { BATTER_RESULTS_NEEDING_ADVANCEMENT } from '../../types/game';
 import {
   baseToNum,
   capBatterTargetBase,
@@ -246,7 +246,7 @@ function computeDestinationOffsets(
   return offsets;
 }
 
-// 打者の超過進塁理由（ヒット時・ダイヤモンド下）
+// 打者の超過進塁理由（ヒット・エラー時、ダイヤモンド下）
 const BATTER_ADVANCEMENT_REASONS: {
   key: BatterAdvancementReason;
   labelKey: string;
@@ -584,10 +584,10 @@ export default function RunnerAdvancementView({
     return null;
   })();
 
-  const isHitResult = HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT.includes(result as AtBatResult);
+  const needsBatterAdvancement = BATTER_RESULTS_NEEDING_ADVANCEMENT.includes(result as AtBatResult);
   const batterAdv = editable.find((a) => a.fromBase === 'batter');
   const showBatterReasonButtons = (() => {
-    if (!isHitResult || !batterAdv) return false;
+    if (!needsBatterAdvancement || !batterAdv) return false;
     if (batterAdv.minBase === 'out' || batterAdv.targetBase === 'out') return false;
     if (batterAdv.outcome === 'out_tag' || batterAdv.outcome === 'out_force') return false;
     return (BASE_ORDER[batterAdv.targetBase as string] ?? 0) > (BASE_ORDER[batterAdv.minBase as string] ?? 0);

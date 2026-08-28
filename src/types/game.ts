@@ -183,9 +183,9 @@ export interface PendingPickoffSafe {
   playerName: string;
 }
 
-/** ヒット時に打者進塁確認が必要な結果 */
-export const HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT: AtBatResult[] = [
-  'single', 'double', 'triple',
+/** ランナーなしでも打者進塁確認が必要な打席結果 */
+export const BATTER_RESULTS_NEEDING_ADVANCEMENT: AtBatResult[] = [
+  'single', 'double', 'triple', 'error',
 ];
 
 /** 手動進塁確認が必要な打席結果 */

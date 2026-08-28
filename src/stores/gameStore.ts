@@ -41,7 +41,7 @@ import type {
   InningState,
   Position,
 } from '../types/game';
-import { HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT } from '../types/game';
+import { BATTER_RESULTS_NEEDING_ADVANCEMENT } from '../types/game';
 import type { AtBatExtra } from '../types/game';
 import {
   reassignPitcherRecords,
@@ -1293,7 +1293,7 @@ export const useGameStore = create<GameStore>()(
 
       // ランナーがいる、または打者の到達塁確認が必要な場合は進塁確認モードへ
       const hasRunners = g.runners.first || g.runners.second || g.runners.third;
-      const needsBatterAdvancement = HIT_RESULTS_NEEDING_BATTER_ADVANCEMENT.includes(result);
+      const needsBatterAdvancement = BATTER_RESULTS_NEEDING_ADVANCEMENT.includes(result);
       if ((hasRunners || needsBatterAdvancement) && result !== 'home_run' && !shouldResolveInPlayWithoutAdvancement(g, result)) {
         get().beginAdvancementConfirmation(result, battedBall, undefined, atBatExtra);
         return;
