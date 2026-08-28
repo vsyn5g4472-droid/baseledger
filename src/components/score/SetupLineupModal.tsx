@@ -39,7 +39,7 @@ const SETUP_FIELD_H = SCREEN_H * 0.70;
 
 // ─── ローカル型 ────────────────────────────────────────────────────────────────
 
-type FieldEntry = {
+export type FieldEntry = {
   position: string;
   player: LocalPlayer;
   battingOrder: number;
@@ -161,6 +161,8 @@ interface Props {
   isDH: boolean;
   onConfirm: (starters: PlayerInput[]) => void;
   onDismiss: () => void;
+  savedFieldPlayers?: FieldEntry[];
+  onFieldPlayersChange?: (players: FieldEntry[]) => void;
 }
 
 // ─── SetupLineupModal ─────────────────────────────────────────────────────────
@@ -171,6 +173,8 @@ export default function SetupLineupModal({
   isDH,
   onConfirm,
   onDismiss,
+  savedFieldPlayers,
+  onFieldPlayersChange,
 }: Props) {
   const [benchPlayers, setBenchPlayers] = useState<LocalPlayer[]>([]);
   const [fieldPlayers, setFieldPlayers] = useState<FieldEntry[]>([]);
@@ -192,40 +196,59 @@ export default function SetupLineupModal({
   const fieldRef = useRef<View>(null);
   const scrollY = useRef(0);
   const prevVisibleRef = useRef(false);
+  const prevTeamIdRef = useRef<string | null>(null);
 
   useEffect(() => { fieldPlayersRef.current = fieldPlayers; }, [fieldPlayers]);
   useEffect(() => { currentOrderRef.current = currentOrder; }, [currentOrder]);
-
-  // 初期化（モーダルオープン時）
   useEffect(() => {
-    const wasVisible = prevVisibleRef.current;
-    prevVisibleRef.current = visible;
+    if (!visible) return;
+    onFieldPlayersChange?.(fieldPlayers);
+  }, [fieldPlayers]);
 
-    // false→trueに変わった時（新規オープン）かつfieldPlayersが空の時だけリセット
-    if (!visible || !teamId) return;
-    if (wasVisible) return; // 既に開いていた場合はリセットしない
-    if (fieldPlayers.length > 0) return; // 途中入力がある場合はリセットしない
-    setCurrentOrder(1);
-    setFieldPlayers([]);
+  // 初期化（モーダルオープン時 / 表示中のチーム切替時）
+  useEffect(() => {
+    if (!visible || !teamId) {
+      if (!visible) {
+        prevVisibleRef.current = false;
+      }
+      return;
+    }
+
+    const isOpening = !prevVisibleRef.current;
+    const teamChanged = prevTeamIdRef.current !== teamId;
+    prevVisibleRef.current = true;
+
+    if (!isOpening && !teamChanged) {
+      return;
+    }
+
+    prevTeamIdRef.current = teamId;
+    const restored = savedFieldPlayers ?? [];
+    setFieldPlayers(restored);
+    setCurrentOrder(restored.length + 1);
+
     getTeamPlayers(teamId).then((players) => {
       const map: Record<string, { bats: 'L' | 'R' | 'S'; throws: 'L' | 'R' }> = {};
+      const restoredIds = new Set(restored.map((e) => e.player.playerId));
       setBenchPlayers(
-        players.map((p) => {
-          map[p.id] = { bats: p.bats, throws: p.throws };
-          return {
-            playerId: p.id,
-            name: p.name,
-            position: (p.position ?? '') as Position,
-            isDisplaced: false,
-            fromBench: true,
-            originalPosition: (p.position ?? '') as Position,
-            battingOrder: null,
-          };
-        }),
+        players
+          .filter((p) => !restoredIds.has(p.id))
+          .map((p) => {
+            map[p.id] = { bats: p.bats, throws: p.throws };
+            return {
+              playerId: p.id,
+              name: p.name,
+              position: (p.position ?? '') as Position,
+              isDisplaced: false,
+              fromBench: true,
+              originalPosition: (p.position ?? '') as Position,
+              battingOrder: null,
+            };
+          }),
       );
       setBatsThrowsMap(map);
     });
-  }, [visible, teamId, fieldPlayers.length]);
+  }, [visible, teamId, savedFieldPlayers]);
 
   const posCoords = useMemo(
     () => getPosCoords(fieldWidth, CANVAS_H),

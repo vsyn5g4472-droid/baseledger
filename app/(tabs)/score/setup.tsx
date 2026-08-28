@@ -23,7 +23,7 @@ import { useGameStore } from '../../../src/stores/gameStore';
 import { POSITIONS, type Position, type PlayerInput, type GameSetupInput } from '../../../src/types/game';
 import { PositionDiamondPicker } from '../../../src/components/score/PositionDiamondPicker';
 import RosterPickerModal from '../../../src/components/score/RosterPickerModal';
-import SetupLineupModal from '../../../src/components/score/SetupLineupModal';
+import SetupLineupModal, { FieldEntry } from '../../../src/components/score/SetupLineupModal';
 import type { TeamPlayer } from '../../../src/models/types';
 import { addTeamPlayer, getTeamPlayers } from '../../../src/services/teamPlayerService';
 import { makeUnassignedPitcherInput } from '../../../src/services/unassignedPitcherService';
@@ -88,6 +88,7 @@ export default function SetupScreen() {
   const setPitcher = activeTeam === 'away' ? setAwayPitcher : setHomePitcher;
   const activeTeamId = activeTeam === 'away' ? (params.awayTeamId || '') : (params.homeTeamId || '');
   const [showSetupLineup, setShowSetupLineup] = useState(false);
+  const [savedFieldPlayersByTeam, setSavedFieldPlayersByTeam] = useState<Record<string, FieldEntry[]>>({});
 
   const selectFromRoster = useCallback((player: TeamPlayer) => {
     if (!rosterModal) return;
@@ -557,6 +558,11 @@ export default function SetupScreen() {
         visible={showSetupLineup}
         teamId={activeTeamId}
         isDH={activeTeamIsDH}
+        savedFieldPlayers={savedFieldPlayersByTeam[activeTeamId] ?? []}
+        onFieldPlayersChange={(players) => {
+          if (!activeTeamId) return;
+          setSavedFieldPlayersByTeam((prev) => ({ ...prev, [activeTeamId]: players }));
+        }}
         onConfirm={(newStarters) => {
           if (activeTeam === 'away') {
             setAwayStarters((prev) => {

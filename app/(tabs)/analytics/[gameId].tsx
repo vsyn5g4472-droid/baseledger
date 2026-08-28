@@ -33,6 +33,7 @@ import { generateGameReportHtml } from '../../../src/utils/gameReportGenerator';
 import { usePostActions } from '../../../src/hooks/usePosts';
 import type { PostVisibility } from '../../../src/models/types';
 import GameShareModal from '../../../src/components/GameShareModal';
+import EditGamePlayersModal from '../../../src/components/EditGamePlayersModal';
 import PitcherReassignmentModal from '../../../src/components/PitcherReassignmentModal';
 import { showPdfSharePlanAlert } from '../../../src/utils/planLimitAlerts';
 import { useAuth } from '../../../src/contexts/AuthContext';
@@ -207,7 +208,9 @@ export default function GameAnalyticsScreen() {
   const [game, setGame] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [gameCanReshare, setGameCanReshare] = useState(true);
-  const [isLocalGame, setIsLocalGame] = useState(false);
+  const [loadedFromShare, setLoadedFromShare] = useState(false);
+  const [savingToDevice, setSavingToDevice] = useState(false);
+  const [savedToDevice, setSavedToDevice] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('batting');
   const [heatmapTeam, setHeatmapTeam] = useState<'away' | 'home'>('home');
   const [heatmapPitcherId, setHeatmapPitcherId] = useState<string | null>(null);
@@ -240,8 +243,9 @@ export default function GameAnalyticsScreen() {
   const [showGameShareModal, setShowGameShareModal] = useState(false);
   const [chatSummary, setChatSummary]               = useState('');
   const [gamePlayerAssignments, setGamePlayerAssignments] = useState<GamePlayerAssignment[]>([]);
-  const [showPitcherReassignmentModal, setShowPitcherReassignmentModal] = useState(false);
   const [importingAtBatId, setImportingAtBatId]     = useState<string | null>(null);
+  const [showEditPlayersModal, setShowEditPlayersModal] = useState(false);
+  const [showPitcherReassignmentModal, setShowPitcherReassignmentModal] = useState(false);
 
   const shareGate = usePlanGate('share_report');
   const { createPost } = usePostActions();
@@ -281,7 +285,8 @@ export default function GameAnalyticsScreen() {
           setGame(local);
           setGameCanReshare(true);
           setGamePlayerAssignments([]);
-          setIsLocalGame(true);
+          setLoadedFromShare(false);
+          setSavedToDevice(true);
           return;
         }
 
@@ -291,7 +296,8 @@ export default function GameAnalyticsScreen() {
           setGame(stripGameMetadata(shared));
           setGameCanReshare(shared.canReshare !== false);
           setGamePlayerAssignments(shared.playerAssignments ?? []);
-          setIsLocalGame(false);
+          setLoadedFromShare(true);
+          setSavedToDevice(false);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -300,6 +306,31 @@ export default function GameAnalyticsScreen() {
 
     return () => { cancelled = true; };
   }, [gameId]);
+
+  const handleSaveToDevice = useCallback(async () => {
+    if (!gameId || savingToDevice || savedToDevice) return;
+    setSavingToDevice(true);
+    try {
+      const result = await gameService.importSharedGameToLocal(gameId);
+      if (result === 'imported' || result === 'already_local') {
+        setSavedToDevice(true);
+        Alert.alert(
+          result === 'already_local' ? '保存済み' : '保存しました',
+          result === 'already_local'
+            ? 'この試合はすでに端末に保存されています。'
+            : '分析一覧に追加しました。いつでも閲覧できます。',
+        );
+      } else if (result === 'forbidden') {
+        Alert.alert('エラー', 'この試合を保存する権限がありません。');
+      } else {
+        Alert.alert('エラー', '試合データが見つかりません。');
+      }
+    } catch (e: unknown) {
+      Alert.alert('エラー', (e as Error)?.message ?? '端末への保存に失敗しました。');
+    } finally {
+      setSavingToDevice(false);
+    }
+  }, [gameId, savingToDevice, savedToDevice]);
 
   const analytics: GameAnalytics | null = useMemo(() => {
     if (!game) return null;
@@ -795,7 +826,16 @@ export default function GameAnalyticsScreen() {
         />
       )}
 
-      {game && isLocalGame && (
+      {game && (
+        <EditGamePlayersModal
+          visible={showEditPlayersModal}
+          game={game}
+          onClose={() => setShowEditPlayersModal(false)}
+          onSaved={(updated) => setGame(updated)}
+        />
+      )}
+
+      {game && (
         <PitcherReassignmentModal
           visible={showPitcherReassignmentModal}
           game={game}
@@ -1269,15 +1309,49 @@ export default function GameAnalyticsScreen() {
           </View>
         </View>
 
-        {isLocalGame && (
+        {loadedFromShare && (
           <TouchableOpacity
-            style={styles.reassignPitcherBtn}
-            onPress={() => setShowPitcherReassignmentModal(true)}
+            style={[styles.saveToDeviceBtn, (savingToDevice || savedToDevice) && styles.saveToDeviceBtnDisabled]}
+            onPress={handleSaveToDevice}
+            disabled={savingToDevice || savedToDevice}
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="baseball" size={18} color={Colors.error} />
-            <Text style={styles.reassignPitcherBtnText}>投手記録を正しい選手へ移す</Text>
+            {savingToDevice ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <MaterialCommunityIcons
+                  name={savedToDevice ? 'check-circle-outline' : 'download-outline'}
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={styles.saveToDeviceBtnText}>
+                  {savedToDevice ? '保存済み' : '端末に保存'}
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
+        )}
+
+        {(!loadedFromShare || savedToDevice) && (
+          <>
+            <TouchableOpacity
+              style={styles.editPlayersBtn}
+              onPress={() => setShowEditPlayersModal(true)}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="account-edit-outline" size={18} color={Colors.primary} />
+              <Text style={styles.editPlayersBtnText}>選手名を編集</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.reassignPitcherBtn}
+              onPress={() => setShowPitcherReassignmentModal(true)}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="baseball" size={18} color={Colors.error} />
+              <Text style={styles.reassignPitcherBtnText}>投手記録を正しい選手へ移す</Text>
+            </TouchableOpacity>
+          </>
         )}
 
         {/* ── Tab Bar ──────────────────────────────────── */}
@@ -2050,13 +2124,52 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     paddingHorizontal: Spacing.md,
   },
-  reassignPitcherBtn: {
+  saveToDeviceBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     marginHorizontal: Spacing.md,
     marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primary,
+  },
+  saveToDeviceBtnDisabled: {
+    opacity: 0.7,
+  },
+  saveToDeviceBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  editPlayersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryLight,
+  },
+  editPlayersBtnText: {
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  reassignPitcherBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.xs,
     marginBottom: Spacing.xs,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,

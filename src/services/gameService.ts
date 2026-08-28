@@ -307,8 +307,41 @@ export const gameService = {
     return snap.docs.map((d) => d.data() as SavedGame);
   },
 
+  /**
+   * 共有された試合を端末（ローカル）にコピーする。
+   * 同じ gameId のまま保存し、分析一覧・チャットリンクと整合させる。
+   */
+  async importSharedGameToLocal(
+    gameId: string,
+    userId?: string,
+  ): Promise<'imported' | 'already_local' | 'not_found' | 'forbidden'> {
+    const existing = await localDb.games.get(gameId);
+    if (existing) return 'already_local';
+
+    const uid = userId ?? auth.currentUser?.uid;
+    if (!uid) return 'forbidden';
+
+    const snap = await getDoc(doc(firestoreDb, GAMES, gameId));
+    if (!snap.exists()) return 'not_found';
+
+    const data = snap.data() as SavedGame;
+    if (!userCanAccessGame(data, uid)) return 'forbidden';
+
+    await localDb.games.put(stripGameMetadata(data));
+    return 'imported';
+  },
+
   async deleteGame(gameId: string): Promise<void> {
-    await deleteDoc(doc(firestoreDb, GAMES, gameId));
+    const uid = auth.currentUser?.uid;
+    try {
+      const snap = await getDoc(doc(firestoreDb, GAMES, gameId));
+      if (snap.exists() && uid && (snap.data() as SavedGame).ownerId === uid) {
+        await deleteDoc(doc(firestoreDb, GAMES, gameId));
+      }
+    } catch (e) {
+      // クラウド削除失敗でもローカルは消す（共有コピー・未同期試合など）
+      if (__DEV__) console.warn('[deleteGame] cloud delete skipped:', e);
+    }
     await localDb.games.remove(gameId);
   },
 };

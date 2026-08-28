@@ -18,8 +18,10 @@ import { useVelocitySettings } from '../../../src/hooks/useVelocitySettings';
 import { useUserPlan } from '../../../src/hooks/usePlanGate';
 import { checkGameUsage, incrementGameUsage, type UsageCheckResult } from '../../../src/services/planService';
 import { showGameUsageLimitAlert } from '../../../src/utils/planLimitAlerts';
+import { useAuth } from '../../../src/contexts/AuthContext';
 export default function ScoreStartScreen() {
   const quickStartGame = useGameStore((s) => s.quickStartGame);
+  const { currentUser } = useAuth();
   const userPlan = useUserPlan();
   const [awayName, setAwayName] = useState('');
   const [homeName, setHomeName] = useState('');
@@ -31,8 +33,8 @@ export default function ScoreStartScreen() {
   const [gameUsage, setGameUsage] = useState<UsageCheckResult | null>(null);
 
   useEffect(() => {
-    checkGameUsage(userPlan).then(setGameUsage);
-  }, [userPlan]);
+    checkGameUsage(userPlan, currentUser?.uid).then(setGameUsage);
+  }, [userPlan, currentUser?.uid]);
 
   const { settings: velocitySettings, loaded: velocityLoaded, update: updateVelocity } = useVelocitySettings();
   const velocityEnabled = velocitySettings.enabled;

@@ -11,7 +11,7 @@ import { checkGameUsage, type UsageCheckResult } from '../../../src/services/pla
 import { showGameUsageLimitAlert } from '../../../src/utils/planLimitAlerts';
 import type { GameCategory } from '../../../src/types/game';
 import { useAuth } from '../../../src/contexts/AuthContext';
-import { getUserTeams, createTeam } from '../../../src/services/teamService';
+import { getUserTeams } from '../../../src/services/teamService';
 import type { Team } from '../../../src/models/types';
 import TeamQuickSelect from '../../../src/components/score/TeamQuickSelect';
 import { getUserBallparks, addBallpark } from '../../../src/services/ballparkService';
@@ -27,8 +27,8 @@ export default function NormalModeScreen() {
   const userPlan = useUserPlan();
   const [gameUsage, setGameUsage] = useState<UsageCheckResult | null>(null);
   useEffect(() => {
-    checkGameUsage(userPlan).then(setGameUsage);
-  }, [userPlan]);
+    checkGameUsage(userPlan, currentUser?.uid).then(setGameUsage);
+  }, [userPlan, currentUser?.uid]);
 
   const [myTeams, setMyTeams]                   = useState<Team[]>([]);
   const [awayTeamId, setAwayTeamId]             = useState('');
@@ -78,36 +78,9 @@ export default function NormalModeScreen() {
       Alert.alert(t.setup.validation.teamNameRequired);
       return;
     }
-    let resolvedAwayTeamId = awayTeamId.trim();
-    let resolvedHomeTeamId = homeTeamId.trim();
-
-    if (!resolvedAwayTeamId && awayName.trim() && currentUser) {
-      try {
-        const team = await createTeam(currentUser.uid, {
-          name: awayName.trim(),
-          description: '',
-          photoURI: null,
-          isPrivate: false,
-        });
-        resolvedAwayTeamId = team.id;
-      } catch (_e) {
-        // 保存失敗しても試合は続行
-      }
-    }
-
-    if (!resolvedHomeTeamId && homeName.trim() && currentUser) {
-      try {
-        const team = await createTeam(currentUser.uid, {
-          name: homeName.trim(),
-          description: '',
-          photoURI: null,
-          isPrivate: false,
-        });
-        resolvedHomeTeamId = team.id;
-      } catch (_e) {
-        // 保存失敗しても試合は続行
-      }
-    }
+    // 既存チームを選んだときだけ ID を渡す（チーム名入力だけではチーム／チャットを作らない）
+    const resolvedAwayTeamId = awayTeamId.trim();
+    const resolvedHomeTeamId = homeTeamId.trim();
 
     if (ballparkName.trim() && currentUser) {
       const exists = myBallparks.some(
