@@ -1,6 +1,7 @@
 import type { GameState } from '../types/game';
 import type { GameAnalytics, PlayerPitchingStats } from './gameStatsCalculator';
 import { formatBattingAvg } from './statsCalculator';
+import { ja } from '../i18n/ja';
 
 function fmtDate(ts: number): string {
   const d = new Date(ts);
@@ -85,44 +86,126 @@ export function generateGameReportHtml(
 
   // ── 4. 配球分析 ──────────────────────────────────────────────────────────────
 
-  // 9分割ゾーングリッド
-  // ゾーン番号配置（打者視点）:
-  //  1 | 2 | 3
-  //  4 | 5 | 6
-  //  7 | 8 | 9
-  const zoneGrid = (stats: PlayerPitchingStats | null): string => {
+  const pitchTypeLabel = (pitchType: string): string =>
+    (ja.pitchTypes as Record<string, string>)[pitchType] ?? pitchType;
+
+  // アプリ内 PitchHeatmap と同じ寸法・座標系で、ゾーン濃淡・球数・全投球点を重ねる。
+  const pitchChart = (stats: PlayerPitchingStats | null): string => {
     if (!stats) return '';
     const safeZoneStats = stats.zoneStats ?? [];
-    const zoneMap = new Map(safeZoneStats.map((z) => [z.zone, z]));
+    const zoneCounts = new Map(safeZoneStats.map((z) => [z.zone, z.totalPitches]));
+    const maxCount = Math.max(...safeZoneStats.map((z) => z.totalPitches), 1);
 
-    const strikeZones = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-    const cells = strikeZones.map((z) => {
-      const zs = zoneMap.get(z);
-      if (!zs || zs.totalPitches === 0) {
-        return `<td class="zone-cell zone-empty"><span class="zn">${z}</span><span class="zc">-</span></td>`;
+    const canvasW = 216;
+    const canvasH = 284;
+    const strikeLeft = 52;
+    const strikeTop = 44;
+    const strikeW = 112;
+    const strikeH = 196;
+    const strikeRight = strikeLeft + strikeW;
+    const strikeBottom = strikeTop + strikeH;
+    const cellW = strikeW / 3;
+    const cellH = strikeH / 3;
+
+    const heatColor = (count: number): string => {
+      if (count === 0) return 'transparent';
+      const t = count / maxCount;
+      if (t < 0.15) return 'rgba(56,161,243,0.10)';
+      if (t < 0.30) return 'rgba(56,161,243,0.25)';
+      if (t < 0.50) return 'rgba(56,161,243,0.45)';
+      if (t < 0.70) return 'rgba(56,161,243,0.65)';
+      if (t < 0.85) return 'rgba(56,161,243,0.82)';
+      return 'rgba(56,161,243,0.95)';
+    };
+
+    const zoneBounds = (zone: string): { x: number; y: number; w: number; h: number } | null => {
+      const n = Number(zone);
+      if (Number.isInteger(n) && n >= 1 && n <= 9) {
+        const col = (n - 1) % 3;
+        const row = Math.floor((n - 1) / 3);
+        return { x: strikeLeft + col * cellW, y: strikeTop + row * cellH, w: cellW, h: cellH };
       }
-      const sr = Math.round((zs.strikes / zs.totalPitches) * 100);
-      const alpha = ((Math.min(sr, 100) / 100) * 0.35 + 0.05).toFixed(2);
-      return `<td class="zone-cell" style="background:rgba(14,77,164,${alpha})">
-        <span class="zn">${z}</span>
-        <span class="zc">${zs.totalPitches}</span>
-        <span class="zr">${sr}%</span>
-      </td>`;
-    });
+      if (zone === 'BH') return { x: strikeLeft, y: 0, w: strikeW, h: strikeTop };
+      if (zone === 'BL') return { x: strikeLeft, y: strikeBottom, w: strikeW, h: canvasH - strikeBottom };
+      if (zone === 'BI') return { x: 0, y: strikeTop, w: strikeLeft, h: strikeH };
+      if (zone === 'BO') return { x: strikeRight, y: strikeTop, w: canvasW - strikeRight, h: strikeH };
+      return null;
+    };
+
+    const pitchColor = (result: string): string => {
+      if (result === 'strike_called') return '#38A1F3';
+      if (result === 'strike_swinging') return '#1A6BBF';
+      if (result === 'foul' || result === 'foul_tip') return '#D4AF37';
+      if (result === 'in_play') return '#34C759';
+      if (result === 'hit_by_pitch') return '#C41E3A';
+      return '#8E8E93';
+    };
+
+    const allZones = ['1','2','3','4','5','6','7','8','9','BH','BL','BI','BO'];
+    const heatRects = allZones.map((zone) => {
+      const count = zoneCounts.get(zone) ?? 0;
+      const bounds = zoneBounds(zone);
+      if (!bounds || count === 0) return '';
+      return `<rect x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" fill="${heatColor(count)}" />`;
+    }).join('');
+
+    const strikeZoneLabels = ['1','2','3','4','5','6','7','8','9'].map((zone) => {
+      const count = zoneCounts.get(zone) ?? 0;
+      if (count === 0) return '';
+      const n = Number(zone);
+      const col = (n - 1) % 3;
+      const row = Math.floor((n - 1) / 3);
+      const x = strikeLeft + col * cellW + cellW / 2;
+      const y = strikeTop + row * cellH + cellH / 2 + 5;
+      const fill = count / maxCount > 0.55 ? '#fff' : '#1a1a1a';
+      return `<text x="${x}" y="${y}" text-anchor="middle" font-size="13" font-weight="700" fill="${fill}">${count}</text>`;
+    }).join('');
+
+    const ballZoneLabels = ['BH','BL','BI','BO'].map((zone) => {
+      const count = zoneCounts.get(zone) ?? 0;
+      const bounds = zoneBounds(zone);
+      if (!bounds || count === 0) return '';
+      return `<text x="${bounds.x + bounds.w / 2}" y="${bounds.y + bounds.h / 2 + 4}" text-anchor="middle" font-size="11" fill="#666">${count}</text>`;
+    }).join('');
+
+    const pitcherPitches = (game.pitchLogs ?? []).filter((p) => p.pitcherId === stats.playerId);
+    const pitchDots = pitcherPitches
+      .filter((p) => p.pitchX != null && p.pitchY != null)
+      .map((p) => {
+        const x = Math.max(0, Math.min(1, p.pitchX!)) * canvasW;
+        const y = Math.max(0, Math.min(1, p.pitchY!)) * canvasH;
+        return `<circle cx="${x}" cy="${y}" r="4.5" fill="${pitchColor(p.result)}" fill-opacity="0.85" stroke="#fff" stroke-width="0.8" />`;
+      })
+      .join('');
+
+    const plottedCount = pitcherPitches.filter((p) => p.pitchX != null && p.pitchY != null).length;
 
     return `
-    <table class="zone-table">
-      <thead>
-        <tr><th colspan="3" style="text-align:center;font-size:10px;color:#888;background:#fff;border:none;">
-          ← 打者視点（三塁側 ／ 一塁側）→
-        </th></tr>
-      </thead>
-      <tbody>
-        <tr>${cells[0]}${cells[1]}${cells[2]}</tr>
-        <tr>${cells[3]}${cells[4]}${cells[5]}</tr>
-        <tr>${cells[6]}${cells[7]}${cells[8]}</tr>
-      </tbody>
-    </table>`;
+    <div class="pitch-chart-wrap">
+      <svg class="pitch-chart" viewBox="0 0 ${canvasW} ${canvasH}" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="${canvasW}" height="${canvasH}" fill="#f5f6f8" />
+        ${heatRects}
+        <rect x="${strikeLeft}" y="${strikeTop}" width="${strikeW}" height="${strikeH}" fill="none" stroke="#0E4DA4" stroke-width="2" />
+        <line x1="${strikeLeft + cellW}" y1="${strikeTop}" x2="${strikeLeft + cellW}" y2="${strikeBottom}" stroke="#0E4DA4" stroke-width="0.5" stroke-opacity="0.5" />
+        <line x1="${strikeLeft + cellW * 2}" y1="${strikeTop}" x2="${strikeLeft + cellW * 2}" y2="${strikeBottom}" stroke="#0E4DA4" stroke-width="0.5" stroke-opacity="0.5" />
+        <line x1="${strikeLeft}" y1="${strikeTop + cellH}" x2="${strikeRight}" y2="${strikeTop + cellH}" stroke="#0E4DA4" stroke-width="0.5" stroke-opacity="0.5" />
+        <line x1="${strikeLeft}" y1="${strikeTop + cellH * 2}" x2="${strikeRight}" y2="${strikeTop + cellH * 2}" stroke="#0E4DA4" stroke-width="0.5" stroke-opacity="0.5" />
+        ${strikeZoneLabels}${ballZoneLabels}${pitchDots}
+        <text x="${strikeLeft + strikeW / 2}" y="${strikeTop - 8}" text-anchor="middle" font-size="9" fill="#666">高め</text>
+        <text x="${strikeLeft + strikeW / 2}" y="${strikeBottom + 16}" text-anchor="middle" font-size="9" fill="#666">低め</text>
+        <text x="${strikeLeft - 16}" y="${strikeTop + strikeH / 2}" text-anchor="middle" font-size="9" fill="#666" transform="rotate(-90 ${strikeLeft - 16} ${strikeTop + strikeH / 2})">内</text>
+        <text x="${strikeRight + 16}" y="${strikeTop + strikeH / 2}" text-anchor="middle" font-size="9" fill="#666" transform="rotate(90 ${strikeRight + 16} ${strikeTop + strikeH / 2})">外</text>
+      </svg>
+      <div class="pitch-legend">
+        <span><i style="background:#38A1F3"></i>見逃しS</span>
+        <span><i style="background:#1A6BBF"></i>空振りS</span>
+        <span><i style="background:#8E8E93"></i>ボール</span>
+        <span><i style="background:#D4AF37"></i>ファウル</span>
+        <span><i style="background:#34C759"></i>インプレー</span>
+        <span><i style="background:#C41E3A"></i>死球</span>
+      </div>
+      <div class="pitch-chart-note">投球位置 ${plottedCount}/${pitcherPitches.length}球（座標記録済み／総投球数）</div>
+    </div>`;
   };
 
   // 球種割合
@@ -131,7 +214,7 @@ export function generateGameReportHtml(
     const safePitchMix = stats.pitchMix ?? [];
     if (safePitchMix.length === 0) return '';
     const rows = safePitchMix
-      .map((m) => `<tr><td>${m.pitchType ?? '-'}</td><td>${pct(m.pct ?? 0)}</td><td>${m.avgVelocity != null ? `${m.avgVelocity}km/h` : '-'}</td></tr>`)
+      .map((m) => `<tr><td>${pitchTypeLabel(m.pitchType ?? '-')}</td><td>${pct(m.pct ?? 0)}</td><td>${m.avgVelocity != null ? `${m.avgVelocity}km/h` : '-'}</td></tr>`)
       .join('');
     return `
     <table>
@@ -144,7 +227,7 @@ export function generateGameReportHtml(
     if (!stats) return '';
     return `
     <h3>${teamName}</h3>
-    ${zoneGrid(stats)}
+    ${pitchChart(stats)}
     ${pitchMixTable(stats)}`;
   };
 
@@ -260,15 +343,13 @@ export function generateGameReportHtml(
     th { background: #f5f7fa; font-weight: 700; color: #555; }
     td:first-child { text-align: left; }
     .hl { color: #0E4DA4; font-weight: 700; }
-    /* Zone grid */
-    .zone-table { width: auto; margin: 6px auto 12px; }
-    .zone-table td { width: 56px; height: 56px; padding: 4px; border: 2px solid #ccc; }
-    .zone-cell { vertical-align: middle; text-align: center; }
-    .zone-cell .zn { display: block; font-size: 9px; color: #888; }
-    .zone-cell .zc { display: block; font-size: 14px; font-weight: 800; color: #1a1a1a; }
-    .zone-cell .zr { display: block; font-size: 10px; color: #0E4DA4; }
-    .zone-empty { background: #f9f9f9; }
-    .zone-empty .zc { color: #bbb; font-size: 12px; font-weight: 400; }
+    /* Pitch location chart */
+    .pitch-chart-wrap { text-align: center; margin: 6px auto 12px; page-break-inside: avoid; }
+    .pitch-chart { width: 216px; height: 284px; display: block; margin: 0 auto 6px; }
+    .pitch-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; font-size: 9px; color: #555; }
+    .pitch-legend span { white-space: nowrap; }
+    .pitch-legend i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; }
+    .pitch-chart-note { margin-top: 5px; font-size: 9px; color: #777; }
     /* Footer */
     .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 10px; color: #aaa; }
   </style>
