@@ -314,14 +314,11 @@ service cloud.firestore {
       allow read: if isAuthenticated()
         && request.auth.uid in resource.data.participants;
 
-      // Create: user must be a participant and there must be mutual follow.
+      // Create: user must be a participant.
       allow create: if isAuthenticated()
         && request.auth.uid in request.resource.data.participants
         && request.resource.data.participants.size() == 2
-        && request.resource.data.lastMessageAt is timestamp
-        // Mutual follow check: both users follow each other.
-        && isFollowing(request.resource.data.participants[0], request.resource.data.participants[1])
-        && isFollowing(request.resource.data.participants[1], request.resource.data.participants[0]);
+        && request.resource.data.lastMessageAt is timestamp;
 
       // Update: only participants can update (to set lastMessage, lastMessageAt).
       allow update: if isAuthenticated()
