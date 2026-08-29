@@ -23,10 +23,19 @@ import { Colors, Spacing, Typography, BorderRadius } from '../constants/theme';
 
 interface Props {
   visible: boolean;
-  teamId: string;
-  teamName: string;
+  teamId?: string;
+  teamName?: string;
+  createTeam?: (input: {
+    name: string;
+    description: string;
+    photoURI: string | null;
+    isPrivate: boolean;
+  }) => Promise<string>;
   onClose: () => void;
-  onImported: (added: { id: string; name: string; number: number | null; position: string }[]) => void;
+  onImported: (
+    added: { id: string; name: string; number: number | null; position: string }[],
+    destination: { teamId: string; teamName: string },
+  ) => void;
 }
 
 type Step = 'teams' | 'players';
@@ -35,6 +44,7 @@ export default function ImportPlayersFromHistoryModal({
   visible,
   teamId,
   teamName,
+  createTeam,
   onClose,
   onImported,
 }: Props) {
@@ -93,7 +103,19 @@ export default function ImportPlayersFromHistoryModal({
     if (!selectedTeamName || selectedKeys.size === 0) return;
     setImporting(true);
     try {
-      const existing = await getTeamPlayers(teamId);
+      let destinationTeamId = teamId;
+      const destinationTeamName = teamName ?? selectedTeamName;
+      if (!destinationTeamId) {
+        if (!createTeam) throw new Error('チームの作成処理が設定されていません。');
+        destinationTeamId = await createTeam({
+          name: selectedTeamName,
+          description: '',
+          photoURI: null,
+          isPrivate: false,
+        });
+      }
+
+      const existing = await getTeamPlayers(destinationTeamId);
       const existingNames = new Set(existing.map((p) => p.name));
       const toAdd = candidates.filter(
         (c) => selectedKeys.has(c.key) && !existingNames.has(c.name),
@@ -104,7 +126,7 @@ export default function ImportPlayersFromHistoryModal({
 
       const added: { id: string; name: string; number: number | null; position: string }[] = [];
       for (const c of toAdd) {
-        const p = await addTeamPlayer(teamId, {
+        const p = await addTeamPlayer(destinationTeamId, {
           name: c.name,
           number: c.number,
           position: c.position,
@@ -114,11 +136,11 @@ export default function ImportPlayersFromHistoryModal({
         added.push({ id: p.id, name: p.name, number: p.number, position: p.position });
       }
 
-      onImported(added);
+      onImported(added, { teamId: destinationTeamId, teamName: destinationTeamName });
       Alert.alert(
         '追加しました',
         [
-          added.length > 0 ? `${added.length}人を「${teamName}」に追加しました。` : null,
+          added.length > 0 ? `${added.length}人を「${destinationTeamName}」に追加しました。` : null,
           skipped > 0 ? `同名のためスキップ: ${skipped}人` : null,
           added.length === 0 && skipped === 0 ? '追加できる選手がありませんでした。' : null,
         ].filter(Boolean).join('\n'),
@@ -129,15 +151,21 @@ export default function ImportPlayersFromHistoryModal({
     } finally {
       setImporting(false);
     }
-  }, [candidates, onClose, onImported, selectedKeys, selectedTeamName, teamId, teamName]);
+  }, [candidates, createTeam, onClose, onImported, selectedKeys, selectedTeamName, teamId, teamName]);
+
+  const isCreatingTeam = !teamId;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
-          <Text style={styles.title}>過去の試合から追加</Text>
-          <Text style={styles.hint}>追加先: {teamName}</Text>
+          <Text style={styles.title}>
+            {isCreatingTeam ? '過去の試合からチームを追加' : '過去の試合から追加'}
+          </Text>
+          <Text style={styles.hint}>
+            {isCreatingTeam ? '記録済みのチームと選手を名簿に追加します' : `追加先: ${teamName}`}
+          </Text>
 
           {loading ? (
             <ActivityIndicator color={Colors.primary} style={{ marginVertical: Spacing.lg }} />
@@ -208,7 +236,9 @@ export default function ImportPlayersFromHistoryModal({
                 {importing ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.importBtnText}>選択した選手を追加</Text>
+                  <Text style={styles.importBtnText}>
+                    {isCreatingTeam ? 'このチームを追加' : '選択した選手を追加'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </>

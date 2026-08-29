@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   Alert,
+  TextInput as NativeTextInput,
 } from 'react-native';
 import { Text, Avatar, Divider, Badge, FAB, Button, TextInput, Portal, Modal, ActivityIndicator } from 'react-native-paper';
 import { router, Stack } from 'expo-router';
@@ -41,9 +42,13 @@ function formatTime(timestamp: any): string {
 function RosterTab({
   teams,
   createTeam,
+  teamCreateAllowed,
+  onTeamCreateBlocked,
 }: {
   teams: Team[];
   createTeam: (input: CreateTeamInput) => Promise<string>;
+  teamCreateAllowed: boolean;
+  onTeamCreateBlocked: () => void;
 }) {
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -62,6 +67,7 @@ function RosterTab({
   const [newPlayerNumber, setNewPlayerNumber] = useState('');
   const [addingPlayer, setAddingPlayer] = useState(false);
   const [importTeamId, setImportTeamId] = useState<string | null>(null);
+  const [showCreateFromHistory, setShowCreateFromHistory] = useState(false);
 
   const [editPlayer, setEditPlayer] = useState<{
     teamId: string; id: string; name: string; number: string; position: string;
@@ -128,6 +134,14 @@ function RosterTab({
       setAddingTeam(false);
     }
   }, [newTeamName, createTeam]);
+
+  const handleOpenAddTeam = useCallback(() => {
+    if (!teamCreateAllowed) {
+      onTeamCreateBlocked();
+      return;
+    }
+    setShowAddTeam(true);
+  }, [onTeamCreateBlocked, teamCreateAllowed]);
 
   const handleAddPlayer = useCallback(async () => {
     const teamId = addPlayerTeamId;
@@ -297,7 +311,7 @@ function RosterTab({
 
   return (
     <View style={{ flex: 1 }}>
-      <TouchableOpacity style={rosterStyles.addTeamBtn} onPress={() => setShowAddTeam(true)}>
+      <TouchableOpacity style={rosterStyles.addTeamBtn} onPress={handleOpenAddTeam}>
         <MaterialCommunityIcons name="plus-circle-outline" size={16} color={Colors.primary} />
         <Text style={rosterStyles.addTeamBtnText}>＋ チーム追加</Text>
       </TouchableOpacity>
@@ -338,12 +352,15 @@ function RosterTab({
           contentContainerStyle={styles.modal}
         >
           <Text style={styles.modalTitle}>チームを追加</Text>
-          <TextInput
-            label="チーム名"
-            value={newTeamName}
+          <Text style={styles.nativeTeamNameLabel}>チーム名</Text>
+          <NativeTextInput
+            key={showAddTeam ? 'team-name-open' : 'team-name-closed'}
+            defaultValue={newTeamName}
             onChangeText={setNewTeamName}
-            mode="outlined"
-            style={styles.modalInput}
+            style={styles.nativeTeamNameInput}
+            placeholder="チーム名を入力"
+            placeholderTextColor={Colors.textSecondary}
+            returnKeyType="done"
           />
           <Button
             mode="contained"
@@ -354,6 +371,17 @@ function RosterTab({
           >
             作成する
           </Button>
+          <Button
+            mode="outlined"
+            icon="history"
+            onPress={() => {
+              setShowAddTeam(false);
+              setShowCreateFromHistory(true);
+            }}
+            style={styles.historyTeamBtn}
+          >
+            過去の試合から名簿を作成
+          </Button>
         </Modal>
 
         {importTeamId && (
@@ -362,13 +390,34 @@ function RosterTab({
             teamId={importTeamId}
             teamName={teams.find((t) => t.id === importTeamId)?.name ?? ''}
             onClose={() => setImportTeamId(null)}
-            onImported={(added) => {
-              const tid = importTeamId;
-              if (!tid || added.length === 0) return;
+            onImported={(added, destination) => {
+              const tid = destination.teamId;
+              if (added.length === 0) return;
               setPlayersMap((m) => ({
                 ...m,
                 [tid]: [...(m[tid] ?? []), ...added],
               }));
+            }}
+          />
+        )}
+
+        {showCreateFromHistory && (
+          <ImportPlayersFromHistoryModal
+            visible={showCreateFromHistory}
+            createTeam={createTeam}
+            onClose={() => setShowCreateFromHistory(false)}
+            onImported={(added, destination) => {
+              loadedIdsRef.current.add(destination.teamId);
+              setPlayersMap((m) => ({
+                ...m,
+                [destination.teamId]: added,
+              }));
+              setExpandedIds((current) => {
+                const next = new Set(current);
+                next.add(destination.teamId);
+                AsyncStorage.setItem('roster_expanded', JSON.stringify([...next]));
+                return next;
+              });
             }}
           />
         )}
@@ -712,7 +761,12 @@ export default function ChatIndexScreen() {
 
       {/* List */}
       {isRoster ? (
-        <RosterTab teams={teams} createTeam={createTeam} />
+        <RosterTab
+          teams={teams}
+          createTeam={createTeam}
+          teamCreateAllowed={teamCreateGate.allowed}
+          onTeamCreateBlocked={showTeamCreatePlanAlert}
+        />
       ) : isTeams ? (
         <>
           <FlatList
@@ -936,6 +990,23 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   modalInput: { marginBottom: Spacing.md, backgroundColor: Colors.card },
+  nativeTeamNameLabel: {
+    color: Colors.textSecondary,
+    fontSize: Typography.caption,
+    marginBottom: 4,
+  },
+  nativeTeamNameInput: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.sm,
+    color: Colors.text,
+    fontSize: Typography.body,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+    marginBottom: Spacing.md,
+  },
+  historyTeamBtn: { marginTop: Spacing.sm },
 });
 
 const rosterStyles = StyleSheet.create({
