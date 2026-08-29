@@ -181,14 +181,20 @@ export function listPitcherAttributionCandidates(game: GameState): PitcherAttrib
   });
 }
 
-/** 移管先候補。現投手の修正時だけDH/非DHのロースター制約を適用する。 */
+/**
+ * 移管先候補。
+ * 試合中の現投手を修正するときだけ、DH/非DHのライブロースター制約を適用する。
+ * 終了試合では currentPitcherId が「最後に投げた投手」として残るため、その値だけを理由に
+ * 候補を控え/先発へ限定せず、保存済み名簿全体から選べるようにする。
+ */
 export function listPitcherReassignmentDestinations(
   game: GameState,
   source: Pick<PitcherAttributionCandidate, 'side' | 'pitcherId' | 'isCurrent'>,
 ): Player[] {
   const team = teamForSide(game, source.side);
   const isUnassignedSource = isUnassignedPitcherId(game, source.side, source.pitcherId);
-  const candidates = source.isCurrent
+  const mustUpdateLiveRoster = source.isCurrent && game.phase !== 'finished';
+  const candidates = mustUpdateLiveRoster
     ? game.isDH?.[source.side]
       ? isUnassignedSource && team.roster.pitcher
         ? [team.roster.pitcher, ...team.roster.bench]
@@ -266,9 +272,12 @@ export function reassignPitcherRecords(
   }
 
   const isCurrent = game.currentPitcherId[input.side] === input.fromPitcherId;
+  // 終了試合の currentPitcherId は最後の投手を示す保存値であり、ライブ中の守備配置ではない。
+  // 記録上のIDは移管するが、終了済みロースターの打順・守備位置は書き換えない。
+  const mustUpdateLiveRoster = isCurrent && game.phase !== 'finished';
   const isUnassignedSource = isUnassignedPitcherId(game, input.side, input.fromPitcherId);
   const team = teamForSide(game, input.side);
-  if (isCurrent && game.isDH?.[input.side]) {
+  if (mustUpdateLiveRoster && game.isDH?.[input.side]) {
     const isRegisteredDHPitcher =
       isUnassignedSource && team.roster.pitcher?.id === input.toPitcherId;
     if (
@@ -277,7 +286,10 @@ export function reassignPitcherRecords(
     ) {
       throw new Error('DH制の現投手は控え選手から選択してください。');
     }
-  } else if (isCurrent && !team.roster.starters.some((player) => player.id === input.toPitcherId)) {
+  } else if (
+    mustUpdateLiveRoster
+    && !team.roster.starters.some((player) => player.id === input.toPitcherId)
+  ) {
     throw new Error('非DHの現投手はスタメンから選択してください。');
   }
 
@@ -336,7 +348,7 @@ export function reassignPitcherRecords(
       }
     }
 
-    if (isCurrent) {
+    if (mustUpdateLiveRoster) {
       const draftTeam = input.side === 'away' ? draft.awayTeam : draft.homeTeam;
       if (game.isDH?.[input.side]) {
         const registeredPitcher =

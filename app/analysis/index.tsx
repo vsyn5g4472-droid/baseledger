@@ -2,7 +2,7 @@
  * 分析トップ画面 — 打者分析 / バッテリー分析の対象を選択する
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,6 @@ import {
   ActivityIndicator,
   Modal,
   FlatList,
-  SafeAreaView,
 } from 'react-native';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -26,7 +25,7 @@ import {
   type BatteryPair,
   type PitcherInfo,
 } from '../../src/utils/analysisEngine';
-import { resolvePlayerId } from '../../src/utils/multiGameStats';
+import { buildRealPlayerMap, resolvePlayerId } from '../../src/utils/multiGameStats';
 import { useAuth } from '../../src/contexts/AuthContext';
 import {
   loadPlayerMergeMap,
@@ -38,6 +37,62 @@ import { Colors, Spacing, Typography, BorderRadius, CardShadow } from '../../src
 // ── Tab type ──────────────────────────────────────────────────────────────────
 
 type TabKey = 'batter' | 'pitcher' | 'battery';
+
+interface TeamChoice {
+  key: string;
+  dateKey: string;
+  dateLabel: string;
+  teamName: string;
+  opponents: string[];
+}
+
+function gameDateKey(createdAt: number): string {
+  const date = new Date(createdAt);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function gameDateLabel(createdAt: number): string {
+  const date = new Date(createdAt);
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function buildTeamChoices(games: GameState[], allowedTeamNames: Set<string>): TeamChoice[] {
+  const choices = new Map<string, TeamChoice>();
+  for (const game of games) {
+    const dateKey = gameDateKey(game.createdAt);
+    const dateLabel = gameDateLabel(game.createdAt);
+    const pairs = [
+      { teamName: game.awayTeam.name.trim(), opponent: game.homeTeam.name.trim() },
+      { teamName: game.homeTeam.name.trim(), opponent: game.awayTeam.name.trim() },
+    ];
+    for (const { teamName, opponent } of pairs) {
+      if (!teamName || !allowedTeamNames.has(teamName)) continue;
+      const key = `${dateKey}\u0000${teamName}`;
+      const existing = choices.get(key);
+      if (existing) {
+        if (opponent && !existing.opponents.includes(opponent)) existing.opponents.push(opponent);
+      } else {
+        choices.set(key, {
+          key,
+          dateKey,
+          dateLabel,
+          teamName,
+          opponents: opponent ? [opponent] : [],
+        });
+      }
+    }
+  }
+  return [...choices.values()].sort((a, b) =>
+    b.dateKey.localeCompare(a.dateKey) || a.teamName.localeCompare(b.teamName, 'ja'),
+  );
+}
+
+function pitchingSideForHalf(half: GameState['inning']['half']): 'away' | 'home' {
+  return half === 'top' ? 'home' : 'away';
+}
 
 // ── Picker Modal ──────────────────────────────────────────────────────────────
 
@@ -97,6 +152,108 @@ function PickerModal<T>({
   );
 }
 
+function TeamPickerModal({
+  visible,
+  games,
+  availableTeamNames,
+  selectedTeamName,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  games: GameState[];
+  availableTeamNames: string[];
+  selectedTeamName: string | null;
+  onSelect: (teamName: string) => void;
+  onClose: () => void;
+}) {
+  const choices = useMemo(
+    () => buildTeamChoices(games, new Set(availableTeamNames)),
+    [availableTeamNames, games],
+  );
+  const dateOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return choices.filter((choice) => {
+      if (seen.has(choice.dateKey)) return false;
+      seen.add(choice.dateKey);
+      return true;
+    });
+  }, [choices]);
+  const [selectedDateKey, setSelectedDateKey] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    const selectedChoice = choices.find((choice) => choice.teamName === selectedTeamName);
+    setSelectedDateKey(selectedChoice?.dateKey ?? dateOptions[0]?.dateKey ?? '');
+  }, [choices, dateOptions, selectedTeamName, visible]);
+
+  const visibleChoices = choices.filter((choice) => choice.dateKey === selectedDateKey);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={modalStyles.backdrop} activeOpacity={1} onPress={onClose} />
+      <View style={modalStyles.sheet}>
+        <View style={modalStyles.handle} />
+        <Text style={modalStyles.sheetTitle}>チームを選択</Text>
+        <Text style={modalStyles.sheetHint}>試合日を選び、その日に記録したチームを選択してください。</Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={modalStyles.dateTabs}
+        >
+          {dateOptions.map((choice) => {
+            const active = choice.dateKey === selectedDateKey;
+            return (
+              <TouchableOpacity
+                key={choice.dateKey}
+                style={[modalStyles.dateTab, active && modalStyles.dateTabActive]}
+                onPress={() => setSelectedDateKey(choice.dateKey)}
+                activeOpacity={0.8}
+              >
+                <Text style={[modalStyles.dateTabText, active && modalStyles.dateTabTextActive]}>
+                  {choice.dateLabel}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        <FlatList
+          data={visibleChoices}
+          keyExtractor={(choice) => choice.key}
+          ListEmptyComponent={<Text style={modalStyles.empty}>この日の対象チームはありません。</Text>}
+          renderItem={({ item }) => {
+            const active = item.teamName === selectedTeamName;
+            return (
+              <TouchableOpacity
+                style={modalStyles.row}
+                onPress={() => { onSelect(item.teamName); onClose(); }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons
+                  name={active ? 'check-circle' : 'account-group-outline'}
+                  size={20}
+                  color={active ? Colors.primary : Colors.textSecondary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={modalStyles.rowLabel}>{item.teamName}</Text>
+                  {item.opponents.length > 0 && (
+                    <Text style={modalStyles.rowSub}>対 {item.opponents.join(' / ')}</Text>
+                  )}
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            );
+          }}
+          ItemSeparatorComponent={() => <View style={modalStyles.sep} />}
+          contentContainerStyle={{ paddingBottom: 32 }}
+        />
+      </View>
+    </Modal>
+  );
+}
+
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function AnalysisIndexScreen() {
@@ -124,6 +281,7 @@ export default function AnalysisIndexScreen() {
   // チーム選択 state
   const [selectedBatterTeam,  setSelectedBatterTeam]  = useState<string | null>(null);
   const [selectedBatteryTeam, setSelectedBatteryTeam] = useState<string | null>(null);
+  const [teamPickerTab, setTeamPickerTab] = useState<TabKey | null>(null);
 
   const [mergeMap, setMergeMap] = useState<PlayerMergeMap>(EMPTY_MERGE_MAP);
 
@@ -174,13 +332,16 @@ export default function AnalysisIndexScreen() {
   const teamPitchersMap = useMemo(() => {
     const map = new Map<string, PitcherInfo[]>();
     for (const game of games) {
-      for (const team of [game.awayTeam, game.homeTeam]) {
-        // extractPitchers も名寄せ済み ID を返すため同様に揃える
-        const ids = new Set([
-          ...team.roster.starters.map((p) => resolvePlayerId(p, mergeMap)),
-          ...team.roster.bench.map((p) => resolvePlayerId(p, mergeMap)),
-          ...(team.roster.pitcher ? [resolvePlayerId(team.roster.pitcher, mergeMap)] : []),
-        ]);
+      const realPlayerMap = buildRealPlayerMap(game, mergeMap);
+      for (const side of ['away', 'home'] as const) {
+        const team = side === 'away' ? game.awayTeam : game.homeTeam;
+        // 投手の所属は終了時点のpositionではなく、実際の投球ログの守備側から決める。
+        // これにより過去投手の記録だけを移管し、ロースターを変えないケースも正しく表示できる。
+        const ids = new Set(
+          game.pitchLogs
+            .filter((pitch) => pitchingSideForHalf(pitch.inning.half) === side)
+            .map((pitch) => realPlayerMap.get(pitch.pitcherId) ?? mergeMap.get(pitch.pitcherId) ?? pitch.pitcherId),
+        );
         const list = pitchers.filter((p) => ids.has(p.pitcherId));
         if (list.length === 0) continue;
         const existing = map.get(team.name) ?? [];
@@ -219,26 +380,44 @@ export default function AnalysisIndexScreen() {
     return map;
   }, [games, batteries, mergeMap]);
 
-  const teamNames = useMemo(
-    () => [...new Set([...teamBattersMap.keys(), ...teamPitchersMap.keys(), ...teamBatteryMap.keys()])].sort(),
-    [teamBattersMap, teamPitchersMap, teamBatteryMap],
-  );
-
   const filteredBatters   = selectedBatterTeam  ? (teamBattersMap.get(selectedBatterTeam)   ?? []) : [];
   const filteredPitchers  = selectedPitcherTeam ? (teamPitchersMap.get(selectedPitcherTeam) ?? []) : [];
   const filteredBatteries = selectedBatteryTeam ? (teamBatteryMap.get(selectedBatteryTeam)  ?? []) : [];
 
+  const availableTeamNames = useMemo(() => {
+    const source = teamPickerTab === 'batter'
+      ? teamBattersMap
+      : teamPickerTab === 'pitcher'
+        ? teamPitchersMap
+        : teamBatteryMap;
+    return [...source.keys()];
+  }, [teamBatteryMap, teamBattersMap, teamPickerTab, teamPitchersMap]);
+
+  const selectedTeamForPicker = teamPickerTab === 'batter'
+    ? selectedBatterTeam
+    : teamPickerTab === 'pitcher'
+      ? selectedPitcherTeam
+      : selectedBatteryTeam;
+
   const handleBatterTeamSelect = (name: string) => {
-    setSelectedBatterTeam(name === selectedBatterTeam ? null : name);
+    if (name === selectedBatterTeam) return;
+    setSelectedBatterTeam(name);
     setSelectedBatter(null);
   };
   const handlePitcherTeamSelect = (name: string) => {
-    setSelectedPitcherTeam(name === selectedPitcherTeam ? null : name);
+    if (name === selectedPitcherTeam) return;
+    setSelectedPitcherTeam(name);
     setSelectedPitcher(null);
   };
   const handleBatteryTeamSelect = (name: string) => {
-    setSelectedBatteryTeam(name === selectedBatteryTeam ? null : name);
+    if (name === selectedBatteryTeam) return;
+    setSelectedBatteryTeam(name);
     setSelectedBattery(null);
+  };
+  const handleTeamSelect = (name: string) => {
+    if (teamPickerTab === 'batter') handleBatterTeamSelect(name);
+    if (teamPickerTab === 'pitcher') handlePitcherTeamSelect(name);
+    if (teamPickerTab === 'battery') handleBatteryTeamSelect(name);
   };
   const canStart =
     tab === 'batter' ? !!selectedBatter
@@ -350,22 +529,21 @@ export default function AnalysisIndexScreen() {
 
             {/* Step 1: チーム選択 */}
             <Text style={styles.stepLabel}>① チームを選ぶ</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teamChipScroll}>
-              <View style={styles.teamChipRow}>
-                {teamNames.map((name) => (
-                  <TouchableOpacity
-                    key={name}
-                    style={[styles.teamChip, selectedBatterTeam === name && styles.teamChipActive]}
-                    onPress={() => handleBatterTeamSelect(name)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.teamChipText, selectedBatterTeam === name && styles.teamChipTextActive]}>
-                      {name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
+            <TouchableOpacity
+              style={[styles.selector, !selectedBatterTeam && styles.selectorEmpty]}
+              onPress={() => setTeamPickerTab('batter')}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name="account-group-outline"
+                size={20}
+                color={selectedBatterTeam ? Colors.primary : Colors.textSecondary}
+              />
+              <Text style={[styles.selectorText, !selectedBatterTeam && styles.selectorPlaceholder, { flex: 1 }]}>
+                {selectedBatterTeam ?? 'チームを選択'}
+              </Text>
+              <MaterialCommunityIcons name="chevron-down" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
 
             {/* Step 2: 選手選択 */}
             <Text style={[styles.stepLabel, !selectedBatterTeam && styles.stepLabelDim]}>② 選手を選ぶ</Text>
@@ -421,22 +599,21 @@ export default function AnalysisIndexScreen() {
 
             {/* Step 1: チーム選択 */}
             <Text style={styles.stepLabel}>① チームを選ぶ</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teamChipScroll}>
-              <View style={styles.teamChipRow}>
-                {teamNames.map((name) => (
-                  <TouchableOpacity
-                    key={name}
-                    style={[styles.teamChip, selectedPitcherTeam === name && styles.teamChipActive]}
-                    onPress={() => handlePitcherTeamSelect(name)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.teamChipText, selectedPitcherTeam === name && styles.teamChipTextActive]}>
-                      {name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
+            <TouchableOpacity
+              style={[styles.selector, !selectedPitcherTeam && styles.selectorEmpty]}
+              onPress={() => setTeamPickerTab('pitcher')}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name="account-group-outline"
+                size={20}
+                color={selectedPitcherTeam ? Colors.primary : Colors.textSecondary}
+              />
+              <Text style={[styles.selectorText, !selectedPitcherTeam && styles.selectorPlaceholder, { flex: 1 }]}>
+                {selectedPitcherTeam ?? 'チームを選択'}
+              </Text>
+              <MaterialCommunityIcons name="chevron-down" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
 
             {/* Step 2: 投手選択 */}
             <Text style={[styles.stepLabel, !selectedPitcherTeam && styles.stepLabelDim]}>② 投手を選ぶ</Text>
@@ -496,22 +673,21 @@ export default function AnalysisIndexScreen() {
 
             {/* Step 1: チーム選択 */}
             <Text style={styles.stepLabel}>① チームを選ぶ</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teamChipScroll}>
-              <View style={styles.teamChipRow}>
-                {teamNames.map((name) => (
-                  <TouchableOpacity
-                    key={name}
-                    style={[styles.teamChip, selectedBatteryTeam === name && styles.teamChipActive]}
-                    onPress={() => handleBatteryTeamSelect(name)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.teamChipText, selectedBatteryTeam === name && styles.teamChipTextActive]}>
-                      {name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
+            <TouchableOpacity
+              style={[styles.selector, !selectedBatteryTeam && styles.selectorEmpty]}
+              onPress={() => setTeamPickerTab('battery')}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name="account-group-outline"
+                size={20}
+                color={selectedBatteryTeam ? Colors.primary : Colors.textSecondary}
+              />
+              <Text style={[styles.selectorText, !selectedBatteryTeam && styles.selectorPlaceholder, { flex: 1 }]}>
+                {selectedBatteryTeam ?? 'チームを選択'}
+              </Text>
+              <MaterialCommunityIcons name="chevron-down" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
 
             {/* Step 2: バッテリー選択 */}
             <Text style={[styles.stepLabel, !selectedBatteryTeam && styles.stepLabelDim]}>② バッテリーを選ぶ</Text>
@@ -602,6 +778,15 @@ export default function AnalysisIndexScreen() {
       </ScrollView>
 
       {/* ── ピッカー モーダル ── */}
+      <TeamPickerModal
+        visible={teamPickerTab !== null}
+        games={games}
+        availableTeamNames={availableTeamNames}
+        selectedTeamName={selectedTeamForPicker}
+        onSelect={handleTeamSelect}
+        onClose={() => setTeamPickerTab(null)}
+      />
+
       <PickerModal<BatterInfo>
         visible={batterPickerOpen}
         items={filteredBatters}
@@ -761,24 +946,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   stepLabelDim: { opacity: 0.35 },
-  teamChipScroll: { marginHorizontal: -Spacing.md },
-  teamChipRow: {
-    flexDirection: 'row',
-    gap:           Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingBottom: 4,
-  },
-  teamChip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical:   6,
-    borderRadius:      BorderRadius.full,
-    backgroundColor:   Colors.surfaceGray,
-    borderWidth:       1.5,
-    borderColor:       Colors.border,
-  },
-  teamChipActive:     { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  teamChipText:       { fontSize: Typography.caption, fontWeight: '600', color: Colors.text },
-  teamChipTextActive: { color: Colors.white },
   selectorDisabled:   { opacity: 0.4 },
 });
 
@@ -808,6 +975,34 @@ const modalStyles = StyleSheet.create({
     color:       Colors.text,
     marginBottom: Spacing.sm,
   },
+  sheetHint: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: -Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  dateTabs: {
+    gap: Spacing.xs,
+    paddingBottom: Spacing.md,
+  },
+  dateTab: {
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surfaceGray,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+  },
+  dateTabActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
+  },
+  dateTabText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    fontWeight: '700',
+  },
+  dateTabTextActive: { color: Colors.white },
   row: {
     flexDirection:  'row',
     alignItems:     'center',
@@ -816,5 +1011,11 @@ const modalStyles = StyleSheet.create({
   },
   rowLabel: { fontSize: Typography.body, fontWeight: '600', color: Colors.text },
   rowSub:   { fontSize: Typography.caption, color: Colors.textSecondary, marginTop: 2 },
+  empty: {
+    paddingVertical: Spacing.xl,
+    textAlign: 'center',
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+  },
   sep:      { height: 0.5, backgroundColor: Colors.border },
 });

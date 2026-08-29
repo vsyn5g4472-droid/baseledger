@@ -263,6 +263,19 @@ function allPlayersMap(game: GameState, mergeMap?: PlayerMergeMap): Map<string, 
       m.set(resolvePlayerId(p, mergeMap), p.name);
     }
   }
+
+  // 過去投手の記録だけを移管した場合、現在のロースターは意図的に変更しない。
+  // 移管履歴の名前スナップショットも参照し、投球ログ側の新しい ID を分析で解決する。
+  const realPlayerMap = buildRealPlayerMap(game, mergeMap);
+  for (const log of game.pitcherReassignmentLogs ?? []) {
+    const name = log.toPitcherName.trim();
+    if (!name) continue;
+    if (!m.has(log.toPitcherId)) m.set(log.toPitcherId, name);
+    const resolvedId = realPlayerMap.get(log.toPitcherId)
+      ?? mergeMap?.get(log.toPitcherId)
+      ?? log.toPitcherId;
+    if (!m.has(resolvedId)) m.set(resolvedId, name);
+  }
   return m;
 }
 

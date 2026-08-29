@@ -1,8 +1,11 @@
 import type { GameState, Player, PitchLog, AtBatLog } from '../src/types/game';
 import {
   comparePitcherReassignmentLogIdSets,
+  listPitcherAttributionCandidates,
+  listPitcherReassignmentDestinations,
   reassignPitcherRecords,
 } from '../src/services/pitcherReassignmentService';
+import { buildPitcherProfile, extractPitchers } from '../src/utils/analysisEngine';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`検証失敗: ${message}`);
@@ -149,6 +152,14 @@ const historicalResult = reassignPitcherRecords(historical, {
   logId: 'historical', side: 'away', fromPitcherId: 'A', toPitcherId: 'B', reason: 'manual_correction',
 });
 assert(JSON.stringify(historicalResult.game.awayTeam.roster) === rosterBefore, '過去投手の移管ではロースターを変更しない');
+const migratedPitchers = extractPitchers([historicalResult.game]);
+assert(
+  migratedPitchers.some((pitcher) => pitcher.pitcherId === 'B' && pitcher.pitcherName === 'B'),
+  '過去投手の移管後、新しい投手IDと名前を分析候補に表示する',
+);
+assert(!migratedPitchers.some((pitcher) => pitcher.pitcherId === 'A'), '移管前の投手を分析候補に残さない');
+const migratedProfile = buildPitcherProfile([historicalResult.game], 'B');
+assert(migratedProfile.totalPitches === 1, '移管後の投球を新しい投手の分析へ集計する');
 
 const dh = baseGame();
 dh.isDH = { away: true, home: false };
@@ -168,6 +179,36 @@ assert(dhResult.game.awayTeam.roster.pitcher?.id === 'D', 'DHの打順外投手�
 assert(!dhResult.game.awayTeam.roster.bench.some((p) => p.id === 'D'), 'DH移管先をbenchから除く');
 assert(!dhResult.game.awayTeam.roster.bench.some((p) => p.id === oldDhPitcher.id), '旧仮投手をbenchへ追加しない');
 assert(dhResult.game.awayTeam.roster.starters.map((p) => p.id).join(',') === dhStarterIdsBefore, 'DHのstartersを変更しない');
+
+// 終了済み試合では currentPitcherId が最後の投手として残っていても、ライブ用の
+// DH/非DH制約を適用せず、保存済み名簿全体から正しい投手を選択できる。
+const finishedDh = baseGame();
+finishedDh.phase = 'finished';
+finishedDh.isDH = { away: true, home: false };
+finishedDh.awayTeam.roster.bench = [];
+const finishedSource = listPitcherAttributionCandidates(finishedDh).find(
+  (candidate) => candidate.side === 'away' && candidate.pitcherId === 'A',
+);
+assert(finishedSource?.isCurrent, '終了試合でも最後の投手はcurrentPitcherIdとして検出される');
+const finishedDestinations = listPitcherReassignmentDestinations(finishedDh, finishedSource);
+assert(
+  finishedDestinations.some((candidate) => candidate.id === 'B'),
+  '終了済みDH試合では打順内の選手も移管先に表示する',
+);
+const finishedRosterBefore = JSON.stringify(finishedDh.awayTeam.roster);
+const finishedResult = reassignPitcherRecords(finishedDh, {
+  logId: 'finished-current',
+  side: 'away',
+  fromPitcherId: 'A',
+  toPitcherId: 'B',
+  reason: 'manual_correction',
+});
+assert(finishedResult.game.currentPitcherId.away === 'B', '終了試合の最後の投手IDを移管する');
+assert(finishedResult.game.pitchLogs[0].pitcherId === 'B', '終了試合の投球記録を移管する');
+assert(
+  JSON.stringify(finishedResult.game.awayTeam.roster) === finishedRosterBefore,
+  '終了試合の訂正では打順・守備位置を変更しない',
+);
 
 assert(comparePitcherReassignmentLogIdSets(['1'], ['1']).kind === 'in_sync', '同一ログ集合を判定する');
 assert(comparePitcherReassignmentLogIdSets(['1'], ['1', '2']).kind === 'cloud_ahead', 'クラウド先行を判定する');
