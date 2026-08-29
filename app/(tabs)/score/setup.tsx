@@ -270,7 +270,7 @@ export default function SetupScreen() {
         if (existing?.name.trim()) return { ...existing, isPlaceholder: false };
         return {
           name: `選手${i + 1}`,
-          number: `${i + 1}`,
+          number: '',
           // 未入力の守備位置を推測しない。投手は打順外の専用エンティティで保持する。
           position: '' as Position,
           bats: 'R' as const,
