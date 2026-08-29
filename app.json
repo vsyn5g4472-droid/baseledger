@@ -8,7 +8,7 @@
     "runtimeVersion": "1.0.0",
     "name": "BaseLedger",
     "slug": "ballpark",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "scheme": "ballpark",
     "platforms": [
       "ios",
