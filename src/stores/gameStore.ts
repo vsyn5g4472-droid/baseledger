@@ -354,7 +354,8 @@ interface GameActions {
     side: 'away' | 'home',
     starterPositions: { playerId: string; newPosition: Position }[],
     substitutions: { playerOutId: string; playerInId: string; targetPosition: Position }[],
-  ) => void;
+    dhTermination?: { dhPlayerOutId: string; pitcherId: string },
+  ) => boolean;
 
   /** 攻撃時選手交代（代打・代走）を一括コミットする */
   commitOffensiveSubstitutions: (
@@ -2350,13 +2351,75 @@ export const useGameStore = create<GameStore>()(
       get().persist();
     },
 
-    commitPositionChanges: (side, starterPositions, substitutions) => {
+    commitPositionChanges: (side, starterPositions, substitutions, dhTermination) => {
+      let committed = false;
       set((state) => {
         const g = state.game;
         if (!g) return;
         const team = side === 'away' ? g.awayTeam : g.homeTeam;
 
+        let dhPlan: { outIdx: number; playerOut: Player; pitcher: Player } | null = null;
+        if (dhTermination) {
+          const outIdx = team.roster.starters.findIndex(
+            (player) => player.id === dhTermination.dhPlayerOutId,
+          );
+          const playerOut = outIdx >= 0 ? team.roster.starters[outIdx] : undefined;
+          const pitcher = team.roster.pitcher;
+          if (
+            !g.isDH?.[side]
+            || !playerOut
+            || playerOut.position !== 'DH'
+            || !pitcher
+            || pitcher.id !== dhTermination.pitcherId
+            || g.currentPitcherId[side] !== pitcher.id
+            || team.roster.bench.some((player) => player.id === playerOut.id)
+            || team.roster.bench.some((player) => player.id === pitcher.id)
+            || team.roster.starters.some(
+              (player, index) => index !== outIdx && player.id === pitcher.id,
+            )
+            || team.roster.starters.filter((player) => player.position === 'DH').length !== 1
+            || team.roster.starters.some(
+              (player, index) => index !== outIdx && player.position === 'P',
+            )
+          ) {
+            return;
+          }
+          dhPlan = { outIdx, playerOut, pitcher };
+        }
+
         pushUndoSnapshot(g, state.pendingPickoffSafe);
+
+        if (dhPlan) {
+          const { outIdx, playerOut, pitcher } = dhPlan;
+          team.roster.starters[outIdx] = { ...pitcher, position: 'P' };
+          team.roster.bench.push(playerOut);
+          team.roster.pitcher = undefined;
+          g.isDH![side] = false;
+
+          if (side === offenseSide(g) && g.currentAtBat?.batterId === playerOut.id) {
+            g.currentAtBat.batterId = pitcher.id;
+          }
+          for (const base of ['first', 'second', 'third'] as const) {
+            if (g.runners[base]?.id === playerOut.id) {
+              g.runners[base] = { ...pitcher, position: 'P' };
+            }
+          }
+
+          const log: SubstitutionLog = {
+            id: uid('sub'),
+            inning: { ...g.inning },
+            outs: g.count.outs,
+            side,
+            position: 'DH',
+            playerOutId: playerOut.id,
+            playerOutName: playerOut.name,
+            playerInId: pitcher.id,
+            playerInName: pitcher.name,
+            timestamp: Date.now(),
+          };
+          if (!g.substitutionLogs) g.substitutionLogs = [];
+          g.substitutionLogs.push(log);
+        }
 
         // 1. 交代を先に適用（posToKeep をポジション変更前の状態で取得するため）
         for (const { playerOutId, playerInId, targetPosition } of substitutions) {
@@ -2445,8 +2508,10 @@ export const useGameStore = create<GameStore>()(
         }
 
         g.updatedAt = Date.now();
+        committed = true;
       });
-      get().persist();
+      if (committed) get().persist();
+      return committed;
     },
 
     commitOffensiveSubstitutions: (side, substitutions) => {

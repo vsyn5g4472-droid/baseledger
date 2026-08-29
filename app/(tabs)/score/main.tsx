@@ -1778,9 +1778,13 @@ export default function LiveScoreScreen() {
         side={subSide}
         game={game}
         onClose={() => setPosSubModalVisible(false)}
-        onCommit={(side, starterPositions, substitutions) => {
-          commitPositionChanges(side, starterPositions, substitutions);
-          setPosSubModalVisible(false);
+        onCommit={(side, starterPositions, substitutions, dhTermination) => {
+          return commitPositionChanges(
+            side,
+            starterPositions,
+            substitutions,
+            dhTermination,
+          );
         }}
         onAddBench={(side, data) => addBenchPlayer(side, data)}
         onStartUnassignedPitcherStint={startUnassignedPitcherStint}

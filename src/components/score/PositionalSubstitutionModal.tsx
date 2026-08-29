@@ -88,6 +88,18 @@ type ChangeEntry = {
   toName: string;
 };
 
+type DHTerminationRequest = {
+  dhPlayerOutId: string;
+  pitcherId: string;
+};
+
+type LocalHistoryEntry = {
+  starters: LocalPlayer[];
+  bench: LocalPlayer[];
+  movedToBench: string[];
+  dhTermination: DHTerminationRequest | null;
+};
+
 // ─── Tile Props ───────────────────────────────────────────────────────────────
 
 export interface PlayerTileProps {
@@ -412,7 +424,8 @@ interface Props {
     side: 'away' | 'home',
     starterPositions: { playerId: string; newPosition: Position }[],
     substitutions: { playerOutId: string; playerInId: string; targetPosition: Position }[],
-  ) => void;
+    dhTermination?: DHTerminationRequest,
+  ) => boolean;
   onAddBench: (side: 'away' | 'home', newPlayerData: NewPlayerData) => void;
   onStartUnassignedPitcherStint: (
     side: 'away' | 'home',
@@ -437,7 +450,8 @@ export default function PositionalSubstitutionModal({
   const [fieldWidth, setFieldWidth] = useState(W);
 
   // アンドゥ用履歴スタック
-  const [history, setHistory] = useState<{ starters: LocalPlayer[]; bench: LocalPlayer[]; movedToBench: string[] }[]>([]);
+  const [history, setHistory] = useState<LocalHistoryEntry[]>([]);
+  const [dhTermination, setDHTermination] = useState<DHTerminationRequest | null>(null);
 
   // ドラッグ中フラグ（ベンチエリアのガイド表示用）
   const [isDraggingAny, setIsDraggingAny] = useState(false);
@@ -453,9 +467,11 @@ export default function PositionalSubstitutionModal({
   const localStartersRef  = useRef<LocalPlayer[]>([]);
   const localBenchRef     = useRef<LocalPlayer[]>([]);
   const movedToBenchRef   = useRef<string[]>([]);
+  const dhTerminationRef  = useRef<DHTerminationRequest | null>(null);
   useEffect(() => { localStartersRef.current = localStarters; }, [localStarters]);
   useEffect(() => { localBenchRef.current    = localBench;    }, [localBench]);
   useEffect(() => { movedToBenchRef.current  = movedToBench;  }, [movedToBench]);
+  useEffect(() => { dhTerminationRef.current = dhTermination; }, [dhTermination]);
 
   const posCoords = getPosCoords(fieldWidth, CANVAS_H);
 
@@ -501,6 +517,7 @@ export default function PositionalSubstitutionModal({
     setShowRegisterForm(false);
     setHistory([]);
     setMovedToBench([]);
+    setDHTermination(null);
     setInitialStarters(starters.map((p) => ({ ...p })));
     setShowConfirm(false);
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -555,6 +572,7 @@ export default function PositionalSubstitutionModal({
         starters:     localStartersRef.current.map((p) => ({ ...p })),
         bench:        localBenchRef.current.map((p) => ({ ...p })),
         movedToBench: [...movedToBenchRef.current],
+        dhTermination: dhTerminationRef.current ? { ...dhTerminationRef.current } : null,
       },
     ]);
 
@@ -583,6 +601,7 @@ export default function PositionalSubstitutionModal({
         starters:     localStartersRef.current.map((p) => ({ ...p })),
         bench:        localBenchRef.current.map((p) => ({ ...p })),
         movedToBench: [...movedToBenchRef.current],
+        dhTermination: dhTerminationRef.current ? { ...dhTerminationRef.current } : null,
       },
     ]);
 
@@ -611,19 +630,92 @@ export default function PositionalSubstitutionModal({
     });
   }, []);
 
-  // ── スターターをベンチへ移動 ──────────────────────────────────────────────
-  const handleMoveToBench = useCallback((playerId: string) => {
+  const movePlayerToBench = useCallback((player: LocalPlayer) => {
     setHistory(prev => [...prev, {
       starters:     localStartersRef.current.map(p => ({ ...p })),
       bench:        localBenchRef.current.map(p => ({ ...p })),
       movedToBench: [...movedToBenchRef.current],
+      dhTermination: dhTerminationRef.current ? { ...dhTerminationRef.current } : null,
     }]);
+    setLocalStarters(prev => prev.filter(p => p.playerId !== player.playerId));
+    setLocalBench(prev => [...prev, { ...player, fromBench: true }]);
+    setMovedToBench(prev => [...prev, player.playerId]);
+  }, []);
+
+  // ── スターターをベンチへ移動 ──────────────────────────────────────────────
+  const handleMoveToBench = useCallback((playerId: string) => {
     const player = localStartersRef.current.find(p => p.playerId === playerId);
     if (!player) return;
-    setLocalStarters(prev => prev.filter(p => p.playerId !== playerId));
-    setLocalBench(prev => [...prev, { ...player, fromBench: true }]);
-    setMovedToBench(prev => [...prev, playerId]);
-  }, []);
+
+    const replacementDHExists = localStartersRef.current.some(
+      (candidate) =>
+        candidate.playerId !== playerId
+        && candidate.position === 'DH'
+        && !candidate.isDisplaced,
+    );
+
+    // 別選手がすでにDHを引き継いでいる場合は、通常の選手交代として扱う。
+    if (player.position !== 'DH' || !game.isDH?.[side] || replacementDHExists) {
+      movePlayerToBench(player);
+      return;
+    }
+
+    const rosterPitcher = team.roster.pitcher;
+    const pitcherTile = rosterPitcher
+      ? localStartersRef.current.find((candidate) => candidate.playerId === rosterPitcher.id)
+      : undefined;
+    if (
+      !rosterPitcher
+      || !pitcherTile
+      || game.currentPitcherId[side] !== rosterPitcher.id
+    ) {
+      Alert.alert(
+        'DHを解除できません',
+        '現在の実投手を先に登録してから、もう一度操作してください。',
+      );
+      return;
+    }
+
+    Alert.alert(
+      'DHを解除しますか？',
+      '「はい」を選ぶと、現在の投手がこの打順に入り、DH選手はベンチへ移動します。',
+      [
+        { text: 'いいえ', style: 'cancel' },
+        {
+          text: 'はい',
+          onPress: () => {
+            setHistory(prev => [...prev, {
+              starters: localStartersRef.current.map(candidate => ({ ...candidate })),
+              bench: localBenchRef.current.map(candidate => ({ ...candidate })),
+              movedToBench: [...movedToBenchRef.current],
+              dhTermination: dhTerminationRef.current ? { ...dhTerminationRef.current } : null,
+            }]);
+            setLocalStarters((prev) => [
+              ...prev.filter(
+                (candidate) =>
+                  candidate.playerId !== player.playerId
+                  && candidate.playerId !== pitcherTile.playerId,
+              ),
+              {
+                ...pitcherTile,
+                position: 'P',
+                isDisplaced: false,
+                fromBench: false,
+                originalPosition: 'P',
+                battingOrder: player.battingOrder,
+              },
+            ]);
+            setLocalBench((prev) => [...prev, { ...player, fromBench: true }]);
+            setMovedToBench((prev) => [...prev, player.playerId]);
+            setDHTermination({
+              dhPlayerOutId: player.playerId,
+              pitcherId: pitcherTile.playerId,
+            });
+          },
+        },
+      ],
+    );
+  }, [game.currentPitcherId, game.isDH, movePlayerToBench, side, team.roster.pitcher]);
 
   // ── アンドゥ ─────────────────────────────────────────────────────────────
   const handleUndo = useCallback(() => {
@@ -632,6 +724,7 @@ export default function PositionalSubstitutionModal({
     setLocalStarters(last.starters);
     setLocalBench(last.bench);
     setMovedToBench(last.movedToBench);
+    setDHTermination(last.dhTermination);
     setHistory((prev) => prev.slice(0, -1));
   }, [history]);
 
@@ -707,8 +800,21 @@ export default function PositionalSubstitutionModal({
         });
       }
     }
+    if (dhTermination) {
+      const pitcher = localStarters.find((p) => p.playerId === dhTermination.pitcherId);
+      if (pitcher) {
+        entries.push({
+          playerName: pitcher.name,
+          number: null,
+          fromPosition: '投手（打順外）',
+          toPosition: 'ピッチャー',
+          toNumber: pitcher.battingOrder,
+          toName: pitcher.name,
+        });
+      }
+    }
     return entries;
-  }, [initialStarters, localStarters, movedToBench]);
+  }, [dhTermination, initialStarters, localStarters, movedToBench]);
 
   // ── コミット処理 ──────────────────────────────────────────────────────────
   const handleCommit = useCallback(() => {
@@ -740,9 +846,21 @@ export default function PositionalSubstitutionModal({
       }
     }
 
-    onCommit(side, starterPositions, substitutions);
-    onClose();
-  }, [canCommit, localStarters, movedToBench, initialStarters, onCommit, onClose, side]);
+    const committed = onCommit(
+      side,
+      starterPositions,
+      substitutions,
+      dhTermination ?? undefined,
+    );
+    if (committed) {
+      onClose();
+    } else {
+      Alert.alert(
+        '変更を保存できませんでした',
+        '選手情報が更新されています。画面を閉じて、もう一度お試しください。',
+      );
+    }
+  }, [canCommit, dhTermination, localStarters, movedToBench, initialStarters, onCommit, onClose, side]);
 
   // ── 新規選手追加 ──────────────────────────────────────────────────────────
   const handleRegisterConfirm = useCallback(
