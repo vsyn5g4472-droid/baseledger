@@ -234,9 +234,20 @@ export default function LiveScoreScreen() {
 
   // ── 投球結果モーダル: 走者アクション（盗塁成功/失敗）─────────────────
   type PitchRunnerAction = { type: 'steal'; result: 'safe' | 'out' };
-  const [runnerActions, setRunnerActions] = useState<
-    Partial<Record<'first' | 'second' | 'third', PitchRunnerAction>>
-  >({});
+  type PitchRunnerActions = Partial<Record<'first' | 'second' | 'third', PitchRunnerAction>>;
+  type PendingFieldPitch = {
+    mode: 'in_play' | 'foul_location';
+    pitchType: PitchType | string;
+    zone: StrikeZone;
+    velocity?: number;
+    pitchX?: number;
+    pitchY?: number;
+    pitchExtra?: { buntAttempt?: boolean; buntOutcome?: BuntOutcome };
+    runnerActions: PitchRunnerActions;
+    pitchContext: StolenBasePitchContext;
+  };
+  const [runnerActions, setRunnerActions] = useState<PitchRunnerActions>({});
+  const [pendingFieldPitch, setPendingFieldPitch] = useState<PendingFieldPitch | null>(null);
 
   // ── 盗塁進塁確認ペンディング（ボール/ストライク時の盗塁セーフ）──────────
   type PendingStealAdv = { advancements: RunnerAdvancement[]; pitchContext: StolenBasePitchContext };
@@ -262,6 +273,18 @@ export default function LiveScoreScreen() {
       return { ...prev, [base]: { ...prev[base]!, result } };
     });
   }, []);
+
+  const applyCapturedRunnerActions = useCallback((
+    actions: PitchRunnerActions,
+    pitchContext: StolenBasePitchContext,
+  ) => {
+    for (const [base, action] of Object.entries(actions)) {
+      if (!action) continue;
+      const fromBase = base as 'first' | 'second' | 'third';
+      if (action.result === 'safe') recordStolenBase(fromBase, pitchContext);
+      else recordCaughtStealing(fromBase, pitchContext);
+    }
+  }, [recordCaughtStealing, recordStolenBase]);
 
   // ── スクロールロック ────────────────────────────────────────────────
   const [scrollLocked, setScrollLocked] = useState(false);
@@ -432,26 +455,6 @@ export default function LiveScoreScreen() {
     const PICKOFF_SKIP_RESULTS: PitchResult[] = ['in_play', 'foul', 'foul_tip', 'hit_by_pitch'];
     const shouldTriggerPickoff = capturedPickoff !== null && !PICKOFF_SKIP_RESULTS.includes(result);
 
-    const applyRunnerActions = (pitchResult: typeof result, vel: number | undefined) => {
-      const pitchContext: Parameters<typeof recordStolenBase>[1] = {
-        pitchType:     selectedPitch,
-        pitchZone:     pendingZone ?? undefined,
-        pitchVelocity: vel,
-        countBefore:   g.count,
-        pitchResult,
-        ...(isItemOn('sign_play') && stealSign !== 'none' ? { signPlay: stealSign as SignPlayTag } : {}),
-      };
-      for (const [base, action] of Object.entries(actionsToApply)) {
-        if (!action) continue;
-        const b = base as 'first' | 'second' | 'third';
-        if (action.result === 'safe') {
-          recordStolenBase(b, pitchContext);
-        } else {
-          recordCaughtStealing(b, pitchContext);
-        }
-      }
-    };
-
     // モード別の球速決定（モーダル内スライダーが最優先）
     let velocity: number | undefined;
     if (modalVelocityEnabled && modalVelocity !== null) {
@@ -472,9 +475,63 @@ export default function LiveScoreScreen() {
       else if (result === 'ball' || result === 'strike_called') pitchExtra.buntOutcome = 'stance_only';
     }
 
+    const pitchContext: StolenBasePitchContext = {
+      pitchType: selectedPitch,
+      pitchZone: pendingZone ?? undefined,
+      pitchVelocity: velocity,
+      countBefore: { ...g.count },
+      pitchResult: result,
+      ...(isItemOn('sign_play') && stealSign !== 'none'
+        ? { signPlay: stealSign as SignPlayTag }
+        : {}),
+    };
+    const stealAttemptBases = Object.keys(actionsToApply) as Array<'first' | 'second' | 'third'>;
+
+    // 通常のファウルはボールデッド。盗塁は成功/失敗にせず、企図ログだけ残す。
+    if (result === 'foul') {
+      if (isItemOn('foul_ball_location')) {
+        setPendingFieldPitch({
+          mode: 'foul_location',
+          pitchType: selectedPitch,
+          zone: pendingZone ?? '5',
+          velocity,
+          pitchX: normX,
+          pitchY: normY,
+          pitchExtra,
+          runnerActions: actionsToApply,
+          pitchContext,
+        });
+        setShowFieldView(true);
+      } else {
+        recordPitch(selectedPitch, pendingZone ?? '5', 'foul', velocity, normX, normY, {
+          ...pitchExtra,
+          stolenBaseNoPlayFromBases: stealAttemptBases,
+          ...(pitchContext.signPlay ? { stolenBaseSignPlay: pitchContext.signPlay } : {}),
+        });
+        persist();
+      }
+      setPendingZone(null);
+      setPendingCoords(null);
+      setTapCoord(null);
+      setStealSign('none');
+      setBuntStance(false);
+      return;
+    }
+
     if (result === 'in_play') {
       recordPitch(selectedPitch, pendingZone ?? '5', 'in_play', velocity, normX, normY, pitchExtra);
-      applyRunnerActions('in_play', velocity);
+      // 打球がフェアかファウルか確定するまで盗塁結果を適用しない。
+      setPendingFieldPitch({
+        mode: 'in_play',
+        pitchType: selectedPitch,
+        zone: pendingZone ?? '5',
+        velocity,
+        pitchX: normX,
+        pitchY: normY,
+        pitchExtra,
+        runnerActions: actionsToApply,
+        pitchContext,
+      });
       setPendingZone(null);
       setPendingCoords(null);
       setTapCoord(null);
@@ -489,18 +546,10 @@ export default function LiveScoreScreen() {
     const safeStealEntries = Object.entries(actionsToApply).filter(([, a]) => a?.result === 'safe');
     if (safeStealEntries.length > 0 && STEAL_CONFIRM_RESULTS.includes(result)) {
       recordPitch(selectedPitch, pendingZone ?? '5', result, velocity, normX, normY, pitchExtra);
-      const pitchCtx: StolenBasePitchContext = {
-        pitchType: selectedPitch,
-        pitchZone: pendingZone ?? undefined,
-        pitchVelocity: velocity,
-        countBefore: g.count,
-        pitchResult: result,
-        ...(isItemOn('sign_play') && stealSign !== 'none' ? { signPlay: stealSign as SignPlayTag } : {}),
-      };
       // アウトの盗塁は即時確定
       for (const [base, action] of Object.entries(actionsToApply)) {
         if (action?.result === 'out') {
-          recordCaughtStealing(base as 'first' | 'second' | 'third', pitchCtx);
+          recordCaughtStealing(base as 'first' | 'second' | 'third', pitchContext);
         }
       }
       // セーフ盗塁の進塁確認データを構築
@@ -520,7 +569,7 @@ export default function LiveScoreScreen() {
           minBase: toBase as any,
         };
       });
-      setPendingStealAdv({ advancements, pitchContext: pitchCtx });
+      setPendingStealAdv({ advancements, pitchContext });
       setPendingZone(null);
       setPendingCoords(null);
       setTapCoord(null);
@@ -530,7 +579,7 @@ export default function LiveScoreScreen() {
     }
 
     recordPitch(selectedPitch, pendingZone ?? '5', result, velocity, normX, normY, pitchExtra);
-    applyRunnerActions(result, velocity);
+    applyCapturedRunnerActions(actionsToApply, pitchContext);
     setPendingZone(null);
     setPendingCoords(null);
     setTapCoord(null);
@@ -538,9 +587,30 @@ export default function LiveScoreScreen() {
     setBuntStance(false);
     persist();
     if (shouldTriggerPickoff) { setPickoffSource('catcher'); setPickoffTargetBase(capturedPickoff!); }
-  }, [pendingZone, pendingCoords, selectedPitch, recordPitch, recordStolenBase, recordCaughtStealing, persist, runnerActions, measuredVelocity, game?.count, buntStance, isItemOn, stealSign, modalVelocity, modalVelocityEnabled, pickoffPending]);
+  }, [pendingZone, pendingCoords, selectedPitch, recordPitch, recordCaughtStealing, persist, runnerActions, measuredVelocity, game?.count, buntStance, isItemOn, stealSign, modalVelocity, modalVelocityEnabled, pickoffPending, applyCapturedRunnerActions]);
 
   const handleFieldConfirm = useCallback((result: AtBatResult, battedBall: BattedBall, buntType?: BuntType) => {
+    const isFoulCatch = battedBall.fieldX < 0 || battedBall.fieldX > 1;
+    if (pendingFieldPitch?.mode === 'foul_location') {
+      // 捕球されたファウルフライはライブボールとして投球を確定し、flyout の進塁確認へ渡す。
+      recordPitch(
+        pendingFieldPitch.pitchType,
+        pendingFieldPitch.zone,
+        'in_play',
+        pendingFieldPitch.velocity,
+        pendingFieldPitch.pitchX,
+        pendingFieldPitch.pitchY,
+        { ...pendingFieldPitch.pitchExtra, battedBall },
+      );
+    } else if (pendingFieldPitch?.mode === 'in_play' && !isFoulCatch) {
+      // フェア打球では従来どおり、選択済みの盗塁結果を打球結果確定前に反映する。
+      applyCapturedRunnerActions(
+        pendingFieldPitch.runnerActions,
+        pendingFieldPitch.pitchContext,
+      );
+    }
+    setPendingFieldPitch(null);
+
     const g = useGameStore.getState().game;
     const hasRunners = g && (g.runners.first || g.runners.second || g.runners.third);
     if (!hasRunners) {
@@ -553,7 +623,43 @@ export default function LiveScoreScreen() {
       setShowFieldView(false);
     }
     persist();
-  }, [resolveAtBat, persist, atBatSign]);
+  }, [resolveAtBat, persist, atBatSign, pendingFieldPitch, recordPitch, applyCapturedRunnerActions]);
+
+  const handleFoulDrop = useCallback((battedBall: BattedBall) => {
+    if (!pendingFieldPitch) {
+      addStrikeForFoulInPlay();
+      setShowFieldView(false);
+      persist();
+      return;
+    }
+
+    // 「インプレー」で先に積んだ投球を一度戻し、同じ1球をファウルとして原子的に記録し直す。
+    if (pendingFieldPitch.mode === 'in_play') undoLastPlay();
+    const stealAttemptBases = Object.keys(pendingFieldPitch.runnerActions) as Array<
+      'first' | 'second' | 'third'
+    >;
+    const baseExtra = pendingFieldPitch.pitchExtra;
+    recordPitch(
+      pendingFieldPitch.pitchType,
+      pendingFieldPitch.zone,
+      'foul',
+      pendingFieldPitch.velocity,
+      pendingFieldPitch.pitchX,
+      pendingFieldPitch.pitchY,
+      {
+        ...baseExtra,
+        ...(baseExtra?.buntAttempt ? { buntOutcome: 'foul' as const } : {}),
+        battedBall,
+        stolenBaseNoPlayFromBases: stealAttemptBases,
+        ...(pendingFieldPitch.pitchContext.signPlay
+          ? { stolenBaseSignPlay: pendingFieldPitch.pitchContext.signPlay }
+          : {}),
+      },
+    );
+    setPendingFieldPitch(null);
+    setShowFieldView(false);
+    persist();
+  }, [pendingFieldPitch, addStrikeForFoulInPlay, persist, recordPitch, undoLastPlay]);
 
   const handleAdvancementConfirm = useCallback((
     finalAdvancements: RunnerAdvancement[],
@@ -600,9 +706,13 @@ export default function LiveScoreScreen() {
 
   const handleFieldCancel = useCallback(() => {
     setShowFieldView(false);
-    undoLastPlay();
-    persist();
-  }, [undoLastPlay, persist]);
+    // direct foul の位置入力前はまだ投球を保存していない。通常 in_play だけを巻き戻す。
+    if (pendingFieldPitch?.mode === 'in_play') {
+      undoLastPlay();
+      persist();
+    }
+    setPendingFieldPitch(null);
+  }, [pendingFieldPitch, undoLastPlay, persist]);
 
   const handleUndo = useCallback(() => {
     undoLastPlay();
@@ -960,13 +1070,14 @@ export default function LiveScoreScreen() {
               onCancel={handleFieldCancel}
               filterAtBatResult={fieldViewFilter}
               buntDetailEnabled={isItemOn('bunt_detail')}
-              fieldLocationEnabled={isItemOn('batted_ball_location')}
+              fieldLocationEnabled={
+                pendingFieldPitch?.mode === 'foul_location'
+                  ? true
+                  : isItemOn('batted_ball_location')
+              }
               fieldDistanceLabelEnabled={isItemOn('batted_ball_distance')}
-              onFoulDrop={() => {
-                addStrikeForFoulInPlay();
-                setShowFieldView(false);
-                persist();
-              }}
+              foulOnly={pendingFieldPitch?.mode === 'foul_location'}
+              onFoulDrop={handleFoulDrop}
             />
             {isItemOn('sign_play') && (
               <View style={{ paddingHorizontal: 12, paddingBottom: 8, backgroundColor: Colors.background }}>

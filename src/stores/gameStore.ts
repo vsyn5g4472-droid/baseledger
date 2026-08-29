@@ -222,7 +222,14 @@ interface GameActions {
     velocity?: number,
     pitchX?: number,
     pitchY?: number,
-    pitchExtra?: { buntAttempt?: boolean; buntOutcome?: BuntOutcome },
+    pitchExtra?: {
+      buntAttempt?: boolean;
+      buntOutcome?: BuntOutcome;
+      battedBall?: BattedBall;
+      /** ファウルで無効になった盗塁企図。走者は動かさずログだけ残す。 */
+      stolenBaseNoPlayFromBases?: Array<'first' | 'second' | 'third'>;
+      stolenBaseSignPlay?: SignPlayTag;
+    },
   ) => void;
 
   // --- 打席結果アクション (インプレイ時に呼ぶ) ---
@@ -1269,6 +1276,7 @@ export const useGameStore = create<GameStore>()(
           pitchType,
           zone,
           result,
+          ...(pitchExtra?.battedBall ? { battedBall: pitchExtra.battedBall } : {}),
           countBefore,
           countAfter,
           timestamp: Date.now(),
@@ -1283,6 +1291,38 @@ export const useGameStore = create<GameStore>()(
         g.pitchLogs.push(pitchLog);
         if (g.currentAtBat) {
           g.currentAtBat.pitches.push(pitchLog);
+        }
+
+        // ファウルでプレーが無効になった盗塁企図は、走者を動かさず分析用ログだけ残す。
+        // 同じ投球のUndoスナップショットに含めるため recordPitch 内で生成する。
+        const noPlayBases = [...new Set(pitchExtra?.stolenBaseNoPlayFromBases ?? [])];
+        if (!g.stolenBaseLogs) g.stolenBaseLogs = [];
+        for (const fromBase of noPlayBases) {
+          const runner = g.runners[fromBase];
+          if (!runner) continue;
+          const toBase: StolenBaseLog['toBase'] = fromBase === 'first' ? 'second'
+            : fromBase === 'second' ? 'third'
+            : 'home';
+          g.stolenBaseLogs.push({
+            id: uid('sb-no-play'),
+            inning: { ...g.inning },
+            runnerId: runner.id,
+            runnerName: runner.name,
+            fromBase,
+            toBase,
+            result: 'no_play',
+            noPlayReason: 'foul',
+            pitchType,
+            pitchZone: zone,
+            ...(velocity !== undefined ? { pitchVelocity: velocity } : {}),
+            countBefore,
+            pitchResult: 'foul',
+            outsAtTime: countBefore.outs,
+            timestamp: Date.now(),
+            ...(pitchExtra?.stolenBaseSignPlay
+              ? { signPlay: pitchExtra.stolenBaseSignPlay }
+              : {}),
+          });
         }
 
         // 自動確定する打席結果がある場合

@@ -238,8 +238,10 @@ interface FieldViewProps {
   fieldLocationEnabled?: boolean;
   /** false のとき推定飛距離を非表示 */
   fieldDistanceLabelEnabled?: boolean;
+  /** true のときファウル落下地点の記録専用にし、フェア側の結果ボタンを出さない */
+  foulOnly?: boolean;
   /** ファウルゾーンで落球（不捕球）が選択されたとき */
-  onFoulDrop?: () => void;
+  onFoulDrop?: (battedBall: BattedBall) => void;
 }
 
 // ============================================================
@@ -256,6 +258,7 @@ export default function FieldView({
   buntDetailEnabled = false,
   fieldLocationEnabled = true,
   fieldDistanceLabelEnabled = true,
+  foulOnly = false,
   onFoulDrop,
 }: FieldViewProps) {
   const { t } = useI18n();
@@ -435,9 +438,8 @@ export default function FieldView({
     setConfirmedPos({ x: svgX, y: svgY, foul, dist });
   }, [ballpark, showDistance, targetX, targetY]);
 
-  // --- 結果選択 ---
-  const handleResult = useCallback((result: AtBatResult) => {
-    if (!confirmedPos) return;
+  const buildBattedBall = useCallback((): BattedBall | null => {
+    if (!confirmedPos) return null;
 
     // SprayChart の極座標系に合わせた正規化:
     //   fieldX: 0 = 左翼ファウルライン / 0.5 = 中堅 / 1 = 右翼ファウルライン
@@ -447,18 +449,29 @@ export default function FieldView({
     const radialDist = Math.sqrt(dx * dx + dy * dy); // ホームプレートからの実際の距離
     const angle = Math.atan2(dx, dy);               // 中堅を0°とした方向角（左=-π/4, 右=+π/4）
 
-    const battedBall: BattedBall = {
+    return {
       type: battedType,
       fieldX: 0.5 + angle / (Math.PI / 2),     // −π/4〜+π/4 → 0〜1
       fieldY: 1 - radialDist / FIELD_RADIUS,    // 本塁=1, フェンス=0, フェンス外は負値 (上限なし)
       estimatedDistance: confirmedPos.dist,
     };
+  }, [battedType, confirmedPos]);
+
+  // --- 結果選択 ---
+  const handleResult = useCallback((result: AtBatResult) => {
+    const battedBall = buildBattedBall();
+    if (!battedBall) return;
     if (buntDetailEnabled && result === 'sacrifice_bunt') {
       setPendingBunt({ result, battedBall });
       return;
     }
     onConfirm(result, battedBall, undefined);
-  }, [battedType, buntDetailEnabled, confirmedPos, onConfirm]);
+  }, [buildBattedBall, buntDetailEnabled, onConfirm]);
+
+  const handleFoulDrop = useCallback(() => {
+    const battedBall = buildBattedBall();
+    if (battedBall) onFoulDrop?.(battedBall);
+  }, [buildBattedBall, onFoulDrop]);
 
   // --- マグニファイア viewBox ---
   const magVB = magTarget
@@ -479,7 +492,9 @@ export default function FieldView({
       {/* タイトル + ズーム */}
       <View style={styles.topRow}>
         <Text style={styles.title}>
-          {battedType === 'grounder' ? t.live.fieldTitleGrounder : t.live.fieldTitle}
+          {foulOnly
+            ? 'ファウルの落下地点を選択'
+            : battedType === 'grounder' ? t.live.fieldTitleGrounder : t.live.fieldTitle}
         </Text>
         <Text style={styles.zoomBadge}>
           {Number.isInteger(zoomDisplay) ? zoomDisplay : zoomDisplay.toFixed(1)}x
@@ -597,7 +612,7 @@ export default function FieldView({
             </Text>
           )}
 
-          {!confirmedPos.foul && (
+          {!confirmedPos.foul && !foulOnly && (
             <>
               <Text style={styles.resultTitle}>{t.live.selectResult}</Text>
               <View style={styles.resultRow}>
@@ -619,6 +634,10 @@ export default function FieldView({
             </>
           )}
 
+          {!confirmedPos.foul && foulOnly && (
+            <Text style={styles.foulOnlyHint}>ファウルゾーン内の落下地点を選択してください</Text>
+          )}
+
           {confirmedPos.foul && (
             <>
               <Text style={styles.foulTitle}>FOUL</Text>
@@ -632,7 +651,7 @@ export default function FieldView({
                 {onFoulDrop && (
                   <TouchableOpacity
                     style={[styles.resultBtn, { backgroundColor: '#795548' }]}
-                    onPress={onFoulDrop}
+                    onPress={handleFoulDrop}
                   >
                     <Text style={styles.resultBtnText}>落球</Text>
                   </TouchableOpacity>
@@ -882,6 +901,13 @@ const styles = StyleSheet.create({
     color: '#FF9800',
     textAlign: 'center',
     marginBottom: Spacing.xs,
+  },
+  foulOnlyHint: {
+    color: '#C46A00',
+    fontSize: Typography.bodySmall,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
   },
   resultTitle: {
     fontSize: Typography.bodySmall,

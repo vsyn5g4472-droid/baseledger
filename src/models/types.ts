@@ -43,7 +43,7 @@ export interface UserStats {
   fielding: FieldingStats;
 }
 
-/** スコアキーピングの表示項目ON/OFF（18項目、velocity は試合ごと velocityEnabled） */
+/** スコアキーピングの表示項目ON/OFF（velocity は試合ごと velocityEnabled） */
 export type RecordingItemId =
   | 'foul_tip'
   | 'sacrifice_fly'
@@ -62,6 +62,7 @@ export type RecordingItemId =
   | 'pitch_zone_detail'
   | 'pitch_entry'
   | 'batted_ball_location'
+  | 'foul_ball_location'
   | 'batted_ball_distance'
   | 'runner_advancement_detail'
   | 'substitution';

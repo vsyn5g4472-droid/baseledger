@@ -253,6 +253,8 @@ export interface PitchLog {
   pitchX?: number;            // キャンバス正規化座標 X (0-1, 左=0 右=1)
   pitchY?: number;            // キャンバス正規化座標 Y (0-1, 上=0 下=1)
   result: PitchResult;
+  /** この投球で生じた打球位置。主にファウル落下地点を1球単位で保持する。 */
+  battedBall?: BattedBall;
   velocity?: number;          // 球速 (km/h, 任意)
   countBefore: Count;         // この球を投げる前のカウント
   countAfter: Count;          // この球を投げた後のカウント
@@ -332,7 +334,9 @@ export interface StolenBaseLog {
   runnerName: string;
   fromBase: 'first' | 'second' | 'third';
   toBase: 'second' | 'third' | 'home';
-  result: 'safe' | 'out';
+  /** no_play はファウル等でプレー自体が無効になった盗塁企図。盗塁成功・盗塁死には数えない。 */
+  result: 'safe' | 'out' | 'no_play';
+  noPlayReason?: 'foul';
   // 投球コンテキスト（投球モーダル経由で自動付与）
   pitchType?: PitchType | string;
   pitchZone?: StrikeZone;

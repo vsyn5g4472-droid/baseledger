@@ -40,6 +40,7 @@ const ITEM_LABEL: Record<RecordingItemId, string> = {
   pitch_zone_detail: '球威ゾーン（高/低/内外の詳細）',
   pitch_entry: '配球',
   batted_ball_location: '打球の落下位置（フィールド図）',
+  foul_ball_location: 'ファウルの落下位置（フィールド図）',
   batted_ball_distance: '推定飛距離',
   runner_advancement_detail: '進塁の詳細',
   substitution: '選手交代',
