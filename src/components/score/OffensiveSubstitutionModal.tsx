@@ -14,12 +14,16 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import {
   Dimensions,
+  InputAccessoryView,
+  Keyboard,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { Text } from 'react-native-paper';
@@ -35,6 +39,7 @@ const DIAMOND_H = SCREEN_H * 0.60;
 const BENCH_THRESHOLD = SCREEN_H * 0.62;
 const TILE_SIZE = 52;
 const SNAP_DIST = 70;
+const NUMBER_INPUT_ACCESSORY_ID = 'offensive-substitution-number-input';
 
 type DiamondSlot = 'batter' | 'first' | 'second' | 'third';
 
@@ -136,68 +141,84 @@ function RegisterForm({ onConfirm, onCancel }: RegisterFormProps) {
   const canConfirm = name.trim().length > 0;
 
   return (
-    <View style={styles.registerForm}>
-      <Text style={styles.registerTitle}>新規選手登録</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="氏名"
-        placeholderTextColor={Colors.textSecondary}
-        value={name}
-        onChangeText={setName}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="背番号（任意）"
-        placeholderTextColor={Colors.textSecondary}
-        keyboardType="number-pad"
-        value={number}
-        onChangeText={setNumber}
-      />
-      <View style={styles.toggleRow}>
-        <Text style={styles.toggleLabel}>打席</Text>
-        {(['R', 'L', 'S'] as const).map((v) => (
-          <TouchableOpacity
-            key={v}
-            style={[styles.toggleBtn, bats === v && styles.toggleBtnActive]}
-            onPress={() => setBats(v)}
-          >
-            <Text style={[styles.toggleBtnText, bats === v && styles.toggleBtnTextActive]}>{v}</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View style={styles.registerForm}>
+        <Text style={styles.registerTitle}>新規選手登録</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="氏名"
+          placeholderTextColor={Colors.textSecondary}
+          value={name}
+          onChangeText={setName}
+          returnKeyType="done"
+          onSubmitEditing={Keyboard.dismiss}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="背番号（任意）"
+          placeholderTextColor={Colors.textSecondary}
+          keyboardType="number-pad"
+          value={number}
+          onChangeText={setNumber}
+          inputAccessoryViewID={Platform.OS === 'ios' ? NUMBER_INPUT_ACCESSORY_ID : undefined}
+          returnKeyType="done"
+          onSubmitEditing={Keyboard.dismiss}
+        />
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>打席</Text>
+          {(['R', 'L', 'S'] as const).map((v) => (
+            <TouchableOpacity
+              key={v}
+              style={[styles.toggleBtn, bats === v && styles.toggleBtnActive]}
+              onPress={() => setBats(v)}
+            >
+              <Text style={[styles.toggleBtnText, bats === v && styles.toggleBtnTextActive]}>{v}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>投げ</Text>
+          {(['R', 'L'] as const).map((v) => (
+            <TouchableOpacity
+              key={v}
+              style={[styles.toggleBtn, throws === v && styles.toggleBtnActive]}
+              onPress={() => setThrows(v)}
+            >
+              <Text style={[styles.toggleBtnText, throws === v && styles.toggleBtnTextActive]}>{v}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.registerActions}>
+          <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
+            <Text style={styles.cancelBtnText}>キャンセル</Text>
           </TouchableOpacity>
-        ))}
-      </View>
-      <View style={styles.toggleRow}>
-        <Text style={styles.toggleLabel}>投げ</Text>
-        {(['R', 'L'] as const).map((v) => (
           <TouchableOpacity
-            key={v}
-            style={[styles.toggleBtn, throws === v && styles.toggleBtnActive]}
-            onPress={() => setThrows(v)}
+            style={[styles.confirmBtn, !canConfirm && styles.confirmBtnDisabled]}
+            onPress={() => {
+              if (!canConfirm) return;
+              onConfirm({
+                name: name.trim(),
+                number: number ? parseInt(number, 10) : null,
+                bats,
+                throws,
+              });
+            }}
+            disabled={!canConfirm}
           >
-            <Text style={[styles.toggleBtnText, throws === v && styles.toggleBtnTextActive]}>{v}</Text>
+            <Text style={styles.confirmBtnText}>追加</Text>
           </TouchableOpacity>
-        ))}
+        </View>
+        {Platform.OS === 'ios' && (
+          <InputAccessoryView nativeID={NUMBER_INPUT_ACCESSORY_ID}>
+            <View style={styles.keyboardAccessory}>
+              <TouchableOpacity onPress={Keyboard.dismiss} style={styles.keyboardDoneBtn}>
+                <Text style={styles.keyboardDoneText}>完了</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
       </View>
-      <View style={styles.registerActions}>
-        <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
-          <Text style={styles.cancelBtnText}>キャンセル</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.confirmBtn, !canConfirm && styles.confirmBtnDisabled]}
-          onPress={() => {
-            if (!canConfirm) return;
-            onConfirm({
-              name: name.trim(),
-              number: number ? parseInt(number, 10) : null,
-              bats,
-              throws,
-            });
-          }}
-          disabled={!canConfirm}
-        >
-          <Text style={styles.confirmBtnText}>追加</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -753,10 +774,19 @@ export default function OffensiveSubstitutionModal({
         {/* ── ベンチエリア（下部 40%、横スクロール） ── */}
         <View style={[styles.benchSection, isDraggingAny && styles.benchSectionDragging]}>
           {showRegisterForm ? (
-            <RegisterForm
-              onConfirm={handleRegisterConfirm}
-              onCancel={() => setShowRegisterForm(false)}
-            />
+            <ScrollView
+              style={styles.registerScroll}
+              contentContainerStyle={styles.registerScrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              automaticallyAdjustKeyboardInsets
+              onScrollBeginDrag={Keyboard.dismiss}
+            >
+              <RegisterForm
+                onConfirm={handleRegisterConfirm}
+                onCancel={() => setShowRegisterForm(false)}
+              />
+            </ScrollView>
           ) : (
             <>
               <View style={styles.benchHeaderRow}>
@@ -1012,6 +1042,13 @@ const styles = StyleSheet.create({
   },
 
   // Register form
+  registerScroll: {
+    flex: 1,
+  },
+  registerScrollContent: {
+    flexGrow: 1,
+    paddingBottom: Spacing.xl,
+  },
   registerForm: {
     flex: 1,
     padding: Spacing.md,
@@ -1067,6 +1104,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
     marginTop: Spacing.sm,
+  },
+  keyboardAccessory: {
+    alignItems: 'flex-end',
+    backgroundColor: Colors.card,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+  },
+  keyboardDoneBtn: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  keyboardDoneText: {
+    color: Colors.action,
+    fontSize: Typography.body,
+    fontWeight: '700',
   },
   cancelBtn: {
     flex: 1,
