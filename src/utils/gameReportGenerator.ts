@@ -2,6 +2,23 @@ import type { GameState } from '../types/game';
 import type { GameAnalytics, PlayerPitchingStats } from './gameStatsCalculator';
 import { formatBattingAvg } from './statsCalculator';
 import { ja } from '../i18n/ja';
+import { Colors } from '../constants/theme';
+import {
+  SVG_W as SPRAY_W,
+  SVG_H as SPRAY_H,
+  HP_X,
+  HP_Y,
+  FIRST,
+  SECOND,
+  THIRD,
+  MOUND,
+  LEFT_FOUL,
+  RIGHT_FOUL,
+  outfieldPath,
+  diamondPath,
+  fieldToSvg,
+  resultColor,
+} from './sprayGeometry';
 
 function fmtDate(ts: number): string {
   const d = new Date(ts);
@@ -71,10 +88,9 @@ export function generateGameReportHtml(
   };
 
   // ── 3. 投球成績（合計）───────────────────────────────────────────────────────
-  const pitchingTotals = (teamName: string, stats: PlayerPitchingStats | null): string => {
+  const pitchingTotals = (stats: PlayerPitchingStats | null): string => {
     if (!stats) return '';
     return `
-    <h3>${teamName}</h3>
     <table>
       <tbody>
         <tr><th>投球数</th><td>${stats.totalPitches ?? 0}球</td></tr>
@@ -197,13 +213,14 @@ export function generateGameReportHtml(
         <text x="${strikeRight + 16}" y="${strikeTop + strikeH / 2}" text-anchor="middle" font-size="9" fill="#666" transform="rotate(90 ${strikeRight + 16} ${strikeTop + strikeH / 2})">外</text>
       </svg>
       <div class="pitch-legend">
-        <span><i style="background:#38A1F3"></i>見逃しS</span>
-        <span><i style="background:#1A6BBF"></i>空振りS</span>
-        <span><i style="background:#8E8E93"></i>ボール</span>
-        <span><i style="background:#D4AF37"></i>ファウル</span>
-        <span><i style="background:#34C759"></i>インプレー</span>
-        <span><i style="background:#C41E3A"></i>死球</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="#38A1F3"/></svg>見逃しS</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="#1A6BBF"/></svg>空振りS</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="#8E8E93"/></svg>ボール</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="#D4AF37"/></svg>ファウル</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="#34C759"/></svg>インプレー</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="#C41E3A"/></svg>死球</span>
       </div>
+      <div class="pitch-chart-note">背景の青が濃いほど、そのコースへの投球数が多い</div>
       <div class="pitch-chart-note">投球位置 ${plottedCount}/${pitcherPitches.length}球（座標記録済み／総投球数）</div>
     </div>`;
   };
@@ -226,9 +243,12 @@ export function generateGameReportHtml(
   const pitchDistSection = (teamName: string, stats: PlayerPitchingStats | null): string => {
     if (!stats) return '';
     return `
-    <h3>${teamName}</h3>
-    ${pitchChart(stats)}
-    ${pitchMixTable(stats)}`;
+    <div class="pitcher-block">
+      <h3>${teamName}</h3>
+      ${pitchingTotals(stats)}
+      ${pitchChart(stats)}
+      ${pitchMixTable(stats)}
+    </div>`;
   };
 
   // ── 5. 打球分析 ──────────────────────────────────────────────────────────────
@@ -240,6 +260,42 @@ export function generateGameReportHtml(
     popup:    'ポップ',
   };
   const typeOrder = ['grounder', 'liner', 'fly', 'popup'];
+
+  // SprayChart.tsx の SVG 構造を HTML 内 SVG として再現する
+  const sprayChart = (logs: GameState['atBatLogs']): string => {
+    const dots = (logs ?? [])
+      .map((log) => {
+        const bb = log.battedBall!;
+        const pos = fieldToSvg(bb.fieldX, bb.fieldY);
+        return `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="5.5" fill="${resultColor(log.result)}" fill-opacity="0.85" stroke="white" stroke-width="1" />`;
+      })
+      .join('');
+
+    return `
+    <div class="spray-chart-wrap">
+      <svg width="${SPRAY_W}" height="${SPRAY_H}" viewBox="0 0 ${SPRAY_W} ${SPRAY_H}" xmlns="http://www.w3.org/2000/svg">
+        <path d="${outfieldPath}" fill="${Colors.primaryLight}" stroke="${Colors.primary}" stroke-width="1.5" />
+        <path d="${diamondPath}" fill="#E8F5E9" stroke="${Colors.primary}" stroke-width="1" />
+        <line x1="${HP_X}" y1="${HP_Y}" x2="${LEFT_FOUL.x}" y2="${LEFT_FOUL.y}" stroke="${Colors.primary}" stroke-width="1.5" />
+        <line x1="${HP_X}" y1="${HP_Y}" x2="${RIGHT_FOUL.x}" y2="${RIGHT_FOUL.y}" stroke="${Colors.primary}" stroke-width="1.5" />
+        <circle cx="${MOUND.x}" cy="${MOUND.y}" r="5" fill="#F5E6C8" stroke="${Colors.primary}" stroke-width="1" />
+        <circle cx="${HP_X}" cy="${HP_Y}" r="5" fill="${Colors.primary}" />
+        <circle cx="${FIRST.x}" cy="${FIRST.y}" r="4" fill="white" stroke="${Colors.primary}" stroke-width="1.5" />
+        <circle cx="${SECOND.x}" cy="${SECOND.y}" r="4" fill="white" stroke="${Colors.primary}" stroke-width="1.5" />
+        <circle cx="${THIRD.x}" cy="${THIRD.y}" r="4" fill="white" stroke="${Colors.primary}" stroke-width="1.5" />
+        <text x="${FIRST.x + 8}" y="${FIRST.y + 4}" font-size="8" fill="${Colors.textSecondary}">1B</text>
+        <text x="${SECOND.x - 4}" y="${SECOND.y - 7}" font-size="8" fill="${Colors.textSecondary}">2B</text>
+        <text x="${THIRD.x - 16}" y="${THIRD.y + 4}" font-size="8" fill="${Colors.textSecondary}">3B</text>
+        ${dots}
+      </svg>
+      <div class="pitch-legend">
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="${resultColor('single')}"/></svg>安打</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="${resultColor('error')}"/></svg>エラー</span>
+        <span><svg width="8" height="8" style="vertical-align:middle;margin-right:3px"><circle cx="4" cy="4" r="4" fill="${resultColor(null)}"/></svg>その他</span>
+      </div>
+      <div class="pitch-chart-note">打球位置の記録をオフにした打球は、ホームベース付近に表示されます</div>
+    </div>`;
+  };
 
   const battedBallSection = (teamName: string, half: 'top' | 'bottom'): string => {
     const logs = (game.atBatLogs ?? []).filter(
@@ -278,11 +334,14 @@ export function generateGameReportHtml(
     if (!rows) return '';
 
     return `
-    <h3>${teamName}の打球</h3>
-    <table>
-      <thead><tr><th>種別</th><th>本数</th><th>平均飛距離</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    <div class="team-block">
+      <h3>${teamName}の打球</h3>
+      ${sprayChart(logs)}
+      <table>
+        <thead><tr><th>種別</th><th>本数</th><th>平均飛距離</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   };
 
   // ── HTML ─────────────────────────────────────────────────────────────────────
@@ -293,7 +352,13 @@ export function generateGameReportHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>試合レポート - ${game.awayTeam.name} vs ${game.homeTeam.name}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
     body {
       font-family: -apple-system, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
       font-size: 13px;
@@ -315,17 +380,16 @@ export function generateGameReportHtml(
       justify-content: center;
       align-items: center;
       gap: 24px;
-      background: linear-gradient(135deg, #0E4DA4 0%, #1565C0 100%);
+      border: 1px solid #e0e0e0;
       border-radius: 12px;
       padding: 20px;
       margin-bottom: 20px;
-      color: white;
     }
     .score-team { text-align: center; flex: 1; }
     .score-team .team-label { font-size: 11px; opacity: 0.8; }
-    .score-team .team-name { font-size: 16px; font-weight: 800; margin: 4px 0; }
-    .score-team .score-num { font-size: 48px; font-weight: 900; line-height: 1; }
-    .score-sep { font-size: 32px; font-weight: 300; opacity: 0.6; }
+    .score-team .team-name { font-size: 16px; font-weight: 800; margin: 4px 0; color: #1a1a1a; }
+    .score-team .score-num { font-size: 48px; font-weight: 900; line-height: 1; color: #0E4DA4; }
+    .score-sep { font-size: 32px; font-weight: 300; color: #666; }
     .winner-badge { text-align: center; margin-bottom: 16px; font-size: 14px; font-weight: 700; color: #0E4DA4; }
     /* Scoreboard */
     .scoreboard { margin-bottom: 20px; overflow-x: auto; }
@@ -348,8 +412,11 @@ export function generateGameReportHtml(
     .pitch-chart { width: 216px; height: 284px; display: block; margin: 0 auto 6px; }
     .pitch-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; font-size: 9px; color: #555; }
     .pitch-legend span { white-space: nowrap; }
-    .pitch-legend i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; }
     .pitch-chart-note { margin-top: 5px; font-size: 9px; color: #777; }
+    .pitcher-block { page-break-inside: avoid; }
+    /* Spray chart */
+    .spray-chart-wrap { text-align: center; margin: 6px auto 12px; }
+    .team-block { page-break-inside: avoid; }
     /* Footer */
     .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 10px; color: #aaa; }
   </style>
@@ -375,7 +442,7 @@ export function generateGameReportHtml(
       <div class="score-num">${homeScore}</div>
     </div>
   </div>
-  <div class="winner-badge">🏆 ${winner}${awayScore !== homeScore ? ' の勝利' : ''}</div>
+  <div class="winner-badge">${winner}${awayScore !== homeScore ? ' の勝利' : ''}</div>
 
   <!-- 1. スコアボード -->
   <div class="scoreboard">
@@ -403,22 +470,17 @@ export function generateGameReportHtml(
   </div>
 
   <!-- 2. 打撃成績 -->
-  <h2>⚾ 打撃成績</h2>
+  <h2>打撃成績</h2>
   ${battingTable(`先攻 ${game.awayTeam.name}`, analytics.batting?.away ?? [])}
   ${battingTable(`後攻 ${game.homeTeam.name}`, analytics.batting?.home ?? [])}
 
-  <!-- 3. 投球成績 -->
-  <h2>⚡ 投球成績</h2>
-  ${(analytics.pitching?.homePitchers ?? []).map((p) => pitchingTotals(`後攻 ${game.homeTeam.name} ${p.playerName}`, p)).join('')}
-  ${(analytics.pitching?.awayPitchers ?? []).map((p) => pitchingTotals(`先攻 ${game.awayTeam.name} ${p.playerName}`, p)).join('')}
-
-  <!-- 4. 配球分析 -->
-  <h2>📊 配球分析</h2>
+  <!-- 3. 投球・配球分析 -->
+  <h2>投球・配球分析</h2>
   ${(analytics.pitching?.homePitchers ?? []).map((p) => pitchDistSection(`後攻 ${game.homeTeam.name} ${p.playerName}`, p)).join('')}
   ${(analytics.pitching?.awayPitchers ?? []).map((p) => pitchDistSection(`先攻 ${game.awayTeam.name} ${p.playerName}`, p)).join('')}
 
-  <!-- 5. 打球分析 -->
-  <h2>🏃 打球分析</h2>
+  <!-- 4. 打球分析 -->
+  <h2>打球分析</h2>
   ${battedBallSection(`先攻 ${game.awayTeam.name}`, 'top')}
   ${battedBallSection(`後攻 ${game.homeTeam.name}`, 'bottom')}
 

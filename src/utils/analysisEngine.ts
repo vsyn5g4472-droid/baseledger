@@ -195,6 +195,12 @@ export interface BatterProfile {
   totalGames:        number;
   totalAtBats:       number;
   totalPitchesFaced: number;
+  /** 安打数 */
+  hits:              number;
+  /** 三振数 */
+  strikeouts:        number;
+  /** 四球数 */
+  walks:             number;
   /** 打率 */
   avg:               number;
   /** 三振率 */
@@ -894,6 +900,9 @@ export function buildBatterProfile(
     totalGames:        relevantGames.length,
     totalAtBats:       atBats,
     totalPitchesFaced: allPitches.length,
+    hits,
+    strikeouts,
+    walks,
     avg:               atBats > 0 ? hits / atBats : 0,
     strikeoutRate:     atBats > 0 ? strikeouts / atBats : 0,
     walkRate:

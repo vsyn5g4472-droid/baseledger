@@ -14,6 +14,7 @@ import { usePlayerHistory } from '../../hooks/usePlayerHistory';
 import { usePlanGate } from '../../hooks/usePlanGate';
 import { generateAIPrediction, type AIPrediction } from '../../services/aiReportService';
 import type { BatteryProfile, BatterProfile } from '../../utils/analysisEngine';
+import { ja } from '../../i18n/ja';
 
 interface Props {
   mode: 'pitcher' | 'batter';
@@ -170,13 +171,14 @@ export default function InGameStatsPanel({
     const weakHeatData = Object.fromEntries(
       b.zoneStats.map((z) => [z.zone, Math.round(z.swingMissRate * 100)]),
     );
+    const distCount = b.sprayPoints.filter((p) => p.estimatedDistance > 0).length;
     return (
       <>
         <View style={s.statRow}>
-          <Stat label="打率" value={b.avg.toFixed(3).replace(/^0/, '')} />
-          <Stat label="三振率" value={`${Math.round(b.strikeoutRate * 100)}%`} />
-          <Stat label="四球率" value={`${Math.round(b.walkRate * 100)}%`} />
-          <Stat label="平均飛距離" value={b.avgHitDistance ? `${b.avgHitDistance}m` : '-'} />
+          <Stat label="打率" value={`${b.avg.toFixed(3).replace(/^0/, '')} (${b.hits}/${b.totalAtBats})`} />
+          <Stat label="三振率" value={`${Math.round(b.strikeoutRate * 100)}% (${b.strikeouts}/${b.totalAtBats})`} />
+          <Stat label="四球率" value={`${Math.round(b.walkRate * 100)}% (${b.walks}/${b.totalAtBats + b.walks})`} />
+          <Stat label="平均飛距離(フライ)" value={b.avgHitDistance ? `${b.avgHitDistance}m (${distCount}本)` : '-'} />
         </View>
 
         <Text style={s.sectionLabel}>苦手コース（空振り率）</Text>
@@ -200,7 +202,9 @@ export default function InGameStatsPanel({
             <Text style={s.sectionLabel}>球種別成績</Text>
             {b.pitchTypeStats.slice(0, 4).map((pt) => (
               <View key={pt.type} style={s.barRow}>
-                <Text style={s.barLabel}>{pt.type}</Text>
+                <Text style={s.barLabel}>
+                  {(ja.pitchTypes as Record<string, string>)[pt.type] ?? pt.type}
+                </Text>
                 <Text style={s.barVal}>空振 {Math.round(pt.swingMissRate * 100)}%</Text>
               </View>
             ))}

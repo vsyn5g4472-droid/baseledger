@@ -1521,9 +1521,7 @@ export default function LiveScoreScreen() {
           {/* ---- バッター + キャンバス ---- */}
           <View style={styles.zoneBatterArea}>
             {isLeftBatter && (
-              <TouchableOpacity onPress={toggleBatterSide} activeOpacity={0.75}>
-                <BatterSilhouetteSVG side="L" />
-              </TouchableOpacity>
+              <BatterSilhouetteSVG side="L" />
             )}
 
             {/* タップ可能なキャンバス */}
@@ -1623,9 +1621,7 @@ export default function LiveScoreScreen() {
             </View>
 
             {!isLeftBatter && (
-              <TouchableOpacity onPress={toggleBatterSide} activeOpacity={0.75}>
-                <BatterSilhouetteSVG side="R" />
-              </TouchableOpacity>
+              <BatterSilhouetteSVG side="R" />
             )}
           </View>
         </View>
@@ -2623,7 +2619,11 @@ function BatterSilhouetteSVG({ side }: { side: 'L' | 'R' }) {
   return (
     <Image
       source={source}
-      style={{ width: BATTER_W, height: CANVAS_H }}
+      style={{
+        width: BATTER_W * 1.5,
+        height: CANVAS_H * 1.5,
+        transform: [{ translateX: -28 }, { translateY: -47 }],
+      }}
       resizeMode="contain"
     />
   );
